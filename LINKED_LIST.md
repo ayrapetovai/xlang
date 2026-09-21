@@ -327,3 +327,30 @@ maybe {                              // or: opt { }, chain { } ...
    function body going to the *caller's* arena (they do for `toJson`'s
    `Result[string]`). If that decision changes, `newList` and `pushBack` need
    an explicit pool parameter.
+
+8. **`newList` returns `*Head[T]`, never a `Head` value.** `Head` is Copyable
+   (inline `Node` + `uint`), so returning it by value would hand out a value
+   whose sentinel carries `prev`/`next` pointers into one chain — copying it
+   (`h2 : h1`) would give two "owners" of the same list, the shared-mutable
+   case the ownership model forbids, and the checker cannot catch it (not a
+   string/`[]T` heap type). Keeping the whole `Head` behind `&` in the arena
+   means only views `*Head[T]` ever exist, and copying a *view* is harmless.
+   General rule: a Copyable struct that owns through pointers must never
+   exist as a value.
+
+9. **Queries return views, mutators must not trust their input.** `getAt` /
+   `find` return `Optional[*Node[T]]` — a view into a node, never a copy of
+   the element (a copy would only be legal for Copy `T`, note 4, and would
+   pay a full element copy for zero aliasing gain). The checker does no alias
+   analysis, so `remove` must panic on a node that is not a member of this
+   list's chain — a foreign node or an already-removed one is a bug, and a
+   silent unlink corrupts the chain. Keep the sentinel guard; extend it to
+   the membership check.
+
+10. **Copy-only storage is what keeps the list sound under `dispose`.**
+    `value T` parameters/returns and `popFront`'s copy require `T` to be
+    Copy (note 4), and `dispose` makes a type non-Copy (`## Resources
+    (dispose)` in README) — so a resource-owning element can never be stored
+    by value in the list, and no double-close is possible through it. For
+    resource elements, store `*T` views (pointers are Copy) and let the real
+    owner dispose; arena bulk-free covers every node.
