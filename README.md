@@ -542,8 +542,10 @@ foo(&s)                       // OK — move-in, s is consumed afterwards
 ### The checker (static, move-only)
 
 Compile errors for: use-after-consume, consume-twice, passing a heap value by
-value, returning a view of a local, writing through a `const` view, and
-re-borrowing a consumed binding. No lifetime inference, no alias analysis.
+value, returning a view of a local, writing through a `const` view,
+re-borrowing a consumed binding, and moving a value out of a view binding —
+a view has no ownership to give away. No lifetime inference, no alias
+analysis.
 
 ### Semantics that touch ownership
 
@@ -709,23 +711,33 @@ OS resources (`## Resources` below), and `spawn` — the coroutine operator
 // A TCP echo server: accept forever, echo each received line back, close.
 // OS failures are data — Result, not exceptions. Panic stays for bugs.
 
+// -- the handle barrier: an fd is its own disposable type, not a Copy int
+Fd struct = {
+  value int
+}
+
+// release is the handle's dispose — the only consumer an Fd can have
+dispose func (f &Fd) = {
+  socket.close(f.value)
+}
+
 ServerConfig struct = {
   address string
   port    uint
 }
 
 Listener struct = {
-  fd int          // owned OS handle; int is Copy, no null ever
+  fd Fd           // disposable handle; Listener.dispose is synthesized
 }
 
 Connection struct = {
-  fd   int
+  fd   Fd             // disposable handle; Connection.dispose is synthesized
   peer const string   // read-only shared view of the remote address
 }
 
 // -- bind + listen
 newListener func (address string, port uint) Result[Listener] = {
-  fdResult := socket.listen(address, port)   // intrinsic from clib("c")
+  fdResult := socket.listen(address, port)   // intrinsic from clib("c"), returns Result[Fd]
   return match fdResult {
     Error(e) => Error("cannot listen on %s{address}:%d{port}: %s{e}")
     Ok(fd)   => Ok(Listener { fd = fd })
@@ -734,7 +746,7 @@ newListener func (address string, port uint) Result[Listener] = {
 
 // -- accept one connection; failures here are transient, the caller keeps serving
 accept func (listener *Listener) Result[Connection] = {
-  return match socket.accept(listener.fd) {
+  return match socket.accept(listener.fd) {  // fd through a view: *Fd
     Error(e) => Error("accept: %s{e}")
     Ok(fd)   => Ok(Connection { fd = fd, peer = socket.peerName(fd) })
   }
@@ -744,7 +756,7 @@ accept func (listener *Listener) Result[Connection] = {
 readLine func (conn *Connection) Result[string] = {
   buf string
   loop {
-    match socket.recv(conn.fd) {
+    match socket.recv(conn.fd) {          // view: conn is *Connection
       Ok(ch) =>
         if ch == '\n' then
           return Ok(buf)
@@ -761,14 +773,9 @@ write func (conn *Connection, data const string) Result[uint] = {
   socket.send(conn.fd, data)           // returns Result[uint]
 }
 
-// -- an fd is an OS resource; the end of a lifetime must dispose it
-dispose func (conn &Connection) = {
-  socket.close(conn.fd)
-}
-
-dispose func (listener &Listener) = {
-  socket.close(listener.fd)
-}
+// -- `Connection.dispose` / `Listener.dispose` are synthesized from the fd
+// -- field; `dispose func (f &Fd)` above is the only leaf body. Call sites:
+// -- `conn.dispose()` in echo, `l.dispose()` in main.
 
 // -- one coroutine per connection; `&` moves ownership in
 echo func (conn &Connection) = {
@@ -840,6 +847,18 @@ guessed*:
   borrows; it never owns, so it never disposes. `[]T` is disposable iff `T`
   is — the buffer itself is arena memory, but the elements carry
   obligations, so a loop-dispose over them is synthesized.
+
+**Handle barrier.** A resource handle is a disposable type of its own, never
+a Copy scalar: `Fd struct = { value int }`, `dispose func (f &Fd)`. If the fd
+were a Copy `int`, any `*Connection` view could copy it out and close the
+copy — the real connection keeps living and the owner's `dispose`
+double-closes. Non-Copy closes that: a handle leaves a binding only by
+*move*, moves require ownership, and a view binding has none — reading a
+non-Copy field through a view yields a *view* of it, which cannot be handed
+to the dispose-shaped release. So `close func (conn *Connection) = {
+socket.close(conn.fd) }` is undeclarable by shape alone, and release is
+unreachable from any view — no body inspection involved. Release operations
+(`close`, `kill`, `destroy`) are `dispose`es of the handle type.
 
 At the end of every owned binding's lifetime the obligation must be
 discharged by exactly one of:
