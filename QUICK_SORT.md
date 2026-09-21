@@ -27,7 +27,7 @@ partitionBy : func [T] (a : *[]T, lo : uint, hi : uint,
   if a[mid].less(a[lo]) then a.swap(mid, lo)
   if a[hi].less(a[lo]) then a.swap(hi, lo)
   if a[hi].less(a[mid]) then a.swap(hi, mid)
-  swap(a, mid, hi)          // pivot (the median) now sits at hi
+  a.swap(mid, hi)          // pivot (the median) now sits at hi
   pivot : T = a[hi]
   i : uint = lo
   loop j in lo..<hi {
@@ -37,7 +37,7 @@ partitionBy : func [T] (a : *[]T, lo : uint, hi : uint,
     }
   }
   a.swap(i, hi)            // move the pivot into place
-  i
+  return i
 }
 
 sortRangeBy : func [T] (a : *[]T, lo : uint, hi : uint,
@@ -103,7 +103,7 @@ Point : struct = {
 infix_operator< : func (a : const Point, b : const Point) bool = {
   if a.x != b.x then
     return a.x < b.x
-  a.y < b.y          // same x: order by y
+  return a.y < b.y          // same x: order by y
 }
 
 pts : []Point = {Point {2, 9}, Point {1, 5}, Point {2, 1}}

@@ -126,6 +126,20 @@ do
   true
 ```
 
+## Operators
+
+Swap values:  `<>`
+Address-of: `&`
+Arithmetic: `+ - * / % <>`
+Shifts: `<< >> >>>` and cyclic shifts: `<<~, >>~`
+Logic: `&& || ! < > <= >= == !=`
+Bitwise: `& | ~ ^`
+Strings operators: `+ < > == !=`, duplicate string `*`
+Array access operators: `[:] []`
+Function call: `()`
+Field access: `.`
+Name declaration: `:`, with initialization `:=`
+
 ## Control structures
 
 ### If statement
@@ -378,6 +392,10 @@ match x {                                // each comma separated expression must
 ```javascript
 foo : func (x : int) int = {
   x * x // single statement in the root of func block -> return
+}
+baz : func() int = {
+  x := 1
+  x    // compiler error, more than one statement: return is mandatory
 }
 
 bar : func (x : int) int do
