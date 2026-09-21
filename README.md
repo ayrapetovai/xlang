@@ -534,7 +534,7 @@ result type.
 ```c
 newList : func [T] () *Head[T]
 l : *Head[int] newList()   // T = int, deduced from the expected type
-pushBack(l, 10)            // T = int, deduced from the argument
+l.pushBack(10)            // T = int, deduced from the receiver
 
 x : int
 x = int.from("1234")       // `int` is an ordinary argument (a type value), not instantiation
