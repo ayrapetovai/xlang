@@ -1,7 +1,7 @@
 # Abstract
 
 Must be written in C language to embeddable and to interoperate with native code.
-Commas ',' are separators as '\n' and ';'.
+Commas ',' are separators as '\n' and ';'. A statement continues on a following line when that line starts with an operator (`.`, `+`, `&&`, `==`, `->`, ...).
 Pointer decay.
 Pattern matching.
 All pointers are non-null.
@@ -29,6 +29,20 @@ Meta-type information is stored in the binary. Types are never erased.
 Memory ownership: const = shared, owned = unique; per-block arenas free memory; moves and views only.
 
 # Syntax Examples
+
+## Line continuation
+
+A statement continues onto the next line when the next line begins with an
+operator symbol. This is how long method chains and expressions are split:
+
+```c
+a : []string {"  alice", "bob  "}
+names : a.map(toString)
+  .join(", ")          // one statement, split over lines
+
+sum : 1
+      + 2              // one statement, sum == 3
+```
 
 ## Commentaries
 
