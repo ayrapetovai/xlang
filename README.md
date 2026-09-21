@@ -15,6 +15,7 @@ Data types: `void`, `byte`, `char`,  `int`, `float`, `bool`, `string`, `struct`,
 Meta types: `type`, `func`, `field`, `pointer`, `value`, `any`.
 Function's return type counts for signature.
 Function's return type participates in overload resolution.
+Generic functions deduce type arguments from call arguments.
 Only explicit casts allowed.
 For unused variables use '_'.
 Channels and coroutins, like in Go language.
@@ -119,7 +120,7 @@ do
   if a.length != b.length then
     return false
   else loop i in 0..<a.length do
-    if a@(i) != b@(i) then
+    if a[i] != b[i] then
       return false
   true
 ```
@@ -203,7 +204,7 @@ loop x in a do
 
 // this `in` plays only in context of `loop`
 loop i in 0..<a.length do
-  oneLineStatement(a@(i))
+  oneLineStatement(a[i])
 
 outer: loop do
   loop {
@@ -257,7 +258,7 @@ next : func [array[E]] (it : Iterator[array]) Iterator[E] do
     index: it.index + 1
   }
 current : func [T] (it : Iterator[T]) &T do
-  it.data@(it.index)
+  it.data[it.index]
 
 // so user can do
 ar : []int {1, 2, 3, 4}
@@ -476,7 +477,7 @@ Memory is owned, moved, or borrowed — never shared-mutable.
   freely shared; copying one shares the buffer at zero cost.
 - A non-`const` container is single-owner. "Copying" it is a Move: the source
   binding is consumed.
-- Any in-place write (`a@(i) = v`, `p.x = v`) requires ownership — writing
+- Any in-place write (`a[i] = v`, `p.x = v`) requires ownership — writing
   through a `const` view is a compile error.
 
 ### Copyable types
@@ -523,6 +524,21 @@ re-borrowing a consumed binding. No lifetime inference, no alias analysis.
 
 
 ## Generics and Templates
+
+`[T]` appears only on the *declaration* side — `func [T]`, and
+specializations like `func [array[E]]` above. Calls never repeat type
+arguments: `foo(x)` deduces them from the argument types, and when the
+arguments carry no type information (as in `newList()`) from the expected
+result type.
+
+```c
+newList : func [T] () *Head[T]
+l : *Head[int] newList()   // T = int, deduced from the expected type
+pushBack(l, 10)            // T = int, deduced from the argument
+
+x : int
+x = int.from("1234")       // `int` is an ordinary argument (a type value), not instantiation
+```
 
 ```c
 // E must have methods of `Iterable` in scope

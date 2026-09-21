@@ -12,9 +12,9 @@ list.
 ```c
 // Swap two slots of an array. `t` holds a copy, so T must be Copy.
 swap : func [T] (a : *[]T, i : uint, j : uint) {
-  t : T a@(i)
-  a@(i) = a@(j)
-  a@(j) = t
+  t : T a[i]
+  a[i] = a[j]
+  a[j] = t
 }
 
 // Lomuto partition. The pivot is the median of {a[lo], a[mid], a[hi]},
@@ -24,19 +24,19 @@ partitionBy : func [T] (a : *[]T, lo : uint, hi : uint,
                         less : func (x : const T, y : const T) bool) uint {
   mid : uint lo + (hi - lo) / 2
   // arrange a[lo] <= a[mid] <= a[hi], then move the median to hi
-  if less(a@(mid), a@(lo)) then swap(a, mid, lo)
-  if less(a@(hi), a@(lo)) then swap(a, hi, lo)
-  if less(a@(hi), a@(mid)) then swap(a, hi, mid)
+  if a[mid].less(a[lo]) then a.swap(mid, lo)
+  if a[hi].less(a[lo]) then a.swap(hi, lo)
+  if a[hi].less(a[mid]) then a.swap(hi, mid)
   swap(a, mid, hi)          // pivot (the median) now sits at hi
-  pivot : T a@(hi)
+  pivot : T a[hi]
   i : uint lo
   loop j in lo..<hi {
-    if less(a@(j), pivot) {
-      swap(a, i, j)
+    if a[j].less(pivot) {
+      a.swap(i, j)
       i += 1
     }
   }
-  swap(a, i, hi)            // move the pivot into place
+  a.swap(i, hi)            // move the pivot into place
   i
 }
 
@@ -44,26 +44,26 @@ sortRangeBy : func [T] (a : *[]T, lo : uint, hi : uint,
                         less : func (x : const T, y : const T) bool) {
   if hi <= lo then
     return
-  p : uint partitionBy(a, lo, hi, less)
+  p : uint a.partitionBy(lo, hi, less)
   // guards keep p - 1 / p + 1 inside uint — no underflow on the ends
   if p > lo then
-    sortRangeBy(a, lo, p - 1, less)
+    a.sortRangeBy(lo, p - 1, less)
   if p < hi then
-    sortRangeBy(a, p + 1, hi, less)
+    a.sortRangeBy(p + 1, hi, less)
 }
 
 // sort in place; requires `infix_operator<` for T to be in scope
 quickSort : func [T] (a : *[]T) {
   if a.length < 2 then
     return
-  sortRangeBy(a, 0, a.length - 1) { x < y }   // x, y named after `less`
+  a.sortRangeBy(0, a.length - 1) { x < y }   // x, y named after `less`
 }
 
 // sort in place by an explicit ordering
 sortBy : func [T] (a : *[]T, less : func (x : const T, y : const T) bool) {
   if a.length < 2 then
     return
-  sortRangeBy(a, 0, a.length - 1, less)
+  a.sortRangeBy(0, a.length - 1, less)
 }
 ```
 
@@ -73,7 +73,7 @@ The intent of `quickSort` in full:
 quickSort : func [T] (a : *[]T) {
   if a.length < 2 then
     return
-  sortRangeBy(a, 0, a.length - 1, func (x : const T, y : const T) bool {
+  a.sortRangeBy(0, a.length - 1, func (x : const T, y : const T) bool {
     x < y
   })
 }
