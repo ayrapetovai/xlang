@@ -8,6 +8,7 @@ All pointers are non-null.
 Strings and arrays with length.
 No shadowing, redefinition instead.
 Variables are mutable by default.
+Declarations: `name : type = value`; `name := value` deduces the type; struct/enum/func bodies use `= { ... }` or `do ...`.
 Each variable, func parameter of field can be const.
 Statements are expressions.
 Strings can be concatenated and multiplicated like in python.
@@ -37,11 +38,11 @@ A statement continues onto the next line when the next line begins with an
 operator symbol. This is how long method chains and expressions are split:
 
 ```c
-a : []string {"  alice", "bob  "}
-names : a.map(toString)
+a : []string = {"  alice", "bob  "}
+names := a.map(toString)
   .join(", ")          // one statement, split over lines
 
-sum : 1
+sum := 1
       + 2              // one statement, sum == 3
 ```
 
@@ -71,16 +72,16 @@ The closing literal complements by amount of stars.
 
 ```c
 x : int // default value, x == 0
-x : int 42
-x : 42 // omit type if inferable
-x : const float 3.14
+x : int = 42
+x := 42 // type omitted, deduced from the value
+x : const float = 3.14
 
 s : string // default value s == ""
-s : "abc"
-s : string "Hello, World!"
+s := "abc"
+s : string = "Hello, World!"
 
-s : string.from(1) // s have type string and is "1"
-unsignedVar : uint.from(-1) // unsignedVar is 1
+s : string = string.from(1) // s have type string and is "1"
+unsignedVar := uint.from(-1) // unsignedVar is 1
 ```
 
 ## Array declaration
@@ -89,20 +90,20 @@ unsignedVar : uint.from(-1) // unsignedVar is 1
 a : [10]int
 a : [size]int
 a : []int
-a : []int {1, 2, 3}
-a : []int {
+a : []int = {1, 2, 3}
+a : []int = {
   1
   2
   3
 }
-r : []int 0..=5 // r is {0, 1, 2, 3, 4, 5}
+r : []int = 0..=5 // r is {0, 1, 2, 3, 4, 5}
 ```
 
 ## Pointers
 
 ```c
-s : "Hello"                             // s : string = "Hello"
-p : &s                                  // p : *string = &s; p points to s
+s := "Hello"                            // s : string = "Hello"
+p := &s                                 // p : *string = &s; p points to s
 assertTrue(p == s)                      // same strings, p is dereferenced
 assertTrue(p == &s)                     // same pointers, s is explicitly converted to a pointer
 assertTrue(p.length == "Hello".length)  // auto dereference p, p cannot be null, no null pointers in this language
@@ -130,7 +131,7 @@ do
 ### If statement
 
 ```c
-b : bool true
+b : bool = true
 
 if b then
   oneLineStatement()
@@ -174,7 +175,7 @@ loop { // forever
   q.poll().execute()
 }
 
-i : 10
+i := 10
 loop i < 10 do
   oneLineStatement()
 
@@ -189,16 +190,16 @@ loop 0..<10 do
 
 loop 0..=10 do ... // 11 iterations
 
-loop i : 0; i < 10 do
+loop i := 0; i < 10 do
   oneLineStatement(i++)
 
-loop i : 0; i < 10; i += 1 do
+loop i := 0; i < 10; i += 1 do
   oneLineStatement()
 
 loop i < 10 do
   oneLineStatement(i++)
 
-a : []int{1, 2, 3}
+a : []int = {1, 2, 3}
 loop x in a do
   oneLineStatement(x)
 
@@ -208,7 +209,7 @@ loop i in 0..<a.length do
 
 outer: loop do
   loop {
-    x : random(10)
+    x := random(10)
     if x == 5 then
       break outer // same for `continue` and `yield`
   }
@@ -232,12 +233,12 @@ end : func [T](c : T) Iterator[T]
 next : func [T](it : Iterator[T]) Iterator[T]
 current : func [T](it : Iterator[T]) &T
 
-Iterator: struct [T : struct ] {
+Iterator : struct [T : struct] = {
   data : T
   index : int 
 }
 // intrinsic array definition
-array : struct [T] {
+array : struct [T] = {
   values : []T
   length : uint
 }
@@ -261,7 +262,7 @@ current : func [T] (it : Iterator[T]) &T do
   it.data[it.index]
 
 // so user can do
-ar : []int {1, 2, 3, 4}
+ar : []int = {1, 2, 3, 4}
 loop it : begin(ar); it != end(ar); it = next(ar) do
   out.println(current(it))
 // by this
@@ -274,20 +275,20 @@ loop e in ar do
 ### Structures
 
 ```c
-User : struct {
+User : struct = {
   id : int
   password : string #access.private()
 }
 
-AccountNumber : struct of value : const string
+AccountNumber : struct = { value : const string }
 
-Account : struct {
+Account : struct = {
   owner : User
   account: const AccountNumber  // set once at construction
   createdAt: const Date         // set once at construction
 }
 
-acc : Account {
+acc : Account = {
   owner : { // placing `User` between : and { is optional
     id : generate()
     password : authentication.genPass()
@@ -295,8 +296,8 @@ acc : Account {
   account : { "111111111" }
   createdAt : date.now()
 }
-Permanent : const struct {      // only const instances can be created
-  x : const 42                  // const with default value, can't be set at construction
+Permanent : const struct = {      // only const instances can be created
+  x : const = 42                  // const with default value, can't be set at construction
 }
 p : Permanent // all fields are const, the default value will have them
 ```
@@ -304,12 +305,12 @@ p : Permanent // all fields are const, the default value will have them
 ### Enumeration declaration
 
 ```c
-MyBeInt : enum { // implicitly has field with type descriptor
-  Somting : int 1
+MyBeInt : enum = { // implicitly has field with type descriptor
+  Somting : int = 1
   Empty
 }
 // in standard library
-Optional : const enum [T any] {
+Optional : const enum [T any] = {
   Some(T)
   None
 }
@@ -320,33 +321,33 @@ Optional : const enum [T any] {
 The result of the last calculated statement is returned by `match`.
 
 ```c
-MyEnum : enum { A, B }
-e1 : MyEnum.A
+MyEnum : enum = { A, B }
+e1 := MyEnum.A
 match e1 {
   A => out.println("A")
   B => out.println("B")
 }
 
-TheEnum : enum { A(int), B(string) }
+TheEnum : enum = { A(int), B(string) }
 e2 : TheEnum
 match e2 {
   A(x) => out.println("e2's value is %d{x}")
   B(s) => out.println("e2's value is %s{s}")
 }
 
-SubEnum : enum {
-  ONE(enum {
+SubEnum : enum = {
+  ONE(enum = {
     INNER_1(int)
     INNER_2(string)
   })
   TWO
 }
 
-se1 : SubEnum.ONE(INNER_1(42))
-se2 : SubEnum.ONE(INNER_2("Hello"))
-se3 : SubEnum.TWO
+se1 := SubEnum.ONE(INNER_1(42))
+se2 := SubEnum.ONE(INNER_2("Hello"))
+se3 := SubEnum.TWO
 
-enums : []SubEnum { se1, se2, se3 }
+enums : []SubEnum = { se1, se2, se3 }
 
 loop e in enums {
   match e {
@@ -356,14 +357,14 @@ loop e in enums {
   }
 }
 
-fieldNames : match e1.type {
+fieldNames := match e1.type {
   Struct(s) => s.fields(e1).map(toString).join(", ")
   Enum(e)   => e.enumerators(e1).map(toString).join(", ")
   _ => ""
 }
 
-x : random(10)
-y : 7
+x := random(10)
+y := 7
 match x {                                // each comma separated expression must be true
   1, 2, 3       => out.println("x in [1, 2, 3], and is %d{x}")
   x % 2 == 0    => out.println("x is even") // applied if the first pattern fails
@@ -375,7 +376,7 @@ match x {                                // each comma separated expression must
 ## Function declaration
 
 ```javascript
-foo : func (x : int) int {
+foo : func (x : int) int = {
   x * x // single statement in the root of func block -> return
 }
 
@@ -385,7 +386,7 @@ bar : func (x : int) int do
 // method
 bark : func (d *Dog, times : int) do loop times do out.println("woof")
 
-foo : func (prompt : const string) bool {
+foo : func (prompt : const string) bool = {
   name : string
   in.scanf(prompt, &name)
   if name.length == 0 then
@@ -397,30 +398,30 @@ foo : func (prompt : const string) bool {
 ### Default values for function parameters
 
 ```c
-foo : func (x : int, y : int 0) {}
+foo : func (x : int, y : int = 0) = {}
 // foo : func (x: int, z : int) {}   // clashes by signature with first foo, compile error
-foo : func (x: float, z : int) {} // does not clashes by signature with foo for declaration
+foo : func (x: float, z : int) = {} // does not clashes by signature with foo for declaration
 
 foo(1)      // ok
 foo(1, 2)   // ok
 foo(1.0, 1) // does not clash with first foo for calling
 
-foo : func(x : int, y : int) int { 1 }
-a : foo()         // a is int, only one of foo return a value, others return `void`, variable cannot be `void`.
-a : float foo() // error, no explicit cast
+foo : func(x : int, y : int) int = { 1 }
+a := foo()         // a is int, only one of foo return a value, others return `void`, variable cannot be `void`.
+a : float = foo() // error, no explicit cast
 ```
 
 ### Function calls
 
 ```c
-a : []int {1, 2, 3}
+a : []int = {1, 2, 3}
 fold(a, func (a, b) { a * b }) // implicit return is single expression, types inferred
 // call with trailing block, parameter names for lambda from declaration of `fold`
 fold(a) {
   a * b
 }
 fold(array: a, folder : func (a : int, b : int) int { return a * b }) // explicit
-b : foo() // b is initialized by value returned by foo()
+b := foo() // b is initialized by value returned by foo()
 b = bar() // b is assigned a value returned by bar()
 
 d : Dog
@@ -432,8 +433,8 @@ d.bark(10)
 ```c
 // first argument is type, we have nothing to do with it
 // intrinsic function, defined in 'basic' package
-from : func (:int, s : const string) Result[int] {
-  r : 0
+from : func (:int, s : const string) Result[int] = {
+  r := 0
   loop c in s.length>..=0 do
     if '0' <= c && c <= '9' then
       r = r * 10 + int.from(c) - int.from('0')
@@ -461,8 +462,8 @@ Memory is owned, moved, or borrowed — never shared-mutable.
 
 ```c
 { // code block is a lifetime space
-  s1 : struct {}
-  s2 : & struct {}   // allocated into the current arena
+  s1 : struct = {}
+  s2 := &struct {}   // allocated into the current arena
 }
 // s1 and the &-created object are freed
 ```
@@ -496,11 +497,11 @@ Everything else (string, []T, structs holding them) is a heap type:
 expression = address-of; in a return type = non-owning view.
 
 ```c
-point : Point {1, 2}          // Point has only scalars: it is Copy
-q : point                     // copy; point is still usable
-s : "Hello"
-view     : *string &s         // writable view of s
-viewRO   : const *string &s   // read-only view
+point : Point = {1, 2}          // Point has only scalars: it is Copy
+q := point                     // copy; point is still usable
+s := "Hello"
+view     : *string = &s         // writable view of s
+viewRO   : const *string = &s   // read-only view
 foo(s)                        // ERROR: string is a heap type, cannot pass by value
 foo(&s)                       // OK — move-in, s is consumed afterwards
 ```
@@ -533,7 +534,7 @@ result type.
 
 ```c
 newList : func [T] () *Head[T]
-l : *Head[int] newList()   // T = int, deduced from the expected type
+l : *Head[int] = newList()   // T = int, deduced from the expected type
 l.pushBack(10)            // T = int, deduced from the receiver
 
 x : int
@@ -542,25 +543,25 @@ x = int.from("1234")       // `int` is an ordinary argument (a type value), not 
 
 ```c
 // E must have methods of `Iterable` in scope
-MyStruct : struct [E : Iterable] {
+MyStruct : struct [E : Iterable] = {
   x : E
 }
 
 // T is any type, the first generic of T must be the element type
-Iterable : template [T[E, _]] {
+Iterable : template [T[E, _]] = {
   begin   : func(c : T) Iterator[E]
   end     : func(c : T) Iterator[E]
   next    : func(it : Iterator[E]) Iterator[E]
   current : func(it : Iterator[E]) &E
 }
 
-MyArray[T] : struct Iterable[T] {
+MyArray[T] : struct Iterable[T] = {
   // ...
 }
 // MyArray requires functions for Iterable to be in scope.
 
 // any could be defined like this, but it is intrinsic
-any : struct [T] {
+any : struct [T] = {
   type : Type
   value : *T
 }
@@ -572,7 +573,7 @@ any : struct [T] {
 // Here `json` is a package, name and ignore are functions,
 // that take `type` or `field` as arguments. Functions mutate metadata of fields
 // Thy are called by the compiler, before compiling dependent functions.
-User : struct {
+User : struct = {
   id       : int      #json.ignored()
   name     : string   #json.name("username")
   birth    : Date     #json.name("dateOfBirth")
@@ -580,9 +581,9 @@ User : struct {
 }
 
 // this json serializer does not pay attention to field metadata
-toJson : func [O] (obj *O, n : 0) Result[string] {
-  indents : "    " * n
-  json : indents + match O {
+toJson : func [O] (obj : *O, n := 0) Result[string] = {
+  indents := "    " * n
+  json := indents + match O {
     String(s) => "%q{s}\n"
     Integer(i) => "%n{i}\n"
     Float(f) => "%f{f}\n"
@@ -591,14 +592,14 @@ toJson : func [O] (obj *O, n : 0) Result[string] {
     Array(a) =>
       subjson : string
       loop e in a {
-        mayBeComma : if !last then "," else ""
+        mayBeComma := if !last then "," else ""
         subjson += indents + "%s{toJson(e, n + 1)}%s{mayBeComma}\n"
       }
       "[\n" + subjson + indents + "]\n"
     Struct(s) =>
       subjson : string
       loop f in s.fields {               // s.fields yields const *field — read-only views
-        mayBeComma : if !last then "," else ""
+        mayBeComma := if !last then "," else ""
         subjson += indents + "%q{f.name()}: %s{toJson(f.value(obj), n + 1)}%s{mayBeComma}\n"
       }
       "{\n" + subjson + indents + "}\n"
@@ -608,8 +609,8 @@ toJson : func [O] (obj *O, n : 0) Result[string] {
 ```
 
 ```c
-a : int 1
-b : int 2
+a : int = 1
+b : int = 2
 assertTrue(a != b)            // intrinsic infix_operator!=: func(a : int, b : int) bool
 assertTrue(a.type == b.type)  // intrinsic infix_operator==: func(a : type, b : type) bool
 ```
@@ -617,7 +618,7 @@ assertTrue(a.type == b.type)  // intrinsic infix_operator==: func(a : type, b : 
 ### Type descriptors
 
 ```c
-type : enum {
+type : enum = {
   Struct(struct)
   Enum()
   Func()
@@ -627,7 +628,7 @@ type : enum {
   Array()
 }
 
-struct : struct {
+struct : struct = {
   name : string
   package : string
   generics : []generic
@@ -636,7 +637,7 @@ struct : struct {
   layout : layout
 }
 
-field : struct {
+field : struct = {
   name : string
   type : type
 }

@@ -11,8 +11,8 @@ list.
 
 ```c
 // Swap two slots of an array. `t` holds a copy, so T must be Copy.
-swap : func [T] (a : *[]T, i : uint, j : uint) {
-  t : T a[i]
+swap : func [T] (a : *[]T, i : uint, j : uint) = {
+  t : T = a[i]
   a[i] = a[j]
   a[j] = t
 }
@@ -21,15 +21,15 @@ swap : func [T] (a : *[]T, i : uint, j : uint) {
 // which keeps sorted and reverse-sorted input at O(n log n) with no RNG.
 // Returns the pivot's final slot.
 partitionBy : func [T] (a : *[]T, lo : uint, hi : uint,
-                        less : func (x : const T, y : const T) bool) uint {
-  mid : uint lo + (hi - lo) / 2
+                        less : func (x : const T, y : const T) bool) uint = {
+  mid : uint = lo + (hi - lo) / 2
   // arrange a[lo] <= a[mid] <= a[hi], then move the median to hi
   if a[mid].less(a[lo]) then a.swap(mid, lo)
   if a[hi].less(a[lo]) then a.swap(hi, lo)
   if a[hi].less(a[mid]) then a.swap(hi, mid)
   swap(a, mid, hi)          // pivot (the median) now sits at hi
-  pivot : T a[hi]
-  i : uint lo
+  pivot : T = a[hi]
+  i : uint = lo
   loop j in lo..<hi {
     if a[j].less(pivot) {
       a.swap(i, j)
@@ -41,10 +41,10 @@ partitionBy : func [T] (a : *[]T, lo : uint, hi : uint,
 }
 
 sortRangeBy : func [T] (a : *[]T, lo : uint, hi : uint,
-                        less : func (x : const T, y : const T) bool) {
+                        less : func (x : const T, y : const T) bool) = {
   if hi <= lo then
     return
-  p : uint a.partitionBy(lo, hi, less)
+  p : uint = a.partitionBy(lo, hi, less)
   // guards keep p - 1 / p + 1 inside uint — no underflow on the ends
   if p > lo then
     a.sortRangeBy(lo, p - 1, less)
@@ -53,14 +53,14 @@ sortRangeBy : func [T] (a : *[]T, lo : uint, hi : uint,
 }
 
 // sort in place; requires `infix_operator<` for T to be in scope
-quickSort : func [T] (a : *[]T) {
+quickSort : func [T] (a : *[]T) = {
   if a.length < 2 then
     return
   a.sortRangeBy(0, a.length - 1) { x < y }   // x, y named after `less`
 }
 
 // sort in place by an explicit ordering
-sortBy : func [T] (a : *[]T, less : func (x : const T, y : const T) bool) {
+sortBy : func [T] (a : *[]T, less : func (x : const T, y : const T) bool) = {
   if a.length < 2 then
     return
   a.sortRangeBy(0, a.length - 1, less)
@@ -70,7 +70,7 @@ sortBy : func [T] (a : *[]T, less : func (x : const T, y : const T) bool) {
 The intent of `quickSort` in full:
 
 ```c
-quickSort : func [T] (a : *[]T) {
+quickSort : func [T] (a : *[]T) = {
   if a.length < 2 then
     return
   a.sortRangeBy(0, a.length - 1, func (x : const T, y : const T) bool {
@@ -85,7 +85,7 @@ quickSort : func [T] (a : *[]T) {
 auto-addressed into the writable view parameter.
 
 ```c
-a : []int {9, 3, 7, 1, 5}
+a : []int = {9, 3, 7, 1, 5}
 a.quickSort()
 loop e in a do
   out.println("%d{e}")     // 1, 3, 5, 7, 9
@@ -95,18 +95,18 @@ Operator overloading extends `quickSort` to any type with `infix_operator<`
 in scope:
 
 ```c
-Point : struct {
+Point : struct = {
   x : int
   y : int
 }
 
-infix_operator< : func (a : const Point, b : const Point) bool {
+infix_operator< : func (a : const Point, b : const Point) bool = {
   if a.x != b.x then
     return a.x < b.x
   a.y < b.y          // same x: order by y
 }
 
-pts : []Point {Point {2, 9}, Point {1, 5}, Point {2, 1}}
+pts : []Point = {Point {2, 9}, Point {1, 5}, Point {2, 1}}
 pts.quickSort()
 loop p in pts do
   out.println("(%d{p.x}, %d{p.y})")   // (1, 5), (2, 1), (2, 9)
@@ -115,7 +115,7 @@ loop p in pts do
 `sortBy` pins the ordering at the call site instead of the type system:
 
 ```c
-f : []float {3.5, 1.0, 2.25}
+f : []float = {3.5, 1.0, 2.25}
 f.sortBy { x > y }        // descending — intrinsic `>` on floats
 loop v in f do
   out.println("%f{v}")    // 3.5, 2.25, 1.0
