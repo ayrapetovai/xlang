@@ -26,7 +26,7 @@ Dynamic types dispatching for interfaces, like in Go.
 String interpolation with formatting.
 Any value can be written to `ByteBuffer` witch is suitable everywhere.
 Meta-type information is stored in the binary. Types are never erased.
-Memory ownership: reference (variable) owns memory, pointer does not.
+Memory ownership: const = shared, owned = unique; per-block arenas free memory; moves and views only.
 
 # Syntax Examples
 
@@ -100,7 +100,7 @@ assertTrue(s.type.isVariable)
 assertTrue(&s.type.isPointer)
 
 // the `==` for strings (values) could look like this:
-infix_operator== : func (a : string, b : string) #compiler.inline()
+infix_operator== : func (a : const string, b : const string) #compiler.inline()
 do
   if a.length != b.length then
     return false
@@ -370,7 +370,7 @@ bar : func (x : int) int do
 // method
 bark : func (d *Dog, times : int) do loop times do out.println("woof")
 
-foo : func (prompt : string) bool {
+foo : func (prompt : const string) bool {
   name : string
   in.scanf(prompt, &name)
   if name.length == 0 then
@@ -417,7 +417,7 @@ d.bark(10)
 ```c
 // first argument is type, we have nothing to do with it
 // intrinsic function, defined in 'basic' package
-from : func (:int, s : string) Result[int] {
+from : func (:int, s : const string) Result[int] {
   r : 0
   loop c in s.length>..=0 do
     if '0' <= c && c <= '9' then
@@ -436,39 +436,76 @@ x = int.from("1234")
 
 ## Memory Ownership
 
-Reference (to some variable) owns memory, pointer does not.
-Variable declaration allocates memory on stack.
-Pointer declaration allocates memory in heap.
+Memory is owned, moved, or borrowed — never shared-mutable.
+
+### Where memory lives
+
+- Every code block is an arena. Runtime allocations (string/[]T buffers,
+  `&`-created objects) go to the current arena, which frees them at block exit.
+  Cycles are harmless — they are freed en masse, so no GC and no leaks.
 
 ```c
 { // code block is a lifetime space
   s1 : struct {}
+  s2 : & struct {}   // allocated into the current arena
 }
-// s1 is destroyed
-
-{
-  s2 : & struct {}
-}
-// s2 is also destroyed
+// s1 and the &-created object are freed
 ```
 
-Variable can be consumed only once.
+- String literals and `const` arrays live in a module-global pool, freed only
+  on module unload; they can never dangle.
+- Panic = abort: no destructors run, memory is abandoned with the app.
+
+### const = shared, owned = unique
+
+- `const` values (including `const string`, `const *T`) are immutable and
+  freely shared; copying one shares the buffer at zero cost.
+- A non-`const` container is single-owner. "Copying" it is a Move: the source
+  binding is consumed.
+- Any in-place write (`a@(i) = v`, `p.x = v`) requires ownership — writing
+  through a `const` view is a compile error.
+
+### Copyable types
+
+A type is Copy iff all of its fields are Copy: scalars (int, float, char,
+byte, bool), pointers, and structs/enums built from Copyable fields only.
+Everything else (string, []T, structs holding them) is a heap type:
+
+- `*T`                 — pass by writable view (modifications visible to the caller)
+- `const *T`           — pass by read-only view
+- `const T`            — pass by read-only shared value (cheap, no ownership)
+- `&T` in a parameter  — move-in: the caller's binding is consumed, callee owns it
+- `*T` / `&T` in a return — non-owning view of caller or global memory
+
+`&` position rule: before a type in a parameter = move-in; before an
+expression = address-of; in a return type = non-owning view.
 
 ```c
-foo : func(s : string) do out.println(s)
+point : Point {1, 2}          // Point has only scalars: it is Copy
+q : point                     // copy; point is still usable
 s : "Hello"
-foo(s)       // s is consumed
-out.print(s) // compilation time error, s is consumed
+view     : *string &s         // writable view of s
+viewRO   : const *string &s   // read-only view
+foo(s)                        // ERROR: string is a heap type, cannot pass by value
+foo(&s)                       // OK — move-in, s is consumed afterwards
 ```
 
-Consuming semantics:
-foo : func (s : &string)  - consumes (takes ownership and destroys).
+### The checker (static, move-only)
 
-foo : func (s :  string)  - does not consume (does not destroy), pass by value.
-foo : func (s : *string)  - does not consume, modifications visible for the caller.
+Compile errors for: use-after-consume, consume-twice, passing a heap value by
+value, returning a view of a local, writing through a `const` view, and
+re-borrowing a consumed binding. No lifetime inference, no alias analysis.
 
-foo : func () :  string  - pass ownership to the caller, pass by value, copied.
-foo : func () : *string  - does not not pass ownership to the caller, pass by reference, no copy.
+### Semantics that touch ownership
+
+- `match x` consumes x (bindings move out); `match &x` inspects via views.
+- `loop e in arr` binds a view (via `current : &T`).
+- Closures capture by value (copy const handles, move owned values); they own
+  their environment and may escape.
+- Channels: sending an owned mutable value moves it; const handles are shared.
+  Suspended coroutines keep their arena chain alive.
+- clib("m"): C receives a raw `*T` borrow; the caller's arena must outlive the
+  call; C must not retain the pointer after return.
 
 
 ## Generics and Templates
@@ -528,11 +565,11 @@ toJson : func [O] (obj *O, n : 0) Result[string] {
         subjson += indents + "%s{toJson(e, n + 1)}%s{mayBeComma}\n"
       }
       "[\n" + subjson + indents + "]\n"
-    Sturct(s) =>
+    Struct(s) =>
       subjson : string
-      loop f in s.fields {
+      loop f in s.fields {               // s.fields yields const *field — read-only views
         mayBeComma : if !last then "," else ""
-        subjosn += indents + "%q{f.name()}: %s{toJson(f.value(x), n + 1)}%s{mayBeComma}\n"
+        subjson += indents + "%q{f.name()}: %s{toJson(f.value(obj), n + 1)}%s{mayBeComma}\n"
       }
       "{\n" + subjson + indents + "}\n"
   }
