@@ -514,6 +514,14 @@ Memory is owned, moved, or borrowed — never shared-mutable.
 - Any in-place write (`a[i] = v`, `p.x = v`) requires ownership — writing
   through a `const` view is a compile error.
 
+**Constness widens, never narrows.** A `const` argument binds only to `const`
+parameters (`const T`, `const *T`, `const string`): handing a read-only value
+to a writable view or a move-in would let the callee mutate or consume what
+the caller promised immutable, so it is a compile error. A mutable argument
+binds to either kind — passing it to a `const` parameter only widens access.
+Returning a `const` view where a mutable one is expected is likewise an
+error.
+
 ### Copyable types
 
 A type is Copy iff all of its fields are Copy: scalars (int, float, char,
