@@ -700,9 +700,10 @@ field struct = {
 ## Socket server
 
 A TCP echo server, exercising `Result` for syscall failures, exhaustive
-`match`, `&` move-in for single-owner sockets, method sugar, and `spawn` —
-the coroutine operator (used like Go's `go`). Only `socket.*` intrinsics
-(from `clib("c")`) and `spawn` are sketched beyond the core language.
+`match`, `&` move-in for single-owner sockets, method sugar, `dispose` for
+OS resources (`## Resources` below), and `spawn` — the coroutine operator
+(used like Go's `go`). Only `socket.*` intrinsics (from `clib("c")`) and
+`spawn` are sketched beyond the core language.
 
 ```c
 // A TCP echo server: accept forever, echo each received line back, close.
@@ -760,8 +761,13 @@ write func (conn *Connection, data const string) Result[uint] = {
   socket.send(conn.fd, data)           // returns Result[uint]
 }
 
-close func (conn *Connection) = {
+// -- an fd is an OS resource; the end of a lifetime must dispose it
+dispose func (conn &Connection) = {
   socket.close(conn.fd)
+}
+
+dispose func (listener &Listener) = {
+  socket.close(listener.fd)
 }
 
 // -- one coroutine per connection; `&` moves ownership in
@@ -774,7 +780,7 @@ echo func (conn &Connection) = {
       }
     Error(e) => out.println("read from %s{conn.peer}: %s{e}")
   }
-  conn.close()
+  conn.dispose()   // the coroutine owns the connection
 }
 
 serve func (listener *Listener) = {
@@ -789,7 +795,9 @@ serve func (listener *Listener) = {
 main func () = {
   cfg := ServerConfig { address = "0.0.0.0", port = 8080 }
   match newListener(cfg.address, cfg.port) {
-    Ok(l) => serve(&l)
+    Ok(l) =>
+      serve(&l)                // serve borrows a view; we still own the listener
+      l.dispose()
     Error(e) =>
       out.println("fatal: %s{e}")
       panic("server cannot start")
@@ -804,4 +812,48 @@ the abstract. `&conn` *moves* the accepted connection into the spawned
 coroutine — a socket has exactly one owner — and suspended coroutines keep
 their arena chain alive, so a blocking `readLine` costs nothing to wait on:
 the line buffer lives in the coroutine's arena and is freed when the
-coroutine ends.
+coroutine ends. Ownership of the fds works the same way: `spawn echo(&conn)`
+moves the connection into the coroutine, so `echo` — not `serve` — owes
+`conn.dispose()`; and `serve(&l)` only lends `main`'s listener a view, so
+`main` owes `l.dispose()` after `serve` returns. See `## Resources (dispose)`
+below.
+
+## Resources (dispose)
+
+Arenas free memory; *resources* — an fd, a file handle, an OS lock — do not.
+A type that owns one is **disposable**, and `Disposable(T)` is *derived, not
+guessed*:
+
+- **Leaf.** A declaration `dispose func (v &T) = { ... }` marks `T`
+  disposable. You write the body once; it is void — nothing receives its
+  result, so a close failure is a `panic` (abort). The `&` matters: dispose
+  *consumes* its argument, so the checker can prove the resource goes
+  exactly once. Declaring dispose also makes `T` non-Copy — a resource must
+  never be duplicated, so `const T` (shared value) is forbidden for it too;
+  only views `*T` / `const *T` may observe a disposable value.
+- **Struct.** `S struct = { ... }` is disposable iff any field's type is
+  disposable — this is how the compiler knows a struct holds a resource: the
+  property travels up from the fields, with no body inspection. A composite
+  `dispose` body is *synthesized* — field disposes in declaration order — so
+  you only ever write leaf bodies.
+- **Never:** scalars, `string`, `enum`, and views `*T` / `const *T`. A view
+  borrows; it never owns, so it never disposes. `[]T` is disposable iff `T`
+  is — the buffer itself is arena memory, but the elements carry
+  obligations, so a loop-dispose over them is synthesized.
+
+At the end of every owned binding's lifetime the obligation must be
+discharged by exactly one of:
+
+- `v.dispose()` was called — afterwards `v` is dead, like any consume; using
+  it again is a compile error, so double-dispose is impossible; or
+- ownership moved out — `&v` passed to a function, `v` returned, `v` stored
+  into another binding. The check follows the move to the new owner.
+
+The check keys on the **last owned use**, not on scope text: a value that
+moved out owes nothing, a value that only lent a view still owes. Generic
+functions are templates compiled per concrete type, so the obligation is
+checked per instantiation — a generic body that neither disposes nor re-moves
+its `&T` parameter fails to instantiate for a disposable `T`. Panic bypasses
+dispose: abort abandons resources with the app, exactly like memory today.
+Open question: a disposable concrete value behind an `interface` needs
+runtime dispatch (or disposal-capable interfaces).
