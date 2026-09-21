@@ -195,8 +195,11 @@ current func [T] (it ListIterator[T]) &T = {
 ## Usage
 
 Every fallible step below is composed with combinators — **no `match`, no
-`panic`** in user code. Trailing-block lambdas take their parameter names from
-the function declaration, so call `foo () { v.value * 2 }` means call `foo(functor = func () do v.value * 2)`.
+`panic`** in user code. Trailing-block lambdas take their parameter names — and
+the named argument — from the function declaration, so call
+`l.find(20).map { v.value * 2 }` means call
+`l.find(20).map(f = func (v A) do v.value * 2)`, where `f` is the declared
+lambda parameter and `v` its declared name.
 
 ```c
 l *Head[int] = newList()
