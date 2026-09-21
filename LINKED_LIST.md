@@ -39,7 +39,7 @@ just rewiring the sentinel, and the arena takes care of the rest.
 ```c
 newList func [T] () *Head[T] = {
   head := &Head[T] {
-    length : 0
+    length = 0
   }
   head.sentinel.prev = &head.sentinel
   head.sentinel.next = &head.sentinel
@@ -49,9 +49,9 @@ newList func [T] () *Head[T] = {
 pushBack func [T] (list *Head[T], v T) = {
   last *Node[T] = list.sentinel.prev
   node := &Node[T] {
-    value : v
-    prev  : last
-    next  : &list.sentinel
+    value = v
+    prev  = last
+    next  = &list.sentinel
   }
   last.next = node          // node.prev already == last
   list.sentinel.prev = node
@@ -61,9 +61,9 @@ pushBack func [T] (list *Head[T], v T) = {
 pushFront func [T] (list *Head[T], v T) = {
   first *Node[T] = list.sentinel.next
   node  := &Node[T] {
-    value : v
-    prev  : &list.sentinel
-    next  : first
+    value = v
+    prev  = &list.sentinel
+    next  = first
   }
   first.prev = node         // node.next already == first
   list.sentinel.next = node
@@ -171,19 +171,19 @@ field — node identity, no nulls to trip over).
 ```c
 begin func [T] (list *Head[T]) ListIterator[T] = {
   ListIterator[T] {
-    node : list.sentinel.next
+    node = list.sentinel.next
   }
 }
 
 end func [T] (list *Head[T]) ListIterator[T] = {
   ListIterator[T] {
-    node : &list.sentinel
+    node = &list.sentinel
   }
 }
 
 next func [T] (it ListIterator[T]) ListIterator[T] = {
   ListIterator[T] {
-    node : it.node.next
+    node = it.node.next
   }
 }
 
@@ -196,7 +196,7 @@ current func [T] (it ListIterator[T]) &T = {
 
 Every fallible step below is composed with combinators — **no `match`, no
 `panic`** in user code. Trailing-block lambdas take their parameter names from
-the function declaration, so `{ v.value * 2 }` means `f(v : v.value * 2)`.
+the function declaration, so `{ v.value * 2 }` means `f(v = v.value * 2)`.
 
 ```c
 l *Head[int] = newList()

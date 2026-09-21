@@ -8,9 +8,10 @@ All pointers are non-null.
 Strings and arrays with length.
 No shadowing, redefinition instead.
 Variables are mutable by default.
-Declarations: `name type = value`, `name type` for the default value, `name := value` deduces the type; struct/enum/func bodies use `= { ... }` or `do ...`.
+Declarations: `name type = value`, `name type` for the default value, `name := value` deduces the type; struct/enum/func bodies use `= { ... }` or `do ...`; literal fields and named call arguments use `name = value`.
 Each variable, func parameter of field can be const.
-Statements are expressions.
+Assignment is a statement, not an expression: no chained `a = b = c`, no `++`/`--` — use `i += 1`.
+Other statements are expressions.
 Strings can be concatenated and multiplicated like in python.
 Data types: `void`, `byte`, `char`,  `int`, `float`, `bool`, `string`, `struct`, arrays, `enum`.
 Meta types: `type`, `func`, `field`, `pointer`, `value`, `any`.
@@ -35,8 +36,10 @@ Memory ownership: const = shared, owned = unique; per-block arenas free memory; 
 Every declaration follows one formula: `name type` — an optional `= value`
 initializes it, and `name := value` declares with a deduced type. `struct`,
 `enum`, `func`, and `template` are kind words: `User struct = { ... }`,
-`foo func (x int) int = { ... }`. Only literal fields and named call
-arguments keep `name : value`.
+`foo func (x int) int = { ... }`. Literal fields and named call arguments
+bind the same way, `name = value`: `acc Account = { owner = generate() }`,
+`fold(array = a, ...)`. Assignment `x = 5` is a plain statement — it yields
+no value.
 
 ## Line continuation
 
@@ -144,6 +147,8 @@ Strings operators: `+ < > == !=`, duplicate string `*`
 Array access operators: `[:] []`
 Function call: `()`
 Field access: `.`
+Literal fields and named arguments: `name = value`
+Assignment: `=` (statement only, yields no value); no `++`/`--` — use `i += 1`
 Declaration: `name type`, initialization `name type = value`, deduced `name := value`
 
 ## Control structures
@@ -210,14 +215,18 @@ loop 0..<10 do
 
 loop 0..=10 do ... // 11 iterations
 
-loop i := 0; i < 10 do
-  oneLineStatement(i++)
+loop i := 0; i < 10 {
+  oneLineStatement(i)
+  i += 1
+}
 
 loop i := 0; i < 10; i += 1 do
   oneLineStatement()
 
-loop i < 10 do
-  oneLineStatement(i++)
+loop i < 10 {
+  oneLineStatement(i)
+  i += 1
+}
 
 a []int = {1, 2, 3}
 loop x in a do
@@ -264,19 +273,19 @@ array struct [T] = {
 }
 begin func [array[E]] (a *array[E]) Iterator[E] do
   Iterator {
-    data : &array
-    index : 0
+    data = &array
+    index = 0
   }
 
 end func [array[E]] (a *array[E]) Iterator[E] do
   Iterator {
-    data : &a
-    index : a.length
+    data = &a
+    index = a.length
   }
 next func [array[E]] (it Iterator[array]) Iterator[E] do
   Iterator {
-    data: it.data
-    index: it.index + 1
+    data = it.data
+    index = it.index + 1
   }
 current func [T] (it Iterator[T]) &T do
   it.data[it.index]
@@ -309,12 +318,12 @@ Account struct = {
 }
 
 acc Account = {
-  owner : { // the field's type `User` may be omitted in the literal
-    id : generate()
-    password : authentication.genPass()
+  owner = { // the field's type `User` may be omitted in the literal
+    id = generate()
+    password = authentication.genPass()
   }
-  account : { "111111111" }
-  createdAt : date.now()
+  account = { "111111111" }
+  createdAt = date.now()
 }
 Permanent const struct = {      // only const instances can be created
   x const int = 42              // const with default value, can't be set at construction
@@ -444,7 +453,7 @@ fold(a, func (a, b) { a * b }) // implicit return is single expression, types in
 fold(a) {
   a * b
 }
-fold(array: a, folder : func (a int, b int) int { return a * b }) // explicit
+fold(array = a, folder = func (a int, b int) int { return a * b }) // explicit
 b := foo() // b is initialized by value returned by foo()
 b = bar() // b is assigned a value returned by bar()
 
