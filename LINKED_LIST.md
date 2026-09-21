@@ -13,19 +13,19 @@ There are no null pointers, so an empty list is a **self-looping sentinel**:
 is always some real element; the sentinel is "past the end".
 
 ```c
-Node : struct [T] = {
-  value : T
-  prev  : *Node[T]
-  next  : *Node[T]
+Node struct [T] = {
+  value T
+  prev  *Node[T]
+  next  *Node[T]
 }
 
-Head : struct [T] = {
-  sentinel : Node[T]  // `value` is unused; prev/next wrap the list around
-  length   : uint
+Head struct [T] = {
+  sentinel Node[T]  // `value` is unused; prev/next wrap the list around
+  length   uint
 }
 
-ListIterator : struct [T] = {
-  node : *Node[T]     // == &head.sentinel  means "past the end"
+ListIterator struct [T] = {
+  node *Node[T]     // == &head.sentinel  means "past the end"
 }
 ```
 
@@ -37,7 +37,7 @@ when the owning block exits. No node is ever freed individually — clearing is
 just rewiring the sentinel, and the arena takes care of the rest.
 
 ```c
-newList : func [T] () *Head[T] = {
+newList func [T] () *Head[T] = {
   head := &Head[T] {
     length : 0
   }
@@ -46,8 +46,8 @@ newList : func [T] () *Head[T] = {
   head
 }
 
-pushBack : func [T] (list : *Head[T], v : T) = {
-  last : *Node[T] = list.sentinel.prev
+pushBack func [T] (list *Head[T], v T) = {
+  last *Node[T] = list.sentinel.prev
   node := &Node[T] {
     value : v
     prev  : last
@@ -58,8 +58,8 @@ pushBack : func [T] (list : *Head[T], v : T) = {
   list.length += 1
 }
 
-pushFront : func [T] (list : *Head[T], v : T) = {
-  first : *Node[T] = list.sentinel.next
+pushFront func [T] (list *Head[T], v T) = {
+  first *Node[T] = list.sentinel.next
   node  := &Node[T] {
     value : v
     prev  : &list.sentinel
@@ -71,27 +71,27 @@ pushFront : func [T] (list : *Head[T], v : T) = {
 }
 
 // Empty list is a data condition, not a bug -> Optional, no panic inside.
-popFront : func [T] (list : *Head[T]) Optional[T] = {
+popFront func [T] (list *Head[T]) Optional[T] = {
   if list.length == 0 then
     return None
-  first : *Node[T] = list.sentinel.next
+  first *Node[T] = list.sentinel.next
   list.sentinel.next = first.next
   first.next.prev = &list.sentinel
   list.length -= 1
   Some(first.value)   // T is Copy (see note 4), so this is a copy, not a move
 }
 
-popBack : func [T] (list : *Head[T]) Optional[T] = {
+popBack func [T] (list *Head[T]) Optional[T] = {
   if list.length == 0 then
     return None
-  last : *Node[T] = list.sentinel.prev
+  last *Node[T] = list.sentinel.prev
   list.sentinel.prev = last.prev
   last.prev.next = &list.sentinel
   list.length -= 1
   Some(last.value)
 }
 
-clear : func [T] (list : *Head[T]) = {
+clear func [T] (list *Head[T]) = {
   list.sentinel.prev = &list.sentinel
   list.sentinel.next = &list.sentinel
   list.length = 0
@@ -103,18 +103,18 @@ clear : func [T] (list : *Head[T]) = {
 
 ```c
 // Out of range is a data condition -> Optional, no panic inside.
-getAt : func [T] (list : *Head[T], i : uint) Optional[*Node[T]] = {
+getAt func [T] (list *Head[T], i uint) Optional[*Node[T]] = {
   if i >= list.length then
     return None
-  node : *Node[T] = list.sentinel.next
+  node *Node[T] = list.sentinel.next
   loop _ in 0..<i do
     node = node.next
   Some(node)
 }
 
 // `Optional` is a `const enum [T any]`, so the payload may be a pointer.
-find : func [T] (list : *Head[T], v : T) Optional[*Node[T]] = {
-  node : *Node[T] = list.sentinel.next
+find func [T] (list *Head[T], v T) Optional[*Node[T]] = {
+  node *Node[T] = list.sentinel.next
   loop node != &list.sentinel {
     if node.value == v then
       return Some(node)
@@ -124,7 +124,7 @@ find : func [T] (list : *Head[T], v : T) Optional[*Node[T]] = {
 }
 
 // Passing the sentinel here is an invariant violation, a bug — panic stays.
-remove : func [T] (list : *Head[T], node : *Node[T]) T = {
+remove func [T] (list *Head[T], node *Node[T]) T = {
   if node == &list.sentinel then
     panic("cannot remove the sentinel")
   node.prev.next = node.next
@@ -140,21 +140,21 @@ The Haskell trio: `fmap`, `>>=` (bind), `fromMaybe`. `match` lives *inside*
 these once; user code that composes values almost never needs it.
 
 ```c
-map : func [A, B] (opt : Optional[A], f : func (v : A) B) Optional[B] = {
+map func [A, B] (opt Optional[A], f func (v A) B) Optional[B] = {
   match opt {
     Some(v) => Some(f(v))
     None    => None
   }
 }
 
-andThen : func [A, B] (opt : Optional[A], f : func (v : A) Optional[B]) Optional[B] = {
+andThen func [A, B] (opt Optional[A], f func (v A) Optional[B]) Optional[B] = {
   match opt {
     Some(v) => f(v)
     None    => None
   }
 }
 
-orElse : func [A] (opt : Optional[A], fallback : A) A = {
+orElse func [A] (opt Optional[A], fallback A) A = {
   match opt {
     Some(v) => v
     None    => fallback
@@ -169,26 +169,26 @@ struct, so `begin(l) != end(l)` compares it **structurally** (a single pointer
 field — node identity, no nulls to trip over).
 
 ```c
-begin : func [T] (list : *Head[T]) ListIterator[T] = {
+begin func [T] (list *Head[T]) ListIterator[T] = {
   ListIterator[T] {
     node : list.sentinel.next
   }
 }
 
-end : func [T] (list : *Head[T]) ListIterator[T] = {
+end func [T] (list *Head[T]) ListIterator[T] = {
   ListIterator[T] {
     node : &list.sentinel
   }
 }
 
-next : func [T] (it : ListIterator[T]) ListIterator[T] = {
+next func [T] (it ListIterator[T]) ListIterator[T] = {
   ListIterator[T] {
     node : it.node.next
   }
 }
 
-current : func [T] (it : ListIterator[T]) &T = {
-  &it.node.value   // a writable view into the node, per the `current : &E` contract
+current func [T] (it ListIterator[T]) &T = {
+  &it.node.value   // a writable view into the node, per the `current &E` contract
 }
 ```
 
@@ -199,7 +199,7 @@ Every fallible step below is composed with combinators — **no `match`, no
 the function declaration, so `{ v.value * 2 }` means `f(v : v.value * 2)`.
 
 ```c
-l : *Head[int] = newList()
+l *Head[int] = newList()
 l.pushBack(10)
 l.pushBack(20)
 l.pushFront(5)   // l is now: 5, 10, 20
@@ -208,27 +208,27 @@ loop e in l do
   out.println("%d{e}")       // 5, 10, 20 — e is a view, nothing is copied
 
 // map: transform inside the context — Haskell fmap
-doubled : Optional[int] = l.find(20)
+doubled Optional[int] = l.find(20)
   .map { v.value * 2 }
 out.println("doubled = %d{doubled.orElse(-1)}")   // 40; -1 if 20 were missing
 
 // fromMaybe: unwrap with a default, never a panic
-label : string = l.find(99)
+label string = l.find(99)
   .map { "%d{v.value}" }
   .orElse("99 is not in the list")
 out.println(label)            // "99 is not in the list"
 
 // bind-like chain: find -> remove in one expression (Haskell `fmap (remove l) (find l t)`)
-popValue : func [T] (l : *Head[T], target : T) Optional[T] = {
+popValue func [T] (l *Head[T], target T) Optional[T] = {
   l.find(target)
     .map { l.remove(v) }
 }
 
-popped : int = l.popValue(10)
+popped int = l.popValue(10)
   .orElse(0)   // 10 removed from l; 0 if absent
 // l is now: 20
 
-first : int = l.popFront()              // decay: Some(20), unwraps; pans only if empty
+first int = l.popFront()              // decay: Some(20), unwraps; pans only if empty
 
 // true branching still exists when you want it:
 match l.popValue(20) {
@@ -240,24 +240,24 @@ match l.popValue(20) {
 Generic element types are Copyable values:
 
 ```c
-Point : struct = {
-  x : int
-  y : int
+Point struct = {
+  x int
+  y int
 }
 
 // operator overloading makes `find` work on structs too
-infix_operator== : func (a : const *Point, b : const *Point) bool = {
+infix_operator== func (a const *Point, b const *Point) bool = {
   a.x == b.x && a.y == b.y
 }
 
-points : *Head[Point] = newList()
+points *Head[Point] = newList()
 points.pushBack(Point {3, 4})
 points.pushBack(Point {1, 2})
 
 loop p in points do
   out.println("(%d{p.x}, %d{p.y})")   // (3, 4) then (1, 2)
 
-p1 : *Node[Point] = points.getAt(0)     // decay; pans if the index were out of range
+p1 *Node[Point] = points.getAt(0)     // decay; pans if the index were out of range
 p1.value = Point {0, 0}               // writable view into a node, affects the list
 
 match points.find(Point {2, 2}) {
@@ -293,7 +293,7 @@ maybe {                              // or: opt { }, chain { } ...
    consumed binding is a compile error).
 
 2. **The combinators require `A` to be Copy** — `map`/`andThen`/`orElse` bind
-   the payload by value (`v : A`), valid only for scalars, pointers, and
+   the payload by value (`v A`), valid only for scalars, pointers, and
    Copyable structs/enums. For heap payloads (`Optional[string]`) there is no
    copy: use explicit `match` or view-based variants (`const *A`).
 
@@ -304,7 +304,7 @@ maybe {                              // or: opt { }, chain { } ...
    `popBack`, and consequently all user code above carry no match and no
    panic.
 
-4. **`value : T` parameters and returns require `T` to be Copy** (scalars,
+4. **`value T` parameters and returns require `T` to be Copy** (scalars,
    pointers, structs/enums built from those). `Head[int]`, `Head[Point]`
    qualify. For heap element types the list still works — access and mutate
    through views (`const *T` / `&T`) instead.
@@ -317,7 +317,7 @@ maybe {                              // or: opt { }, chain { } ...
    struct literal defaults to the address of the pointee type's shared zero
    instance (never null); we override the sentinel's links right after
    construction, so the placeholder is never dereferenced. (b) `Some` can
-   carry a pointer because `Optional : const enum [T any]` accepts any `T`,
+   carry a pointer because `Optional const enum [T any]` accepts any `T`,
    and matching a `const` `Optional` inspects without consuming.
 
 7. **The arena assumption.** This example relies on `&`-allocations inside a
