@@ -165,7 +165,7 @@ orElse func [A] (opt Optional[A], fallback A) A = {
 ## Iteration protocol
 
 These four functions make `loop e in list` work. The iterator is a tiny
-struct, so `begin(l) != end(l)` compares it **structurally** (a single pointer
+struct, so `l.begin() != l.end()` compares it **structurally** (a single pointer
 field — node identity, no nulls to trip over).
 
 ```c
@@ -196,7 +196,7 @@ current func [T] (it ListIterator[T]) &T = {
 
 Every fallible step below is composed with combinators — **no `match`, no
 `panic`** in user code. Trailing-block lambdas take their parameter names from
-the function declaration, so `{ v.value * 2 }` means `f(v = v.value * 2)`.
+the function declaration, so call `foo () { v.value * 2 }` means call `foo(functor = func () do v.value * 2)`.
 
 ```c
 l *Head[int] = newList()

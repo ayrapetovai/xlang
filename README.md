@@ -35,7 +35,7 @@ Memory ownership: const = shared, owned = unique; per-block arenas free memory; 
 
 Every declaration follows one formula: `name type` — an optional `= value`
 initializes it, and `name := value` declares with a deduced type. `struct`,
-`enum`, `func`, and `template` are kind words: `User struct = { ... }`,
+`enum`, `func`, and `interface` are kind words: `User struct = { ... }`,
 `foo func (x int) int = { ... }`. Literal fields and named call arguments
 bind the same way, `name = value`: `acc Account = { owner = generate() }`,
 `fold(array = a, ...)`. Assignment `x = 5` is a plain statement — it yields
@@ -557,13 +557,19 @@ re-borrowing a consumed binding. No lifetime inference, no alias analysis.
   call; C must not retain the pointer after return.
 
 
-## Generics and Templates
+## Generics
 
 `[T]` appears only on the *declaration* side — `func [T]`, and
 specializations like `func [array[E]]` above. Calls never repeat type
 arguments: `foo(x)` deduces them from the argument types, and when the
 arguments carry no type information (as in `newList()`) from the expected
 result type.
+
+Template functions are compiled from scratch for each generic type, and
+if a template function needs some function it looks up the scope.
+
+If function is compiled with dynamic dispatching it does not look for functions
+if requires the type to inherit a particular interface.
 
 ```c
 newList func [T] () *Head[T]
@@ -581,7 +587,7 @@ MyStruct struct [E Iterable] = {
 }
 
 // T is any type, the first generic of T must be the element type
-Iterable template [T[E, _]] = {
+Iterable interface [T[E, _]] = {
   begin   func(c T) Iterator[E]
   end     func(c T) Iterator[E]
   next    func(it Iterator[E]) Iterator[E]
@@ -661,7 +667,7 @@ type enum = {
   Array()
 }
 
-// `struct`, `enum`, `func`, `template` are reserved, so the descriptor is
+// `struct`, `enum`, `func`, `interface` are reserved, so the descriptor is
 // named `structDesc`
 structDesc struct = {
   name string
