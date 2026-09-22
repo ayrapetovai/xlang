@@ -13,24 +13,26 @@ Each variable, func parameter of field can be const.
 Assignment is a statement, not an expression: no chained `a = b = c`, no `++`/`--` — use `i += 1`.
 Other statements are expressions.
 Strings can be concatenated and multiplicated like in python.
-Data types: `void`, `byte`, `char`,  `int`, `float`, `bool`, `string`, `struct`, arrays, `enum`.
+Data types: `void`, `byte`, `char`,  `int`, `float`, `bool`, `string`, `struct`, arrays, `enum`, `interface`.
 Meta types: `type`, `func`, `field`, `pointer`, `value`, `any`.
 Function's return type counts for signature.
 Function's return type participates in overload resolution.
 Generic functions deduce type arguments from call arguments.
 Only explicit casts allowed.
 For unused variables use '_'.
-Channels and coroutins, like in Go language.
+Channels and coroutines, like in Go language.
+Any value crosses a thread boundary unless its shape contains a view; `Atomic[T]`/`Mutex[T]` are the only shared mutable state.
 Operators can be overloaded.
 No exceptions but stacktraces.
 Panic is not recoverable, it destroys the whole application (with stack rollback).
 The `match` (aka `switch`) is strictly exhaustive.
 Dynamic types dispatching for interfaces, like in Go.
 String interpolation with formatting.
-Any value can be written to `ByteBuffer` witch is suitable everywhere.
+Any value can be written to `ByteBuffer` which is suitable everywhere.
 Meta-type information is stored in the binary. Types are never erased.
 Meta information is stored in binaries, including template functions (packed AST).
 Memory ownership: const = shared, owned = unique; per-block arenas free memory; moves and views only.
+Resources are released explicitly (`dispose func (v &T)`); `Disposable` is derived from shape, and the owner must dispose or move out.
 
 # Syntax Examples
 
