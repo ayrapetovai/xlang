@@ -127,8 +127,10 @@ readLine func (conn *Connection) Result[string] = {
 
 ## Decision set (recommendations marked)
 
-- **Endianness** — default big (network byte order); per-buffer switch
-  `b.endian(Endian.little)`.
+- **Endianness** — default **hardware native** (`Endian.native`); per-buffer
+  switch to override for portability: `b.endian(Endian.big)` /
+  `b.endian(Endian.little)`. Cross-platform files/protocols should set an
+  explicit order; native is the fast default.
 - **Fork 1 — overflow** — byte arithmetic wraps modulo 256; add `0x` / `0b` literals.
 - **Fork 3 — bounds** — `as*` / `write*` past the end is a **panic** (programmer
   bug; `recvExact` already guarantees lengths at the I/O boundary), not `Result`.
