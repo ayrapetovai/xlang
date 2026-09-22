@@ -693,6 +693,50 @@ Unbuffered sends and receives park the coroutine, the same machinery as
 `lock()`; when every coroutine is parked with no work left, the program
 aborts — Go's "all goroutines are asleep".
 
+### Select
+
+`select` waits for one of several communications to become ready, like Go's
+`select`, with one addition: the operation itself is the arm head (`=>`
+body, `default` escape), the same shape as `match` arms.
+
+```c
+// a worker serving two channels at once — whichever communicates first wins
+worker func (jobs const chan[int], results const chan[int], cancel const chan[bool]) = {
+  loop {
+    select {
+      j := <-jobs =>               // fires when a job arrives; j is Optional[int]
+        match j {
+          Some(j) => results <- j * 2
+          None    => return        // jobs closed and drained — we are done
+        }
+      <-cancel => return           // fires when cancel is closed or delivers
+    }
+  }
+}
+```
+
+Ready rules are judged on the `### Channels` cell state:
+- receive: ready when a value is buffered, an unbuffered sender is parked, or the
+  channel is closed — the arm then fires, its binding `Some(x)`, or `None` once
+  closed and drained;
+- send: ready when a buffer slot is free or a receiver is parked.
+
+Every case expression (the channel and value operands) is evaluated exactly
+once when the `select` is entered, in source order — expressions are
+side-effect-free (assignment is a statement), so evaluating them all is
+unobservable. When more than one arm is ready, one is picked uniformly at
+random, like Go — a busy channel cannot starve the others. If none is ready,
+`default` runs; without `default` the coroutine parks (the same machinery as
+`lock()`) until one becomes ready.
+
+A send arm selected on a closed channel aborts, exactly like `ch <- v`
+outside `select`. A receive arm on a closed channel fires with `None`
+forever — its body must exit on `None`, per `### Channels`. `select` covers
+channels only: there are no lock or timer arms. An empty `select` is a
+compile error — an eternal park has no place under the deadlock rule. A
+parked `select` counts like any other park, so "every coroutine parked"
+still aborts.
+
 ### Example
 
 ```c
