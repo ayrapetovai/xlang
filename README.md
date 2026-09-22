@@ -153,6 +153,8 @@ Field access: `.`
 Literal fields and named arguments: `name = value`
 Assignment: `=` (statement only, yields no value); no `++`/`--` — use `i += 1`
 Declaration: `name type`, initialization `name type = value`, deduced `name := value`
+Channel send/receive: `ch <- v` (moves/copies a value into the cell), `v = <-ch` or `<-ch` (receive, yields `Optional[T]`)
+Coroutine operator: `spawn f(args)` — starts `f` on its own coroutine, returns `void`
 
 ## Control structures
 
@@ -645,6 +647,52 @@ binding is dead, and returning a view of a local is a compile error, so the
 view cannot escape the lock. `panic` = abort, so a coroutine can never die
 holding a lock.
 
+### Channels
+
+`chan[T]` is a handle to a runtime-managed cell, like the atomic and mutex
+cells. `chan[T].new(n)` creates a channel: `n` slots of buffer;
+`chan[T].new(0)` is unbuffered, a rendezvous — send and receive pair up and
+transfer the value directly. The handle is an owned box like `Fd` — the
+binding that creates it must `dispose()` it, the *close*, exactly once
+(`## Resources`). Widening to `const chan[T]` shares the cell: a const
+channel handle is a copyable word that crosses thread boundaries by sharing
+and carries no close obligation, so only the owner closes. The owner may
+also cross by move instead — then the receiving coroutine owns the close.
+
+```c
+pong func (ch const chan[string]) = {
+  loop {
+    match <-ch {
+      Some(s) => out.println(s)
+      None    => return          // closed and drained — done
+    }
+  }
+}
+
+ch chan[string] = chan[string].new(0)  // new(n): n slots; 0 = unbuffered rendezvous
+
+spawn pong(ch)                    // owned handle widens to const: the cell is shared
+ch <- "hello, world"              // a value moves into the cell, then to the receiver
+ch.dispose()                      // close: no more sends; pong drains, then sees None
+```
+
+The operators are Go's, spelled on ownership. `ch <- v` *moves* `v` into the
+cell — the value relocates to the receiving coroutine's arena — while
+Copyable values (`int`, `bool`, const handles, `string`, ...) are copied in,
+exactly like argument passing. A value whose shape contains a view never
+crosses: the `### Thread boundary` rule, so no view can reach another
+coroutine through a channel. Sending and receiving take the const handle;
+only closing needs the owner.
+
+`v = <-ch` yields `Optional[T]` — the language never fabricates a zero value
+where Go's `v, ok := <-ch` would: `Some(x)` is a value, `None` means closed
+and drained. `loop x in ch` iterates until `None`. `chan[T].new(16)` is
+buffered — sends settle while a slot is free. After `dispose()` a send
+aborts, buffered values still drain, and a double-close aborts too.
+Unbuffered sends and receives park the coroutine, the same machinery as
+`lock()`; when every coroutine is parked with no work left, the program
+aborts — Go's "all goroutines are asleep".
+
 ### Example
 
 ```c
@@ -842,9 +890,9 @@ field struct = {
 
 A TCP echo server, exercising `Result` for syscall failures, exhaustive
 `match`, `&` move-in for single-owner sockets, method sugar, `dispose` for
-OS resources (`## Resources` below), and `spawn` — the coroutine operator
-(used like Go's `go`). Only `socket.*` intrinsics (from `clib("c")`) and
-`spawn` are sketched beyond the core language.
+OS resources (`## Resources` below), `spawn` — the coroutine operator
+(used like Go's `go`), and channels (`### Channels`). Only `socket.*`
+intrinsics (from `clib("c")`) are sketched beyond the core language.
 
 ```c
 // A TCP echo server: accept forever, echo each received line back, close.
@@ -952,9 +1000,9 @@ main func () = {
 ```
 
 Note: **`spawn` — the coroutine operator.** `spawn f(args)` starts `f` on its
-own coroutine and returns immediately, like Go's `go`. Channels would read
-`ch <- v` / `v = <-ch`, per "Channels and coroutines, like in Go language" in
-the abstract. `&conn` *moves* the accepted connection into the spawned
+own coroutine and returns immediately, like Go's `go`. Channels and their
+operators (`chan[T].new(n)`, `ch <- v`, `v = <-ch`) are the `### Channels`
+section above. `&conn` *moves* the accepted connection into the spawned
 coroutine — a socket has exactly one owner — and suspended coroutines keep
 their arena chain alive, so a blocking `readLine` costs nothing to wait on:
 the line buffer lives in the coroutine's arena and is freed when the
