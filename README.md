@@ -882,5 +882,24 @@ functions are templates compiled per concrete type, so the obligation is
 checked per instantiation — a generic body that neither disposes nor re-moves
 its `&T` parameter fails to instantiate for a disposable `T`. Panic bypasses
 dispose: abort abandons resources with the app, exactly like memory today.
-Open question: a disposable concrete value behind an `interface` needs
-runtime dispatch (or disposal-capable interfaces).
+
+**Interfaces and disposal.** Every `interface` implicitly carries a `dispose`
+member, dispatched through the same method table as any interface call — no
+"dispose-capable" category, no "is it disposable?" check, nothing to remember
+at the interface declaration:
+
+- An owned binding of interface type faces the same end-of-lifetime gate:
+  `v.dispose()` or move-out. The box may hold a disposable concrete, so the
+  owner must discharge it — uniformly, for every interface.
+- The default dispose body does nothing: a struct with no dispose (a
+  non-disposable concrete) still satisfies the member, and disposing its box
+  is a no-op that still consumes the binding.
+- A disposable concrete overrides the slot with its own dispose (written or
+  synthesized), so boxing it by value is always safe — the owner can only
+  reach that dispose through the interface.
+- Interface values are non-Copy boxes: no `const I` sharing, copying a
+  binding is a Move, and `[]I` gets the synthesized loop-dispose.
+
+The *forcing* is the derived struct's: the interface guarantees the hook, the
+checker forces every owner to call it or move the value out, and the concrete
+struct's dispose body decides what actually happens.
