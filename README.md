@@ -566,6 +566,30 @@ analysis.
 - clib("m"): C receives a raw `*T` borrow; the caller's arena must outlive the
   call; C must not retain the pointer after return.
 
+### Thread boundary
+
+`spawn` arguments, sends (`ch <- v`), and closures passed to another
+coroutine cross a thread boundary. Any value crosses — no type declares
+anything — unless its shape contains a view (`*T` or `const *T`): a view is
+a borrow of a lexical arena, and the checker refuses to prove that arena
+outlives a thread. The check is morphological, at the crossing site;
+generics are checked per instantiation.
+
+- **Owned values cross by move.** The runtime relocates their backing
+  allocations into the receiving coroutine's arena — nothing dangles.
+- **`const` values cross by sharing.** Shared values join the module-global
+  pool (freed only on module unload), so they can never dangle.
+- **Views never cross.** Iterators, list handles (`*Head[T]`), and any
+  struct holding a view are thread-local by shape — they borrow their
+  owner's arena, so that is correct rather than a burden.
+
+Mutation requires ownership and sharing requires `const`, so no value can
+ever be mutated by two threads at once; `panic` = abort, so a thread cannot
+leave shared state in half. Disposable owned values cross by move too — the
+dispose obligation rides along, exactly one `dispose()` on the receiving
+thread. The only shared mutable state across threads lives behind an
+explicit builtin sync tool: `Atomic[int]`, `Mutex[T]`.
+
 
 ## Generics
 
