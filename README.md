@@ -569,8 +569,11 @@ analysis.
 
 ## Generics
 
-`[T]` appears only on the *declaration* side — `func [T]`, and
-specializations like `func [array[E]]` above. Calls never repeat type
+`[T]` as *parameters* appears only on the declaration side, after the kind
+word — `func [T]`, `struct [T]`, constraint forms like `struct [E
+Iterable]`, `interface [T[E, _]]`, and specializations like `func
+[array[E]]` above. Instantiation puts *arguments* on the referenced name:
+`*Head[T]`, `Optional[B]`, `Iterable[T] interface`. Calls never repeat type
 arguments: `foo(x)` deduces them from the argument types, and when the
 arguments carry no type information (as in `newList()`) from the expected
 result type.
@@ -578,8 +581,9 @@ result type.
 Template functions are compiled from scratch for each generic type, and
 if a template function needs some function it looks up the scope.
 
-If function is compiled with dynamic dispatching it does not look for functions
-if requires the type to inherit a particular interface.
+A function compiled with dynamic dispatching does not look for functions:
+it requires the type to declare the interface with the marker (below) and
+dispatches through the interface's method table.
 
 ```c
 newList func [T] () *Head[T]
@@ -591,12 +595,12 @@ x = int.from("1234")       // `int` is an ordinary argument (a type value), not 
 ```
 
 ```c
-// E must have methods of `Iterable` in scope
+// E must implement `Iterable` — see the marker below
 MyStruct struct [E Iterable] = {
   x E
 }
 
-// T is any type, the first generic of T must be the element type
+// T is a container, its first generic is the element type
 Iterable interface [T[E, _]] = {
   begin   func(c T) Iterator[E]
   end     func(c T) Iterator[E]
@@ -604,10 +608,11 @@ Iterable interface [T[E, _]] = {
   current func(it Iterator[E]) &E
 }
 
-MyArray[T] struct Iterable[T] = {
-  // ...
+// the marker: MyArray implements Iterable over its element T
+MyArray struct[T] = {
+  Iterable[T] interface
+  items []T
 }
-// MyArray requires functions for Iterable to be in scope.
 
 // any could be defined like this, but it is intrinsic
 any struct [T] = {
@@ -615,6 +620,19 @@ any struct [T] = {
   value *T
 }
 ```
+
+Inside a struct body, `Name[args] interface` is the conformance marker: the
+struct declares it implements the in-scope interface `Name`. The arguments
+resolve in the struct's scope, and the interface's container-shaped
+parameter is instantiated as *the enclosing struct applied to the marker's
+arguments* — inside `MyArray struct[T]`, `Iterable[T] interface` reads as
+`Iterable[MyArray[T]]`, so the marker names only what varies. Writing the
+container out in full (`Iterable[MyArray[T]] interface`) is valid too. The
+marker is checked once, at the struct declaration: every function the
+interface needs must be in scope. It is not a member — it takes no layout,
+and reflection (for example `s.fields`) never sees it. With the marker,
+dynamic dispatch uses the interface's method table; a generic constraint
+like `[E Iterable]` is still checked per instantiation.
 
 ## Metaprogramming
 
