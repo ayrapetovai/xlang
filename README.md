@@ -589,7 +589,92 @@ leave shared state in half. Disposable owned values cross by move too — the
 dispose obligation rides along, exactly one `dispose()` on the receiving
 thread. The only shared mutable state across threads lives behind an
 explicit builtin sync tool: `Atomic[T]` (T a scalar: `int`, `uint`, `float`,
-`bool`, `char`, `byte` — checked per instantiation), `Mutex[T]`.
+`bool`, `char`, `byte` — checked per instantiation), `Mutex[T]`. See
+`## Threads and synchronization` below.
+
+## Threads and synchronization
+
+`Atomic[T]` and `Mutex[T]` are the only shared mutable state (see
+`### Thread boundary` above). They are intrinsics: const handles to
+runtime-managed cells, like a channel handle. The handle crosses a thread
+boundary by sharing; the cell lives in runtime memory, never in an arena, so
+it can never dangle. The cell stays mutable behind the `const` handle,
+exactly as `ch <- v` mutates a channel behind its handle.
+
+### Atomics
+
+Lock-free scalar accounting. `T` must be a lock-free scalar — `int`, `uint`,
+`float`, `bool`, `char`, `byte` (checked per instantiation); operations are
+sequentially consistent, and relaxed orderings are a later optimization.
+
+```c
+atomic.new func [T] (init T) Atomic[T]
+load       func [T] (a const Atomic[T]) T                    // a.load()
+store      func [T] (a const Atomic[T], v T)                 // a.store(v)
+swap       func [T] (a const Atomic[T], v T) T               // a.swap(v) -> previous
+cas        func [T] (a const Atomic[T], old T, new T) bool   // a.cas(old, new)
+fetchAdd   func [T] (a const Atomic[T], n T) T               // previous; integral only
+fetchOr    func [T] (a const Atomic[T], m T) T               // previous; integral only
+```
+
+`bool` and `float` get `load`/`store`/`swap`/`cas`; integrals also the
+`fetch*` family. `fetchAdd` returns the previous value — that is what makes
+it a coordination primitive (`if a.fetchAdd(1) == 0` means "I was first"),
+not just a counter.
+
+### Mutex
+
+Arbitrary payload, moved in at creation and owned by the lock. Locking
+returns a disposable guard: `dispose` is the unlock, and the resource gate
+(`## Resources`) forces exactly one of them — `g.dispose()` or moving `g`
+out. A contested `lock()` parks the coroutine like a channel receive, not
+the OS thread.
+
+```c
+mutex.new func [T] (v T) Mutex[T]
+lock      func [T] (m const Mutex[T]) Locked[T]   // parks until acquired
+Locked    struct [T] = { value *T }               // view into the cell, valid while locked
+dispose   func (g &Locked[T])                     // intrinsic: unlock
+```
+
+The guard's view is an alias of the guard binding: after `g.dispose()` the
+binding is dead, and returning a view of a local is a compile error, so the
+view cannot escape the lock. `panic` = abort, so a coroutine can never die
+holding a lock.
+
+### Example
+
+```c
+Counter struct = {
+  total uint
+  last  uint
+}
+
+worker func (id int, counter const Mutex[Counter], ops const Atomic[uint]) = {
+  loop {
+    ops.fetchAdd(1)                      // lock-free path: no lock
+    g := counter.lock()                  // compound update needs the lock
+    g.value.total += 1
+    g.value.last = id
+    g.dispose()                          // unlock — forced by the resource gate
+    // do work; a panic here aborts the process, not just this coroutine
+  }
+}
+
+main func () = {
+  counter := mutex.new(Counter { total = 0, last = 0 })
+  ops Atomic[uint] = atomic.new(0)       // T deduced from the expected type
+  stop := atomic.new(false)
+
+  spawn worker(1, counter, ops)          // const handles cross threads by sharing
+  spawn worker(2, counter, ops)
+  spawn worker(3, counter, ops)
+
+  loop !stop.load() {
+    // keep working; someone flips stop via stop.store(true)
+  }
+}
+```
 
 
 ## Generics
