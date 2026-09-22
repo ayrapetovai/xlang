@@ -588,7 +588,8 @@ ever be mutated by two threads at once; `panic` = abort, so a thread cannot
 leave shared state in half. Disposable owned values cross by move too — the
 dispose obligation rides along, exactly one `dispose()` on the receiving
 thread. The only shared mutable state across threads lives behind an
-explicit builtin sync tool: `Atomic[int]`, `Mutex[T]`.
+explicit builtin sync tool: `Atomic[T]` (T a scalar: `int`, `uint`, `float`,
+`bool`, `char`, `byte` — checked per instantiation), `Mutex[T]`.
 
 
 ## Generics
