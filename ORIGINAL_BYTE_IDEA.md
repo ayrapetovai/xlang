@@ -1,159 +1,150 @@
 # Bytes: the design idea
 
-*Draft design capture — how `byte`, `[]byte`, and struct↔bytes serialization could work.
-Not yet codified into README.md; forks are marked and open.*
+*Draft design capture — rev 2: `bytes` as a builtin ByteBuffer. Not yet codified
+into README.md; forks are marked and open.*
 
-`byte` already exists in the spec as a scalar — "Copyable types: scalars (int, float,
-`char`, `byte`, bool)" — but it is a ghost: no operators, no literals, no `[]byte`
-story, no serialization. This document fills that gap in four layers.
-
----
-
-## 1. The scalar
-
-`byte` is a raw unsigned 8-bit value, 0..255. It is **not** `char`: `char` is text (a
-code point, `'\n'`, `'A'`), `byte` is data. No implicit mixing — casts are explicit,
-per the language's rule.
-
-```c
-b byte = 0xA5          // hex literals — the spec needs 0x / 0b added
-n := byte.from(-1)     // wraps: 0xFF — same wrap semantics as uint.from(-1) = 1
-c := char.from(65)     // 'A'
-b = byte.from('A')     // 0x41 (wraps for code points above 255)
-
-b = 255 + 1            // 0 — 8-bit arithmetic wraps, like uint8
-b = b << 1             // high bit falls off
-b2 := b <<~ 3          // cyclic rotate — the language already has <<~ and >>~
-mask := b & 0x0F       // & | ~ ^ all apply
-```
-
-**Fork 1 — overflow: wrap or trap?**
-Wrap (recommended). It matches the existing `uint.from(-1) → 1` precedent, and
-protocol work (checksums, counters) would panic-spam under trapping. Rule: *byte
-arithmetic is modulo 256*.
+*Rev 1 (scalar `byte` + `[]byte` + fixed-width ints) is superseded: rev 2 dissolves
+the fixed-width-types question — widths live in the buffer API, not the type system.*
 
 ---
 
-## 2. `[]byte`
+## The model
 
-The workhorse. Construction, indexing, `.length`, and ranges exist already; the
-additions:
+`bytes` is a builtin mutable buffer: byte data plus a cursor, all functions built in
+(intrinsics). There is no `uint16` type — `asU16()` reads 2 bytes and returns a
+`uint`. Reads and writes advance the cursor; writes auto-grow the buffer.
 
 ```c
-buf []byte = { 0x48, 0x65, 0x6C, 0x6C, 0x6F }   // {H, e, l, l, o}
-buf.push(0x00)                    // append one byte
-buf += more                       // concat, like string +
-chunk := buf[2..<5]               // slice — see Fork 4
+b bytes = {1, 2, 3, 4}   // buffer, cursor at 0
+i uint = b.asU16()       // reads 2 bytes at the cursor → uint; cursor += 2
+b.reset()                // cursor = 0
+b.writeI16(i)            // writes 2 bytes at the cursor; grows if needed
+b.writeU8(127)
 ```
 
-**String interop** — strings are length-known binary-safe carriers, so the roundtrip
-is exact:
+## Construction and strings
 
 ```c
-data := "Hello".bytes()    // []byte, utf-8 bytes, a copy
-text := string.from(data)  // exact roundtrip, binary-safe
+b bytes                         // empty buffer
+b bytes = {1, 2, 3, 4}
+s := b.string()                 // utf-8 string of the contents
+b2 := bytes.from("Hello")       // the from-machinery, reverse direction
+b += more                       // append at the end (like string +)
 ```
 
-**Fork 4 — slicing: view or copy?**
-`buf[2..<5]` as a **view** (recommended) that writes through
-(`buf[2..<5][0] = 0x0A` mutates the source) — matches the view philosophy and enables
-parse-in-place framing. An owned copy is explicit: `buf[2..<5].copy()`. A view
-escaping its source dies by the existing "returning a view of a local" rule.
+## Reads — advance the cursor
 
-**Fork 2 — multi-byte for real (the key decision).** "2 bytes, 4 bytes" needs
-fixed-width integers; today there are only `int`/`uint`/`float` with no width
-defined. Two ways:
+| intrinsic | reads | returns |
+|---|---|---|
+| `asU8()` | 1 byte | `uint` (or scalar `byte`, see fork) |
+| `asU16()` | 2 bytes | `uint` |
+| `asU32()` | 4 bytes | `uint` |
+| `asU64()` | 8 bytes | `uint` |
+| `asI8/16/32/64()` | 1/2/4/8 bytes | `int` |
+| `asF32()/asF64()` | 4/8 bytes | `float` |
+| `asStr(n)` | n bytes | `string` |
 
-- *Add `int8 int16 int32 int64 uint8 uint16 uint32 uint64`* (and fix `int`/`uint`
-  = 64-bit). Then protocol structs carry real fields (`length uint32`,
-  `type uint16`) and `bytes.from` is deterministic.
-- *Only `byte` + hand-assembly* (`b[0] | b[1] << 8 | …`) — every field hand-packed.
+## Writes — advance the cursor, auto-grow
 
-Recommendation: the first, with `byte` staying **distinct** from `uint8` (so `[]byte`
-keeps its special string/socket functions and `[]uint8` is just numbers). With fixed
-widths, endian-correct chunk ops are explicit:
+`writeU8/16/32/64`, `writeI8/16/32/64`, `writeF32/64`, `writeStr(s)`. A value is
+truncated to its width (wrap semantics). Writing past the current length grows the
+buffer; writing within it overwrites in place.
+
+## Cursor and meta
+
+`reset()` → cursor 0 · `pos(n)` absolute · `skip(n)` · `remaining()` ·
+`eof()` (remaining == 0) · `length`.
+
+## Transforms — produce a new buffer
 
 ```c
-u32 := uint32.from(buf[0..<4], Endian.big)     // 2 bytes / 4 bytes / 8 bytes
-buf[4..<8].writeFrom(x, Endian.little)
+orred := b.or(0xFFFF)
+anded := b.and(0x0F)
+xored := b.xor(key)      // key bytes, element-wise
+flip  := b.not()
 ```
 
----
+## Slicing — views for framing
 
-## 3. Struct ↔ bytes
+`b[2..<5]` stays a view that writes through (fork, from rev 1); owned copy via
+`.copy()`. Framing pattern: read the length prefix, slice the body, parse the slice.
 
-`bytes.from(v)` / `T.from(bytes)` — reusing the *first-arg-is-the-type* `from`
-machinery (`int.from("1234")`), generated at compile time from the type descriptor:
+## Socket + files
 
-```c
-// canonical encoding, defined once, from reflection — not raw memory:
-//   scalars   → fixed width, big-endian (network byte order)
-//   string    → uint64 length + utf-8 bytes
-//   []T       → uint64 count + elements in order
-//   struct    → fields in declaration order, packed, no padding
-//   enum      → its tag as int
-//   *T views  → pointee encoded (there are no null pointers)
-payload := bytes.from(msg)           // total, []byte
-msg2    := Message.from(payload)     // Result[Message]
+- `socket.recv(fd)` — one byte
+- `socket.recv(fd, n)` — at most n bytes, `Result[bytes]`
+- `socket.recvExact(fd, n)` — exactly n, or `Error`
+- `socket.send(fd, data bytes)` — `Result[uint]`
+- `File struct = { fd Fd }` — disposable on the handle barrier; `dispose` = `file.close`
 
-// framing: slice first, then parse
-frame := Request.from(body)          // body is buf[0..<n]; buf advances by slicing
-```
+## Struct codecs
 
-It composes with the socket layer:
+With a cursor, manual codecs are trivial; canonical `bytes.from(v)` becomes optional.
 
 ```c
-readFrame func (conn &Connection) Result[Request] = {
-  hdr  := socket.recvExact(conn.fd, 8)         // uint64 length prefix
-  n    := uint64.from(hdr, Endian.big)
+toBytes func (r *Request, b bytes) = {
+  b.writeU16(r.kind)
+  b.writeU16(r.count)
+}
+fromBytes func (b *bytes) Request = {
+  Request {
+    kind  = b.asU16()
+    count = b.asU16()
+  }
+}
+
+readRequest func (conn &Connection) Result[Request] = {
+  hdr  := socket.recvExact(conn.fd, 4)   // uint32 length prefix
+  n    := hdr.asU32()
   body := socket.recvExact(conn.fd, n)
-  Request.from(body)
+  fromBytes(&body)
+}
+
+sendRequest func (conn *Connection, req Request) Result[uint] = {
+  body bytes
+  body.writeU16(req.kind)
+  body.writeU16(req.count)
+  frame bytes
+  frame.writeU32(body.length)
+  frame += body
+  socket.send(conn.fd, frame)
+}
+
+readLine func (conn *Connection) Result[string] = {
+  line bytes
+  loop {
+    match socket.recv(conn.fd) {
+      Ok(b) =>
+        if b == 0x0A then return Ok(line.string())
+        line.writeU8(b)
+      Error(e) =>
+        if line.length > 0 then return Ok(line.string())
+        return Error("connection closed: %s{e}")
+    }
+  }
 }
 ```
 
-**Fork 5 — canonical vs raw view.**
-A raw `asBytes(&msg)` memory view is rejected (recommended): struct padding may be
-uninitialized, so sending it could leak memory contents, and the layout is not
-portable. Canonical-from-descriptor is total, deterministic, and the reflection
-machinery makes it cheap. Deserialization returns `Result` ("bad data is data, not a
-panic"). Cyclic structures (possible in arenas!) become an error via an
-address-visited set, not a hang.
+## Decision set (recommendations marked)
 
----
+- **Endianness** — default big (network byte order); per-buffer switch
+  `b.endian(Endian.little)`.
+- **Fork 1 — overflow** — byte arithmetic wraps modulo 256; add `0x` / `0b` literals.
+- **Fork 3 — bounds** — `as*` / `write*` past the end is a **panic** (programmer
+  bug; `recvExact` already guarantees lengths at the I/O boundary), not `Result`.
+- **Fork 4 — slicing** — `b[i..<j]` is a write-through view; `.copy()` for owned.
+- **Fork 6 — transforms** — `or`/`and` per-byte with `mask & 0xFF` (recommended),
+  per-word, or big-integer; `xor(key bytes)` and `not()` element-wise.
+- **Fork 7 — scalar `byte`** — keep an 8-bit Copyable scalar (single values,
+  `char`/`byte` adjacency) or drop it; `asU8()` return type follows.
+- **Naming** — `read()`/`write()` as byte-level synonyms, or `asU8`/`writeU8` only.
+- **String interop** — `b.string()` / `bytes.from(s)` are binary-safe.
+- **Codecs** — manual `toBytes`/`fromBytes` is the recommended shape; canonical
+  `bytes.from(v)` stays optional.
 
-## 4. Socket + files
+**Open questions:**
 
-```c
-socket.recv(fd)        // one byte, Result[byte]   (as today, for text delimiting)
-socket.recv(fd, n)     // at most n bytes, Result[[]byte]
-socket.recvExact(fd,n) // exactly n, or Error   ← the useful one
-socket.send(fd, data)  // now takes []byte too (const string overload stays)
-
-File struct = { fd Fd }                  // same handle barrier as Connection
-dispose func (f &File) = { file.close(f.fd) }
-file.read(f, n) / file.write(f, data)
-```
-
-Files slot straight into the existing `Disposable`/handle-barrier model — "a file
-handle" is already named as a resource in `## Resources`.
-
----
-
-## Decision set (all recommended)
-
-- **Fork 1** — byte arithmetic wraps modulo 256; add `0x` / `0b` literals.
-- **Fork 2** — add fixed-width ints (`int8`..`uint64`); `int`/`uint` = 64-bit;
-  `byte` stays distinct from `uint8`.
-- **Fork 4** — slices are views with explicit `.copy()`.
-- **String interop** — `string.bytes()` / `string.from()` are binary-safe copies.
-- **Fork 5** — canonical big-endian descriptor encoding, `Result` on deserialize,
-  no raw memory views.
-- **I/O** — `recv` / `recvExact` / `send` bulk byte API; disposable `File`.
-
-**Open questions not yet settled:**
-
-- Endianness default for canonical struct encoding (big = network byte order is the
-  current default; per-field toggling is a possible future nicety).
-- Whether `recv(fd)` returns `Result[byte]` or stays text-oriented `Result[char]`
-  for `readLine`.
-- Width of `char` in canonical encoding (fixed 4-byte code point vs 1 byte).
+- Canonical `bytes.from(v)`: keep as a reflection-driven option, or drop in favor of
+  manual codecs?
+- `socket.recv(fd)` returns `Result[byte]` or `Result[uint]` (depends on Fork 7)?
+- Width of `char` in any future canonical encoding.
