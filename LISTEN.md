@@ -1,7 +1,9 @@
 Here's a sketch — a TCP echo server — written strictly against the syntax we've
-settled on (colonless declarations, `Result` for fallible ops, exhaustive
-`match`, `&` move-in for ownership, method sugar, and the `Fd` handle barrier
-with synthesized `dispose`):
+settled on: colonless declarations, exhaustive `match`, `&` move-in, the `Fd`
+handle barrier with synthesized `dispose`, `defer` for cleanup, and the error
+trio — `## Try / catch` for failures settled locally, `!` for unwrap-or-panic,
+`?` / `??` for `Optional` (absence, not failure). Only `socket.*` and
+`runtime.process.*` intrinsics are sketched beyond the core language.
 
 ```c
 // A TCP echo server: accept forever, echo each received line back, close.
@@ -31,79 +33,77 @@ Connection struct = {
   peer const string   // read-only shared view of the remote address
 }
 
-// -- bind + listen
-newListener func (address string, port uint) Result[Listener] = {
-  fdResult := socket.listen(address, port)   // intrinsic from clib("c"), returns Result[Fd]
-  return match fdResult {
-    Error(e) => Error("cannot listen on %s{address}:%d{port}: %s{e}")
-    Ok(fd)   => Ok(Listener { fd = fd })
-  }
+// -- the port: absence (env unset) is Optional absence, not a failure — `?` propagates
+portFromEnv func (name string) Optional[uint] = {
+  raw := process.env(name)?      // Optional[string]; None → return None
+  try p := uint.from(raw)        // a malformed value settles here, not a panic
+  Some(p)
+  catch e
+    return None
 }
 
-// -- accept one connection; failures here are transient, the caller keeps serving
+// -- bind + listen; failures settle locally with context
+newListener func (address string, port uint) Result[Listener] = {
+  try fd := socket.listen(address, port)
+  Ok(Listener { fd = fd })            // success tail: everything to the catch
+  catch e
+    return Error("cannot listen on %s{address}:%d{port}: %s{e}")
+}
+
+// -- accept one connection; failures are transient, the caller keeps serving
 accept func (listener *Listener) Result[Connection] = {
-  return match socket.accept(listener.fd) {  // fd through a view: *Fd
-    Error(e) => Error("accept: %s{e}")
-    Ok(fd)   => Ok(Connection { fd = fd, peer = socket.peerName(fd) })
-  }
+  try fd := socket.accept(listener.fd)     // fd through a view: *Fd
+  Ok(Connection { fd = fd, peer = socket.peerName(fd) })
+  catch e
+    return Error("accept: %s{e}")
 }
 
 // -- slurp one line (until \n, or EOF with data)
 readLine func (conn *Connection) Result[string] = {
   buf string
   loop {
-    match socket.recv(conn.fd) {          // view: conn is *Connection
-      Ok(ch) =>
-        if ch == '\n' then
-          return Ok(buf)
-        buf += string.from(ch)
-      Error(e) =>
-        if buf.length > 0 then
-          return Ok(buf)               // EOF with data: deliver what we have
-        return Error("connection closed: %s{e}")
-    }
+    try ch := socket.recv(conn.fd)         // view: conn is *Connection
+    if ch == '\n' then
+      return Ok(buf)
+    buf += string.from(ch)
+    catch e
+    if buf.length > 0 then
+      return Ok(buf)                       // EOF with data: deliver what we have
+    return Error("connection closed: %s{e}")
   }
 }
 
 write func (conn *Connection, data const string) Result[uint] = {
-  socket.send(conn.fd, data)           // returns Result[uint]
+  socket.send(conn.fd, data)               // already Result[uint]: pass through
 }
 
-// -- `Connection.dispose` / `Listener.dispose` are synthesized from the fd
-// -- field; `dispose func (f &Fd)` above is the only leaf body. Call sites:
-// -- `conn.dispose()` in echo, `l.dispose()` in main.
-
 // -- one coroutine per connection; `&` moves ownership in
+// -- one defer, every exit path — including the catch jump
 echo func (conn &Connection) = {
-  match conn.readLine() {
-    Ok(text) =>
-      match conn.write(text) {
-        Ok(n)    => out.println("echoed %d{n} bytes to %s{conn.peer}")
-        Error(e) => out.println("write to %s{conn.peer}: %s{e}")
-      }
-    Error(e) => out.println("read from %s{conn.peer}: %s{e}")
-  }
-  conn.dispose()   // the coroutine owns the connection
+  defer conn.dispose()
+  try text := conn.readLine()
+  try n := conn.write(text)
+  out.println("echoed %d{n} bytes to %s{conn.peer}")   // success tail
+  catch e
+  out.println("echo error: %s{e}")         // conn is disposed here; only e survives
 }
 
 serve func (listener *Listener) = {
   loop {
-    match listener.accept() {
-      Ok(conn) => spawn echo(&conn)    // the fd's ownership moves into the coroutine
-      Error(e) => out.println("%s{e}")
-    }
+    try conn := listener.accept()
+    spawn echo(&conn)                       // success tail: the connection moves in
+    catch e
+    out.println("accept: %s{e}")            // transient; keep serving
   }
 }
 
 main func () = {
-  cfg := ServerConfig { address = "0.0.0.0", port = 8080 }
-  match newListener(cfg.address, cfg.port) {
-    Ok(l) =>
-      serve(&l)                // serve borrows a view; we still own the listener
-      l.dispose()
-    Error(e) =>
-      out.println("fatal: %s{e}")
-      panic("server cannot start")
+  cfg := ServerConfig {
+    address = "0.0.0.0"
+    port    = portFromEnv("PORT") ?? 8080   // None → keep going with the default
   }
+  l := newListener(cfg.address, cfg.port)!  // Err → panic (main is exempt)
+  serve(&l)                                 // serve borrows a view; we still own the listener
+  l.dispose()
 }
 ```
