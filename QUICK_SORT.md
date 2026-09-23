@@ -21,7 +21,7 @@ swap func [T] (a *[]T, i uint, j uint) = {
 // which keeps sorted and reverse-sorted input at O(n log n) with no RNG.
 // Returns the pivot's final slot.
 partitionBy func [T] (a *[]T, lo uint, hi uint,
-                      less func (const T, const T) bool) uint = {
+                      less func (const *T, const *T) bool) uint = {
   mid uint = lo + (hi - lo) / 2
   // arrange a[lo] <= a[mid] <= a[hi], then move the median to hi
   if a[mid].less(a[lo]) then a.swap(mid, lo)
@@ -41,7 +41,7 @@ partitionBy func [T] (a *[]T, lo uint, hi uint,
 }
 
 sortRangeBy func [T] (a *[]T, lo uint, hi uint,
-                      less func (const T, const T) bool) = {
+                      less func (const *T, const *T) bool) = {
   if hi <= lo then
     return
   p uint = a.partitionBy(lo, hi, less)
@@ -60,7 +60,7 @@ quickSort func [T] (a *[]T) = {
 }
 
 // sort in place by an explicit ordering
-sortBy func [T] (a *[]T, less func (const T, const T) bool) = {
+sortBy func [T] (a *[]T, less func (const *T, const *T) bool) = {
   if a.length < 2 then
     return
   a.sortRangeBy(0, a.length - 1, less)
@@ -73,7 +73,7 @@ The intent of `quickSort` in full:
 quickSort func [T] (a *[]T) = {
   if a.length < 2 then
     return
-  a.sortRangeBy(0, a.length - 1, func (x const T, y const T) bool {
+  a.sortRangeBy(0, a.length - 1, func (x const *T, y const *T) bool {
     return x < y
   })
 }
@@ -100,7 +100,7 @@ Point struct = {
   y int
 }
 
-infix_operator< func (a const Point, b const Point) bool = {
+infix_operator< func (a const *Point, b const *Point) bool = {
   if a.x != b.x then
     return a.x < b.x
   return a.y < b.y          // same x: order by y
@@ -128,13 +128,13 @@ loop v in f do
    gap: **moving a value out of an array slot is not defined** (a slot cannot
    hold "nothing" — there are no nulls). Until move-out exists, heap elements
    need a permutation-based sort (sort `[]uint` of indices, then reorder).
-   `const T` parameters already make *comparing* heap elements cheap (shared
-   handles) — only the swap is missing.
+   `const *T` comparators already make *comparing* heap elements cheap (shared
+   views, auto-borrowed — no copies) — only the swap is missing.
 
 2. **The ordering is scope-based.** `quickSort` resolves `infix_operator<` for
    `T` where it is used (intrinsic for `int`/`float`, user-defined for
-   `Point`). `sortBy` needs nothing from the type — `func (x const T, y const
-   T) bool` is passed explicitly, so adversarial orderings (descending, by
+   `Point`). `sortBy` needs nothing from the type — `func (x const *T, y const
+   *T) bool` is passed explicitly, so adversarial orderings (descending, by
    field) cost no operator definitions.
 
 3. **Median-of-three handles pre-sorted data** without randomness. The one
@@ -153,14 +153,18 @@ loop v in f do
 6. **Trailing-lambda names are local.** A single-parameter lambda binds its
    argument as `it` (reserved inside the body): `{ it.value * 2 }`. Several
    parameters declare their own names before `:`: `{ x, y : x < y }`. Nothing
-   is inherited from the callee — `less` is typed `func (const T, const T)
+   is inherited from the callee — `less` is typed `func (const *T, const *T)
    bool`, with no parameter names to leak.
 
-7. **A convention nit to settle (cross-file).** Here and in the README,
-   operators take value params (`infix_operator< func (a const Point, b const
-   Point) bool`, matching the README's `const string` string operator), but
-   `LINKED_LIST.md`'s `infix_operator==` still takes `const *Point`.
-   One convention should win — value params are the README-consistent choice.
+7. **Operators take `const *T` — non-owning and universal.** `==` and `<` must
+   never take ownership, so `&T` is out (that moves in). Value params
+   (`const T`) would compare Copyable types without ownership, but a struct
+   holding arrays or strings is not Copy — `const T` is a compile error for
+   it — so the value convention would silently forbid operators on heap types.
+   Settled convention, here and in `LINKED_LIST.md`:
+   `infix_operator< func (a const *Point, b const *Point) bool`. Operand values
+   auto-borrow into the const views (see README, "Copyable types"); comparing
+   costs no copies and works for every type.
 
 8. **Not stable.** Equal keys are permuted freely. If relative order of
    equals matters, a stable sort (e.g. merge sort, to be written) is the fix.

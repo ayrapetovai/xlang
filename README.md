@@ -128,6 +128,7 @@ assertTrue(s.type.isVariable)
 assertTrue(&s.type.isPointer)
 
 // the `==` for strings (values) could look like this:
+// (intrinsic sketch, `#compiler.inline()`; a user-defined operator takes `const *T` operands — see "Copyable types")
 infix_operator== func (a const string, b const string) #compiler.inline()
 do
   if a.length != b.length then
@@ -156,6 +157,7 @@ Declaration: `name type`, initialization `name type = value`, deduced `name := v
 Channel send/receive: `ch <- v` (moves/copies a value into the cell), `v = <-ch` or `<-ch` (receive, yields `Optional[T]`)
 Coroutine operator: `spawn f(args)` — starts `f` on its own coroutine, returns `void`
 Result/Optional unwrap (propagate): postfix `!` on `Result[T, E]` (returns `Err(e)` from the function, or panics in `main`), postfix `?` on `Optional[T]` (returns `None`, or panics in `main`), and fallback `?? default` (keeps going with `default`) — see ``## `!` and `?` ``
+User-defined overloads: `infix_operator<`, `infix_operator==`, … take `const *T` operands (auto-borrowed, non-owning) — see "Copyable types".
 
 ## Control structures
 
@@ -557,6 +559,15 @@ viewRO const *string = &s   // read-only view
 foo(s)                        // ERROR: string is a heap type, cannot pass by value
 foo(&s)                       // OK — move-in, s is consumed afterwards
 ```
+
+**Values auto-borrow into `const *T`.** A value argument binds to a `const *T`
+parameter by implicit read-only view — no copy, no ownership. That is how
+`node.value == v` reaches `infix_operator== func (a const *Point, b const
+*Point) bool` from two `Point` values, and how comparators are invoked as
+`a[mid].less(a[lo])`. User-defined operators (`==`, `<`, …) and comparators
+take `const *T`: never `&T` (that moves in) and never `const T` (Copyable-only;
+a compile error for heap types). A *mutable* view still requires an explicit
+`&`.
 
 ### The checker (static, move-only)
 
