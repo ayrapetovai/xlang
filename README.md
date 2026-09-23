@@ -1168,6 +1168,85 @@ moves the connection into the coroutine, so `echo` — not `serve` — owes
 `main` owes `l.dispose()` after `serve` returns. See `## Resources (dispose)`
 below.
 
+## Bytes
+
+`bytes` is a builtin mutable byte buffer — packed bytes plus a read cursor,
+all operations intrinsics. It is arena memory, like `[]T`: it never needs
+`dispose`. There are no fixed-width integer types — widths live in the buffer
+API, so `asU16()` reads two bytes and returns a `uint`. `byte` exists as an
+8-bit Copyable scalar (`b[i]`, `0x0A`).
+
+```c
+b bytes                      // empty, ready
+b bytes = {1, 2, 3, 4}       // cursor at 0
+b += more                    // append at the end, like string +
+s := b.string()              // utf-8 copy of the contents (binary-safe)
+b2 := bytes.from("Hello")    // buffer from a string
+```
+
+Reads consume from the cursor; writes *append* at the end and never clobber
+the unread tail — to re-read a frame you built, `reset()` first.
+
+- Reads: `asU8()` → `byte`, `asU16()` / `asU32()` / `asU64()` → `uint`,
+  `asI8/16/32/64()` → `int`, `asF32()` / `asF64()` → `float`,
+  `asStr(n)` → `string` (a copy).
+- Writes: `writeU8/16/32/64`, `writeI8/16/32/64`, `writeF32/64`, `writeStr(s)`
+  — append and grow; a value truncates to its width (wrap semantics).
+- Absolute, cursor-free: `asU16At(pos)`, `writeU32At(pos, v)`, … — patch in
+  place; a write past the end zero-fills the gap; the cursor stays put.
+- Lookahead: `peek(n)` — a view of the next n bytes, cursor untouched.
+- Delimited: `asLine()` / `asUntil(delim)` — consume through the delimiter
+  and return what preceded it (delimiter not included); when the buffer ends
+  first they return the remainder and `eof()` flips.
+
+Cursor and meta: `reset()` → cursor 0, contents kept · `pos(n)` absolute ·
+`skip(n)` · `remaining()` · `eof()` (remaining == 0) · `length`.
+
+Endianness defaults to hardware native; a per-buffer override switches it for
+portable files and protocols: `b.endian(Endian.big)` / `b.endian(Endian.little)`.
+
+Bounds: an `as*` / `peek` / `writeAt` past the end **panics** — a programmer
+bug, not a `Result`. `recvExact` guarantees lengths at the I/O boundary, so a
+framed read never runs past its frame. A *short* read — fewer bytes than
+requested — is data, reported with the shared `IoError` vocabulary
+(`ShortRead`); EOF is *not* an error — a receive on a drained channel/socket
+yields `None`, per `### Channels`.
+
+Slicing — views, not copies: `b[2..<5]` is a write-through view (a mutation
+through it hits the buffer), `.copy()` for owned data, `b[i]` reads one
+`byte`. A view is valid until the buffer grows again. This is the framing
+pattern: read the length prefix, slice the body, parse the slice.
+
+Transforms — produce a new buffer: `b.or(0xFF)` / `b.and(0x0F)` mask each
+byte with `mask & 0xFF`; `b.xor(key)` is element-wise over the key bytes (a
+shorter key cycles); `b.not()` flips every bit. Byte arithmetic wraps modulo
+256; `0x` / `0b` literals are available.
+
+Manual codecs are the recommended shape — a cursor makes them trivial:
+
+```c
+sendRequest func (conn *Connection, req Request) Result[uint] = {
+  body bytes
+  body.writeU16(req.kind)
+  body.writeU16(req.count)
+  frame bytes
+  frame.writeU32(0)                  // length-prefix placeholder
+  frame += body
+  frame.writeU32At(0, body.length)   // patch it in place — cursor-free
+  socket.send(conn.fd, frame)
+}
+
+readRequest func (conn &Connection) Result[Request] = {
+  hdr  := socket.recvExact(conn.fd, 4)!
+  n    := hdr.asU32()
+  body := socket.recvExact(conn.fd, n)!
+  Request { kind = body.asU16(), count = body.asU16() }
+}
+```
+
+A canonical, reflection-driven `bytes.from(v)` for whole structs stays an
+option, not a requirement — `toBytes` / `fromBytes` above are the norm.
+
 ## Resources (dispose)
 
 Arenas free memory; *resources* — an fd, a file handle, an OS lock — do not.
