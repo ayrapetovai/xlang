@@ -30,7 +30,7 @@ Dynamic types dispatching for interfaces, like in Go.
 String interpolation with formatting.
 Any value can be written to `ByteBuffer` which is suitable everywhere.
 Meta-type information is stored in the binary. Types are never erased.
-Meta information is stored in binaries, including template functions (packed AST).
+Meta information is stored in binaries, including template functions (packed bytecode, with is stripped before linkage).
 Memory ownership: const = shared, owned = unique; per-block arenas free memory; moves and views only.
 Resources are released explicitly (`dispose func (v &T)`); `Disposable` is derived from shape, and the owner must dispose or move out.
 
