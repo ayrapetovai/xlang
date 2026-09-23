@@ -772,6 +772,61 @@ main func () = {
 ```
 
 
+## Try / catch
+
+`try` guards an operation that returns `Result[T, E]` — and only `Result`:
+`Optional[T]` has its own lighter handling and never enters a guarded scope.
+
+A guarded scope is the tail of a block:
+
+- the fallible operations stack as `try <statement>` — one statement each, no
+  block, all at the top level of the region;
+- the region ends with exactly one `catch <name>` — a **label with a
+  parameter**. Every statement after it, to the end of the enclosing block, is
+  the handler region: flat, no braces, no extra indent;
+- `catch` binds only the error value. The handler sees `e` plus whatever
+  Copy/const names the block held before the first `try` — nothing declared
+  inside the region.
+
+```c
+readFile func (path string) = {
+  status int = 200
+
+  try
+    file := open(path)              // Result[File, IoError]
+  defer file.dispose()              // registered only because the try above succeeded
+  try
+    data := file.readAll()          // Result[[]byte, IoError]
+  try
+    use(data)                       // success tail
+
+  // both paths settle here — defers registered above fire now
+  catch e
+    log("read failed: " + e)        // the handler is everything after `catch`,
+    status = 500                    // to the end of this block — flat
+    fallback(status)
+}
+```
+
+Semantics:
+
+- **Uniform error.** Every try in one region must produce the same `E`.
+  Mixing `Result[T, E1]` and `Result[T, E2]` in a single guarded scope does
+  not compile — split the regions or unify the errors.
+- **The settlement mark.** Both paths meet at the `catch` label. On success
+  the flow reaches the mark and the block ends — the handler region is
+  skipped. On failure the failed try jumps to the mark with `e` bound,
+  registered defers fire, and only then does the handler region run.
+- **Names below the mark.** No owned name declared above the mark lives below
+  it. A disposable bound by a `try` is already gone by the time the handler
+  runs — disposed by its `defer` or moved out. Only `e` and the block's
+  earlier Copy/const bindings remain.
+- **One region per block.** A block has at most one `catch`; trys do not
+  nest, and nothing jumps across block boundaries. An inner block may guard
+  its own tail.
+- **Panic is not a failure.** `panic` aborts the process; it never jumps to
+  `catch` and skips every defer, exactly like it bypasses `dispose`.
+
 ## Generics
 
 `[T]` as *parameters* appears only on the declaration side, after the kind
@@ -1097,7 +1152,12 @@ discharged by exactly one of:
 - `v.dispose()` was called — afterwards `v` is dead, like any consume; using
   it again is a compile error, so double-dispose is impossible; or
 - ownership moved out — `&v` passed to a function, `v` returned, `v` stored
-  into another binding. The check follows the move to the new owner.
+  into another binding. The check follows the move to the new owner; or
+- `defer v.dispose()` scheduled it — see `## defer`. Scheduled is not called:
+  the body runs once, later, at the block's normal exit, and still counts as
+  the single discharge. Inside a guarded scope (`## Try / catch`) `defer` is
+  the *only* acceptable form, since an explicit call cannot cover the failure
+  path.
 
 The check keys on the **last owned use**, not on scope text: a value that
 moved out owes nothing, a value that only lent a view still owes. Generic
@@ -1126,3 +1186,34 @@ at the interface declaration:
 The *forcing* is the derived struct's: the interface guarantees the hook, the
 checker forces every owner to call it or move the value out, and the concrete
 struct's dispose body decides what actually happens.
+
+## defer
+
+Deferring is *scheduling*, not disposal: `defer <statement>` or
+`defer { … }` schedules its body to run when the enclosing block exits
+normally — the end of the block, a `return` / `break` / `continue`, the
+settlement mark of a guarded scope, or a failure jump to `catch`. Bodies run
+in LIFO order — the last registered runs first — and always before the arena
+tears down the block's memory. `defer` is general cleanup, not dispose-only:
+any statement may be deferred. A deferred body returns nothing and must be
+infallible — it cannot `try`, and there is nothing left to deliver a failure
+to.
+
+A defer is **registered by execution**: control passes the `defer` statement
+and the body is scheduled. This is what makes try-catch presence invisible —
+a defer written after a `try` exists if and only if that try succeeded,
+because a failed try jumps straight to `catch` and the defer statement is
+never touched. No failure-slice machinery, no path-sensitive tracking of
+"which disposables exist on this path".
+
+A disposable bound inside a guarded scope must be discharged with `defer` (or
+moved out); an explicit `v.dispose()` covers only the success path, since the
+next try can still fail and jump to `catch` before it runs. So the checker
+demands a following `defer` that consumes it — a compile error otherwise.
+Dispose by defer is still exactly-once: deferring a value that is later
+explicitly disposed is an error, and a value moved out carries no pending
+defer.
+
+Panic is the only exit that skips defers: `panic` aborts the process, so
+deferred bodies never run and resources are abandoned with the app — exactly
+like memory today.
