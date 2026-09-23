@@ -155,6 +155,7 @@ Assignment: `=` (statement only, yields no value); no `++`/`--` — use `i += 1`
 Declaration: `name type`, initialization `name type = value`, deduced `name := value`
 Channel send/receive: `ch <- v` (moves/copies a value into the cell), `v = <-ch` or `<-ch` (receive, yields `Optional[T]`)
 Coroutine operator: `spawn f(args)` — starts `f` on its own coroutine, returns `void`
+Result/Optional unwrap (propagate): postfix `!` on `Result[T, E]` (returns `Err(e)` from the function, or panics in `main`), postfix `?` on `Optional[T]` (returns `None`, or panics in `main`), and fallback `?? default` (keeps going with `default`) — see ``## `!` and `?` ``
 
 ## Control structures
 
@@ -775,7 +776,8 @@ main func () = {
 ## Try / catch
 
 `try` guards an operation that returns `Result[T, E]` — and only `Result`:
-`Optional[T]` has its own lighter handling and never enters a guarded scope.
+`Optional[T]` has its own lighter handling — the `?` and `??` of
+``## `!` and `?` `` — and never enters a guarded scope.
 
 The `try-catch` pair — from the first `try` to the single `catch` — is one
 lifetime, like a code block `{ statements }`.
@@ -829,6 +831,58 @@ Semantics:
   its own tail.
 - **Panic is not a failure.** `panic` aborts the process; it never jumps to
   `catch` and skips every defer, exactly like it bypasses `dispose`.
+
+
+## `!` and `?`
+
+`!` unwraps a `Result[T, E]`, `?` and `??` an `Optional[T]`, in expression
+position — the lighter counterparts to `## Try / catch`, which settles errors
+locally. These propagate them outward instead:
+
+- `expr!` — `Result[T, E]` only. On `Err(e)` the enclosing function returns
+  `Err(e)` — or the whole process panics, if that function is `main` — and
+  otherwise the expression evaluates to the inner `T`.
+- `expr?` — `Optional[T]` only. On `None` the function returns `None` (in
+  `main`: panic); otherwise the expression evaluates to the inner `T`.
+- `expr ?? default` — `Optional[T]` only. On `None` the expression evaluates
+  to `default` and the function keeps going. There is never a return, so `??`
+  works in any function, `main` included, and inside guarded scopes.
+
+```c
+truncateRead : func (f File, n int) Result[string, error] = {
+  buffer bytes = {}
+  s := f.readLine(buffer)!        // Err propagates out of this function
+  return Ok(string.from(s[:n]))   // successes return explicitly, wrapped
+}
+
+getUserAuthorities func (login string) Optional[[]string] = {
+  aths := repository.selectAuthoritiesForUser(login)?
+  return Some(aths.filter(s != ""))
+}
+
+greet func (login string) string = {
+  name := repository.nickname(login) ?? login   // None: keep going with login
+  return "hello, " + name
+}
+```
+
+Rules:
+
+- **Forced return types.** A bare `!` forces its function to return
+  `Result[_, E]`; a bare `?` forces `Optional[_]`. The two cannot coexist in
+  one function — they force incompatible return types — while `??` forces
+  nothing and mixes freely. `main` is exempt from the forcing: its failure
+  path is a `panic` (abort), not a return.
+- **Payloads.** `?` returns `None`, which carries nothing, so an `Optional[Y]`
+  can feed a function returning any `Optional[X]`. `!` returns the actual
+  `Err(e)` value, so — with explicit casts only — the expression's `E` must
+  equal the function's `E` exactly. Success payloads are unconstrained.
+- **Unwrap is a consume.** `!`, `?`, and `??` move the value out of the box; a
+  non-Copy payload is moved, so a box cannot be unwrapped twice.
+- **Guarded scopes.** A bare `!` or `?` inside a `## Try / catch` region is a
+  compile error — the region settles its own errors, and an early return
+  would silently bypass `catch`. `??` has no failure path, so it stays legal.
+
 
 ## Generics
 
