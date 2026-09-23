@@ -777,6 +777,9 @@ main func () = {
 `try` guards an operation that returns `Result[T, E]` — and only `Result`:
 `Optional[T]` has its own lighter handling and never enters a guarded scope.
 
+The `try-catch` pair from the first `try` to the single `catch` is a lifetime
+as code block `{ stements }`.
+
 A guarded scope is the tail of a block:
 
 - the fallible operations stack as `try <statement>` — one statement each, no
@@ -786,25 +789,25 @@ A guarded scope is the tail of a block:
   the handler region: flat, no braces, no extra indent;
 - `catch` binds only the error value. The handler sees `e` plus whatever
   Copy/const names the block held before the first `try` — nothing declared
-  inside the region.
+  inside the region. `catch` acts more like a label, everything after it is
+  a list of statements that considered to be error handler.
 
 ```c
 readFile func (path string) = {
   status int = 200
 
-  try
-    file := open(path)              // Result[File, IoError]
-  defer file.dispose()              // registered only because the try above succeeded
-  try
-    data := file.readAll()          // Result[[]byte, IoError]
-  try
-    use(data)                       // success tail
+  try file := open(path)              // Result[File, Error]
+  defer file.dispose()                // registered only because the try above succeeded
+
+  try data := file.readAll()          // Result[[]byte, Error]
+  try use(data)                       // success tail
 
   // both paths settle here — defers registered above fire now
   catch e
-    log("read failed: " + e)        // the handler is everything after `catch`,
-    status = 500                    // to the end of this block — flat
-    fallback(status)
+
+  log("read failed: %s{e}")       // the handler is everything after `catch`,
+  status = 500                    // to the end of this block — flat
+  fallback(status)
 }
 ```
 
