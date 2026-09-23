@@ -455,10 +455,8 @@ a float = foo() // error, no explicit cast
 ```c
 a []int = {1, 2, 3}
 fold(a, func (a, b) { a * b }) // implicit return is single expression, types inferred
-// call with trailing block, parameter names for lambda from declaration of `fold`
-fold(a) {
-  a * b
-}
+// trailing block: one parameter binds as `it`; several declare names before `:`
+fold(a) { a, b : a * b }
 fold(array = a, folder = func (a int, b int) int { return a * b }) // explicit
 b := foo() // b is initialized by value returned by foo()
 b = bar() // b is assigned a value returned by bar()
@@ -466,6 +464,13 @@ b = bar() // b is assigned a value returned by bar()
 d Dog
 d.bark(10)
 ```
+
+A trailing block is a lambda with *local* parameter names — nothing is inherited
+from the callee's declaration. A single parameter binds as the reserved `it`:
+`{ it * 2 }`; several parameters declare their own names before `:`:
+`{ a, b : a * b }`. Function types in parameter lists carry no names
+(`less func (const T, const T) bool`) — a written-out function *expression*
+declares them inline (`func (a int, b int) int { … }`).
 
 ### Special Functions
 

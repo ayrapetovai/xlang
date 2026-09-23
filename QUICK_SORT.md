@@ -21,7 +21,7 @@ swap func [T] (a *[]T, i uint, j uint) = {
 // which keeps sorted and reverse-sorted input at O(n log n) with no RNG.
 // Returns the pivot's final slot.
 partitionBy func [T] (a *[]T, lo uint, hi uint,
-                      less func (x const T, y const T) bool) uint = {
+                      less func (const T, const T) bool) uint = {
   mid uint = lo + (hi - lo) / 2
   // arrange a[lo] <= a[mid] <= a[hi], then move the median to hi
   if a[mid].less(a[lo]) then a.swap(mid, lo)
@@ -41,7 +41,7 @@ partitionBy func [T] (a *[]T, lo uint, hi uint,
 }
 
 sortRangeBy func [T] (a *[]T, lo uint, hi uint,
-                      less func (x const T, y const T) bool) = {
+                      less func (const T, const T) bool) = {
   if hi <= lo then
     return
   p uint = a.partitionBy(lo, hi, less)
@@ -56,11 +56,11 @@ sortRangeBy func [T] (a *[]T, lo uint, hi uint,
 quickSort func [T] (a *[]T) = {
   if a.length < 2 then
     return
-  a.sortRangeBy(0, a.length - 1) { x < y }   // x, y named after `less`
+  a.sortRangeBy(0, a.length - 1) { x, y : x < y }
 }
 
 // sort in place by an explicit ordering
-sortBy func [T] (a *[]T, less func (x const T, y const T) bool) = {
+sortBy func [T] (a *[]T, less func (const T, const T) bool) = {
   if a.length < 2 then
     return
   a.sortRangeBy(0, a.length - 1, less)
@@ -116,7 +116,7 @@ loop p in pts do
 
 ```c
 f []float = {3.5, 1.0, 2.25}
-f.sortBy { x > y }        // descending — intrinsic `>` on floats
+f.sortBy { x, y : x > y }        // descending — intrinsic `>` on floats
 loop v in f do
   out.println("%f{v}")    // 3.5, 2.25, 1.0
 ```
@@ -150,9 +150,11 @@ loop v in f do
    view; no arena growth, no moves. Recursion is plain stack (average depth
    ~log2 n), and no block-arena work happens at any level.
 
-6. **Trailing-lambda names come from the declaration.** `{ x < y }` binds `x`
-   and `y` because `less` is declared as `func (x const T, y const T) bool` —
-   same mechanical rule as `{ v.value * 2 }` in the linked list.
+6. **Trailing-lambda names are local.** A single-parameter lambda binds its
+   argument as `it` (reserved inside the body): `{ it.value * 2 }`. Several
+   parameters declare their own names before `:`: `{ x, y : x < y }`. Nothing
+   is inherited from the callee — `less` is typed `func (const T, const T)
+   bool`, with no parameter names to leak.
 
 7. **A convention nit to settle (cross-file).** Here and in the README,
    operators take value params (`infix_operator< func (a const Point, b const

@@ -140,14 +140,14 @@ The Haskell trio: `fmap`, `>>=` (bind), `fromMaybe`. `match` lives *inside*
 these once; user code that composes values almost never needs it.
 
 ```c
-map func [A, B] (opt Optional[A], f func (v A) B) Optional[B] = {
+map func [A, B] (opt Optional[A], f func (A) B) Optional[B] = {
   match opt {
     Some(v) => Some(f(v))
     None    => None
   }
 }
 
-andThen func [A, B] (opt Optional[A], f func (v A) Optional[B]) Optional[B] = {
+andThen func [A, B] (opt Optional[A], f func (A) Optional[B]) Optional[B] = {
   match opt {
     Some(v) => f(v)
     None    => None
@@ -195,11 +195,11 @@ current func [T] (it ListIterator[T]) &T = {
 ## Usage
 
 Every fallible step below is composed with combinators — **no `match`, no
-`panic`** in user code. Trailing-block lambdas take their parameter names — and
-the named argument — from the function declaration, so call
-`l.find(20).map { v.value * 2 }` means call
-`l.find(20).map(f = func (v A) do v.value * 2)`, where `f` is the declared
-lambda parameter and `v` its declared name.
+`panic`** in user code. A trailing-block lambda binds a single parameter as
+`it` (reserved inside the body); several declare their own names before `:` —
+so `l.find(20).map { it.value * 2 }` is the lambda `func (A) B` passed as
+`map`'s last argument `f`, spelled explicitly if you prefer:
+`l.find(20).map(f = func (v A) do v.value * 2)`.
 
 ```c
 l *Head[int] = newList()
@@ -212,19 +212,19 @@ loop e in l do
 
 // map: transform inside the context — Haskell fmap
 doubled Optional[int] = l.find(20)
-  .map { v.value * 2 }
+  .map { it.value * 2 }
 out.println("doubled = %d{doubled.orElse(-1)}")   // 40; -1 if 20 were missing
 
 // fromMaybe: unwrap with a default, never a panic
 label string = l.find(99)
-  .map { "%d{v.value}" }
+  .map { "%d{it.value}" }
   .orElse("99 is not in the list")
 out.println(label)            // "99 is not in the list"
 
 // bind-like chain: find -> remove in one expression (Haskell `fmap (remove l) (find l t)`)
 popValue func [T] (l *Head[T], target T) Optional[T] = {
   l.find(target)
-    .map { l.remove(v) }
+    .map { l.remove(it) }
 }
 
 popped int = l.popValue(10)
@@ -281,7 +281,7 @@ maybe {                              // or: opt { }, chain { } ...
   node <- l.find(20)                // unwrap; absence short-circuits the block to None
   l.remove(node)                    // last bare value lifts into Some
 }
-// == l.find(20).andThen { Some(l.remove(v)) }
+// == l.find(20).andThen { Some(l.remove(it)) }
 ```
 
 ## Notes
