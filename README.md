@@ -777,8 +777,8 @@ main func () = {
 `try` guards an operation that returns `Result[T, E]` — and only `Result`:
 `Optional[T]` has its own lighter handling and never enters a guarded scope.
 
-The `try-catch` pair from the first `try` to the single `catch` is a lifetime
-as code block `{ stements }`.
+The `try-catch` pair — from the first `try` to the single `catch` — is one
+lifetime, like a code block `{ statements }`.
 
 A guarded scope is the tail of a block:
 
@@ -789,8 +789,8 @@ A guarded scope is the tail of a block:
   the handler region: flat, no braces, no extra indent;
 - `catch` binds only the error value. The handler sees `e` plus whatever
   Copy/const names the block held before the first `try` — nothing declared
-  inside the region. `catch` acts more like a label, everything after it is
-  a list of statements that considered to be error handler.
+  inside the region. `catch` acts as a label: everything after it is a list
+  of statements — the error handler.
 
 ```c
 readFile func (path string) = {
