@@ -951,7 +951,12 @@ IOError error = {
   customParam int
   customMessage string
 }
-JsonParseError error = { customMessage string }
+// the canonical JsonParseError — fromJson (## Metaprogramming) uses this shape
+JsonParseError error = {
+  message string
+  offset  uint
+  cause   error
+}
 ```
 
 One **built-in** kind is public and structurally normal: `Error { message
@@ -973,7 +978,7 @@ loadUser func (path const string) = {
   if e is IOError io then
     out.println("failed to read user: %s{io.customMessage}")
   else if e is JsonParseError jp then
-    out.println("failed to parse user: %s{jp.customMessage}")
+    out.println("failed to parse user: %s{jp.message}")
   // kinds without a test fall through — handled implicitly by the handler's end
 }
 ```
@@ -1143,31 +1148,57 @@ User struct = {
   password string   #json.masked(json.mask.first(10))
 }
 
-// this json serializer does not pay attention to field metadata
-toJson func [O] (obj *O, n := 0) Result[string] = {
+// -- emit failures are *values*, not types: a non-finite float, or the depth
+// -- cap. The parse kind `JsonParseError` is declared in ## Error kinds
+JsonWriteError error = { message string; cause error }
+
+// toJson walks obj through const views only — reflection never takes, moves,
+// mutates, or disposes. `O` is constrained **JSON-shaped** at instantiation
+// (scalars, string, enum, array, struct — no `*T`, `any`, or disposable
+// fields), so serialization cannot cycle: there are no references to follow.
+// The output is arena-built in the caller's statement-block arena (C7) and
+// dies with the caller's block.
+toJson func [O] (obj const *O, n := 0) Result[string] = {
+  if n > 64 then
+    return Error(JsonWriteError { message = "too deeply nested" })
   indents := "    " * n
   json := indents + match O {
-    String(s) => "%q{s}\n"
-    Integer(i) => "%n{i}\n"
-    Float(f) => "%f{f}\n"
+    String(s) => "%q{s}\n"                       // s: const view of the value
+    Integer(i) => "%n{i}\n"                      // scalars arrive Copy
+    Float(f) => if f.isFinite() then "%f{f}\n"
+                else return Error(JsonWriteError { message = "non-finite float" })
     Boolean(b) => "%b{b}\n"
-    Enum(e) => "%q{e.name + "_" + e.type}: {\n" + toJson(e.value(), n + 1) + "\n}\n"
+    Enum(e) => "%q{e.name}: {\n" + toJson(e.value(), n + 1)! + "\n}\n"  // deep failures propagate
     Array(a) =>
       subjson string
-      loop e in a {
-        mayBeComma := if !last then "," else ""
-        subjson += indents + "%s{toJson(e, n + 1)}%s{mayBeComma}\n"
+      loop i, e in a {                           // i: iteration ordinal = slot for arrays
+        mayBeComma := if i + 1 < a.length then "," else ""
+        subjson += indents + "%s{toJson(e, n + 1)!}%s{mayBeComma}\n"
       }
       "[\n" + subjson + indents + "]\n"
     Struct(s) =>
       subjson string
-      loop f in s.fields {               // s.fields yields const *field — read-only views
-        mayBeComma := if !last then "," else ""
-        subjson += indents + "%q{f.name()}: %s{toJson(f.value(obj), n + 1)}%s{mayBeComma}\n"
+      loop i, f in s.fields {                    // s.fields yields const *field — read-only views
+        mayBeComma := if i + 1 < s.fields.length then "," else ""
+        subjson += indents + "%q{f.name()}: %s{toJson(f.value(obj), n + 1)!}%s{mayBeComma}\n"
       }
       "{\n" + subjson + indents + "}\n"
   }
   return Ok(json)
+}
+
+// -- parse: genuinely fallible — malformed input is data (Result), unlike the
+// -- invariant panics above. Success **&-creates the whole O graph** in the
+// -- caller's statement-block arena and returns a view into it: survives the
+// -- call, bulk-freed at the caller's block exit, no dispose (the newList
+// -- precedent, C7). The same JSON-shaped constraint applies: a parser cannot
+// -- construct `*T`/`any`/disposable fields from text.
+fromJson func [O] (json const string) Result[*O] = {
+  parser := JsonParser { input = json, at = 0 }       // JsonParser: intrinsic
+  try obj := parser.parse[O]()                        // nested &-creates land in
+  Ok(obj)                                             // the caller's arena (C7)
+  catch e
+  Error(JsonParseError { message = "json parse failed", offset = parser.at, cause = e })
 }
 ```
 

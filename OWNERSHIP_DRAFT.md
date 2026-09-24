@@ -255,6 +255,34 @@ Morphological check at the site, per instantiation:
    is answered by `is`; sentinels are payload-less kinds (`NotFound error =
    {}`), tested the same way.
 
+# Missing rules now specified — reflection IO (C12)
+
+1. **Reflection access is read-only by shape.** Every reflected value is a
+   const view (heap shapes: string, enum, array, struct) or a Copy scalar;
+   reflection never takes, moves, mutates, or disposes. Enforced with the
+   ordinary mechanism: a serializer/visitor takes `const *O`, and consuming
+   anything through a const view is a compile error — the walk is
+   ownership-neutral by construction.
+2. **Serialize keeps `Result`; failures are values, not types.** `toJson[O]
+   (obj const *O, n := 0) Result[string]` — the only failure modes are a
+   non-finite float and the depth cap, reported as a declared kind
+   (`JsonWriteError { message, cause }`); deep failures propagate via `!` or
+   wrap with `cause` for field context (C11). Output is arena-built in the
+   caller's statement-block arena and dies with the caller's block (C7).
+3. **JSON-shaped constraint, checked at instantiation.** `O`'s reachable
+   field types must be scalars, string, enum, array, struct-of-those — no
+   `*T`, `any`, or disposable fields. Serialization cannot cycle: no
+   references exist to follow, so no pointer arm and no cycle machinery.
+   Parse cannot construct refs from text, so the identical constraint
+   governs `fromJson`.
+4. **Parse owns nothing it returns.** `fromJson[O] (json const string)
+   Result[*O]` — success **&-creates the whole O graph** in the caller's
+   statement-block arena and returns a view into it: one bulk-free at the
+   caller's block exit, no dispose (newList precedent, C7 — recursion lands
+   every nested allocation in the outermost caller's arena). Failure is a
+   declared kind with a byte offset (`JsonParseError { message, offset,
+   cause }`), tested and bound under C11.
+
 # Draft fixes applied (rules-first)
 
 Applied per approval (Sep 24) across `README.md`, `LISTEN.md`, `QUICK_SORT.md`,
@@ -355,6 +383,20 @@ made false by value-params-move) and README's iterator *call sites*
     (payload reads need a kind-bound name; `==` on errors CE),
     `## loop with in` gains the ordinal rule; OWNERSHIP_DRAFT C10 rule #4
     corrected + missing-rules + decision C11.
+19. Reflection IO under ownership (ruling C12): README `## Metaprogramming`
+    rewritten — `toJson` corrected to `obj const *O` (reflection access is
+    read-only by shape), keeps `Result[string]` with *value*-level failures
+    only (non-finite float, depth cap → `JsonWriteError`); `O` constrained
+    JSON-shaped at instantiation (no `*T`/`any`/disposable fields — cycles
+    impossible by construction, so no pointer arm and no cycle machinery);
+    array/struct commas use the loop ordinal + `.length` (the deleted
+    first/last proposal's `!last` was dangling); new `fromJson[O] (json const
+    string) Result[*O]` — &-creates the whole graph in the caller's arena,
+    returns a view, failure = `JsonParseError { message, offset, cause }`
+    (declared in `## Error kinds`, per C11). — README `### Error kinds`
+    example aligned to the canonical `JsonParseError` shape
+    (`%s{jp.customMessage}` → `%s{jp.message}`) + missing-rules + decision
+    C12.
 
 ---
 
@@ -418,3 +460,16 @@ made false by value-params-move) and README's iterator *call sites*
     machinery-maintained, uniform; (7) `==` on error values is a compile
     error — sentinels are payload-less kinds tested with `is`. Corrects the
     C10 "narrowing" wording (binding, not narrowing).
+11. **C12 reflection IO (follow-up, Sep 24)**: (1) reflection access is
+    read-only by shape — every reflected value is a const view (heap shapes)
+    or a Copy scalar; enforced via `const *O` parameters, consumption through
+    const is CE; (2) `toJson` keeps `Result[string]` — failures are *values*
+    (non-finite float, depth cap → `JsonWriteError`), not types; (3) the
+    JSON-shaped constraint at instantiation rejects reachable `*T`/`any`/
+    disposable fields — serialization cannot cycle by construction, so no
+    pointer arm or cycle machinery; (4) parse direction added as `fromJson[O]
+    (json const string) Result[*O]` — success &-creates the whole graph in
+    the caller's statement-block arena and returns a view (newList/C7);
+    failure = `JsonParseError { message, offset, cause }` under C11
+    machinery. Answers: keep Result; add fromJson; reject pointers at
+    instantiation.
