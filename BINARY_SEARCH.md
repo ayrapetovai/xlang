@@ -3,13 +3,13 @@
 A search companion for the two sorts (`QUICK_SORT.md`, `MERGE_SORT.md`):
 find a key in a sorted array, or the range it would occupy. Written only with
 what the language already has: method sugar on a **const array view**,
-`Optional` for absence, and the element type's `infix_operator<` in scope —
+`T?` for absence, and the element type's `infix_operator<` in scope —
 and only `<`: equality is tested as "less in neither direction", so the
 sketch never consults `==` (the `MERGE_SORT.md` half of the C13 ordering
 contract).
 
-Absence is a **data condition**, not a failure — `Optional[uint]` and never a
-`Result`, the `getAt` convention of `LINKED_LIST.md`.
+Absence is a **data condition**, not a failure — `uint?` and never a `T!`,
+the `getAt` convention of `LINKED_LIST.md`.
 
 ## The search
 
@@ -42,13 +42,13 @@ lowerBound func [T] (a const *[]T, key const *T) uint = {
 }
 
 // an index i with NOT (a[i] < key) AND NOT (key < a[i]) — "equal under `<`" —
-// or None. lowerBound's contract already supplies the first half, so the key
+// or absent. lowerBound's contract already supplies the first half, so the key
 // is present iff the element at the insertion point is not `> key` either.
-search func [T] (a const *[]T, key const *T) Optional[uint] = {
+search func [T] (a const *[]T, key const *T) uint? = {
   i := a.lowerBound(key)
   if i < a.length && !(key < a[i]) then
-    return Some(i)
-  return None
+    return i                  // auto-wrap: success
+  return                      // absence (bare return)
 }
 ```
 
@@ -62,10 +62,10 @@ sorts, so heap element types cost nothing.
 ```c
 a []int = {9, 3, 7, 1, 5, 3}
 a.mergeSort()                          // 1, 3, 3, 5, 7, 9
-match a.search(3) {
-  Some(i) => out.println("3 at %d{i}")      // 1 — the FIRST 3 (see note 5)
-  None    => out.println("3 absent")
-}
+if i := a.search(3)? then
+  out.println("3 at %d{i}")            // 1 — the FIRST 3 (see note 5)
+else
+  out.println("3 absent")
 n uint = a.lowerBound(6)               // 4 — count of elements < 6: {1, 3, 3, 5}
 ```
 
@@ -87,10 +87,10 @@ from `MERGE_SORT.md` — keyed, stable-sorted — searches by a partial key
 without `==`:
 
 ```c
-match items.search(Item {4, 999}) {    // `<` on Item consults only the key
-  Some(i) => out.println("first 4 at %d{i}")   // 3 — (4, 0) in the sorted run
-  None    => out.println("no 4s")
-}
+if i := items.search(Item {4, 999})? then     // `<` on Item consults only the key
+  out.println("first 4 at %d{i}")             // 3 — (4, 0) in the sorted run
+else
+  out.println("no 4s")
 ```
 
 ## Notes
@@ -103,10 +103,10 @@ match items.search(Item {4, 999}) {    // `<` on Item consults only the key
    `search` would "find" it at a slot where `lowerBound` lands; the sorted
    precondition is the caller's obligation, exactly as in the sorts.
 
-2. **Absence is data.** `Optional[uint]`, `None` for "not present" — never a
-   `Result`, never a panic. There is no failure mode: the halves are proven
-   disjoint and exhaustive (note 3), so the only outcome is an index or a
-   well-typed nothing.
+2. **Absence is data.** `uint?` — a bare `return` spells "not present" —
+   never a `T!`, never a panic. There is no failure mode: the halves are
+   proven disjoint and exhaustive (note 3), so the only outcome is an index
+   or a well-typed nothing.
 
 3. **uint-safety by construction.** Over a sorted array of length `n`, every
    step shrinks the gap `hi - lo`: when `a[mid] < key`, `lo` moves to

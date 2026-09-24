@@ -2,7 +2,7 @@
 
 The reopened `bytes.from(v)` option (README `## Bytes`, "stays an option…"):
 a reflection-driven whole-object binary codec, defined under C12's shape —
-read-only over `const *O` views, `Result` with **value-level** failures, and
+read-only over `const *O` views, `T!` with **value-level** failures, and
 the same instantiation constraint as the JSON codec (scalars, string, enum,
 array, struct — no reachable `*T`, `any`, or disposable fields). One shape,
 two encodings: `toJson`/`fromJson` (text) and `toBytes`/`fromBytes` (this
@@ -14,7 +14,8 @@ parser is constructible from the shape alone.
 ```c
 // -- emit failures are values, not types: a non-finite float, or the depth
 // -- cap. Parse failures carry the frame offset (parser cursor) where the
-// -- frame stopped making sense. Both mirror the JSON kinds.
+// -- frame stopped making sense. Both mirror the JSON kinds — and both are
+// -- spelled by bare `return kind { … }` (auto-wrap, C19).
 BinaryWriteError error = { message string; cause error }
 BinaryParseError error = { message string; offset uint; cause error }
 
@@ -24,16 +25,16 @@ BinaryParseError error = { message string; offset uint; cause error }
 // caller's block, no dispose, `bytes` is arena memory. The wire format is
 // pinned **Endian.big** — set on the buffer before any write, so the frame
 // is portable by construction, not by the caller's platform.
-toBytes func [O] (obj const *O, n := 0) Result[bytes] = {
+toBytes func [O] (obj const *O, n := 0) bytes! = {
   if n > 64 then
-    return Error(BinaryWriteError { message = "too deeply nested" })
+    return BinaryWriteError { message = "too deeply nested" }
   b bytes
   b.endian(Endian.big)
   match O {
     String(s)   => { b.writeU32(s.length); b.writeStr(s) }
     Integer(i)  => b.writeI64(i)
     Float(f)    => if f.isFinite() then b.writeF64(f)
-                   else return Error(BinaryWriteError { message = "non-finite float" })
+                   else return BinaryWriteError { message = "non-finite float" }
     Boolean(x)  => b.writeU8(if x then 0x01 else 0x00)
     Enum(e)     => { b.writeU32(e.name.length); b.writeStr(e.name)     // arm name, note 7
                      b += toBytes(e.value(), n + 1)! }                  // deep failures propagate
@@ -41,7 +42,7 @@ toBytes func [O] (obj const *O, n := 0) Result[bytes] = {
                      loop e in a { b += toBytes(e, n + 1)! } }
     Struct(s)   => { loop f in s.fields { b += toBytes(f.value(obj), n + 1)! } }
   }
-  return Ok(b)
+  return b                        // auto-wrap: success
 }
 ```
 
@@ -61,20 +62,20 @@ The wire format falls out of the shape — the table is normative:
 
 ```c
 // parse: genuinely fallible — a truncated or malformed frame is data
-// (Result), never an abort. Success &-creates the whole O graph in the
+// (`T!`), never an abort. Success &-creates the whole O graph in the
 // caller's statement-block arena (C7) and returns a view: survives the call,
 // bulk-freed at the caller's block exit, no dispose (the newList precedent).
 // fromBytes pins the frame's endianness before parsing: `copy()` owns the
 // input in the caller's arena, `endian(Endian.big)` makes reads agree with
 // the format toBytes wrote.
-fromBytes func [O] (b const bytes) Result[*O] = {
+fromBytes func [O] (b const bytes) *O! = {
   frame := b.copy()               // owned arena copy, reads can't touch the caller's buffer
   frame.endian(Endian.big)
   parser := BinaryParser { input = &frame, at = 0 }     // BinaryParser: intrinsic
-  try obj := parser.parse[O]()
-  Ok(obj)
+  try obj := parser.parse[O]()                          // nested &-creates land in
+  return obj                                            // the caller's arena (C7)
   catch e
-  Error(BinaryParseError { message = "binary parse failed", offset = parser.at, cause = e })
+  return BinaryParseError { message = "binary parse failed", offset = parser.at, cause = e }
 }
 ```
 
@@ -89,11 +90,11 @@ The BinaryParser's one discipline, normative for any coded parser:
 > `need(n)` → intrinsic read → advance the cursor:
 >
 > ```c
-> need func (p *BytesParser, n uint) Result[uint] = {
+> need func (p *BytesParser, n uint) uint! = {
 >   if p.at + n > p.input.length then
->     return Error(BinaryParseError { message = "truncated frame", offset = p.at,
->                                     cause = Error { message = "%d{n} bytes needed" } })
->   return Ok(p.at)               // the read offset — become available
+>     return BinaryParseError { message = "truncated frame", offset = p.at,
+>                               cause = Error { message = "%d{n} bytes needed" } }
+>   return p.at               // the read offset — become available
 > }
 > ```
 >
@@ -108,7 +109,7 @@ The BinaryParser's one discipline, normative for any coded parser:
 > p.need(len)!                           // prove the body is too
 > s := p.input[off + 4 ..< off + 4 + len].asStr(len)   // slice view → owned copy
 > p.at = off + 4 + len
-> Ok(s)
+> return s                   // auto-wrap: success
 > ```
 
 ## Notes
@@ -124,8 +125,8 @@ The BinaryParser's one discipline, normative for any coded parser:
    `BinaryWriteError`. Parse: any short or self-inconsistent frame →
    `BinaryParseError { offset }` — the offset is the parser cursor when the
    check failed, the same role `parser.at` plays in `JsonParseError`. No
-   panic is reachable from malformed data, and no `Result` is ever swallowed
-   — the `!` propagations in `toBytes` are bare (no guarded scope in the
+   panic is reachable from malformed data, and no `T!` is ever swallowed —
+   the `!` propagations in `toBytes` are bare (no guarded scope in the
    reflection arms), so a deep failure surfaces as the whole call's failure.
 
 3. **Endianness is the codec's, not the platform's.** `toBytes` pins
@@ -170,5 +171,5 @@ The BinaryParser's one discipline, normative for any coded parser:
    explicit length-prefix convention, and `json.Decoder`-style arm-by-arm
    construction is the `encoding/json` reflection. The differences are the
    ownership ones: the output buffer and the parsed graph are arena memory in
-   the caller's block (no GC, no `close`), failures pass through `Result`
-   with an offset, and panics stay unreachable from data.
+   the caller's block (no GC, no `close`), failures pass through `T!` with
+   an offset, and panics stay unreachable from data.

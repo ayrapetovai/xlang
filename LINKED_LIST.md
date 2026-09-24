@@ -3,8 +3,8 @@
 A generic doubly linked list, written only with what the language already has:
 sentinels instead of null pointers, `&`-allocations into the caller's arena,
 the `begin` / `end` / `next` / `current` protocol that backs `loop ... in`,
-and `Optional` handled the Haskell way — **stay in the context** with
-`map` / `andThen` / `orElse`, unwrap only at the end.
+and absence handled **by form** — the checked `if x := …?` heads, `?` / `??`,
+with no `match` on the shape (C19: `match` on a `T?` is a compile error).
 
 ## Shape
 
@@ -70,25 +70,25 @@ pushFront func [T] (list *Head[T], v T) = {
   list.length += 1
 }
 
-// Empty list is a data condition, not a bug -> Optional, no panic inside.
-popFront func [T] (list *Head[T]) Optional[T] = {
+// Empty list is a data condition, not a bug -> T? absence, no panic inside.
+popFront func [T] (list *Head[T]) T? = {
   if list.length == 0 then
-    return None
+    return
   first *Node[T] = list.sentinel.next
   list.sentinel.next = first.next
   first.next.prev = &list.sentinel
   list.length -= 1
-  return Some(first.value)   // T is Copy (see note 4), so this is a copy, not a move
+  return first.value   // T is Copy (see note 4), so this is a copy, not a move
 }
 
-popBack func [T] (list *Head[T]) Optional[T] = {
+popBack func [T] (list *Head[T]) T? = {
   if list.length == 0 then
-    return None
+    return
   last *Node[T] = list.sentinel.prev
   list.sentinel.prev = last.prev
   last.prev.next = &list.sentinel
   list.length -= 1
-  return Some(last.value)
+  return last.value
 }
 
 clear func [T] (list *Head[T]) = {
@@ -102,37 +102,38 @@ clear func [T] (list *Head[T]) = {
 ## Queries
 
 ```c
-// Out of range is a data condition -> Optional, no panic inside.
-getAt func [T] (list *Head[T], i uint) Optional[*T] = {
+// Out of range is a data condition -> T? absence, no panic inside.
+getAt func [T] (list *Head[T], i uint) *T? = {
   if i >= list.length then
-    return None
+    return
   node *Node[T] = list.sentinel.next
   loop _ in 0..<i do
     node = node.next
-  return Some(&node.value)
+  return &node.value
 }
 
-// `Optional` is a `const enum [T any]`, so the payload may be a pointer.
-find func [T] (list *Head[T], v T) Optional[*T] = {
+// the `*T` payload is a writable view into the node — postfix shapes wrap
+// any payload type, a pointer included (note 6).
+find func [T] (list *Head[T], v T) *T? = {
   node *Node[T] = list.sentinel.next
   loop node != &list.sentinel {
     if node.value == v then
-      return Some(&node.value)
+      return &node.value
     node = node.next
   }
-  return None
+  return          // not found — absence
 }
 
 // Removal needs the node, so `findNode` is the node-level query; element
 // views cannot feed `remove`.
-findNode func [T] (list *Head[T], v T) Optional[*Node[T]] = {
+findNode func [T] (list *Head[T], v T) *Node[T]? = {
   node *Node[T] = list.sentinel.next
   loop node != &list.sentinel {
     if node.value == v then
-      return Some(node)
+      return node
     node = node.next
   }
-  return None
+  return          // not found — absence
 }
 
 // Passing the sentinel here is an invariant violation, a bug — panic stays.
@@ -146,32 +147,19 @@ remove func [T] (list *Head[T], node *Node[T]) T = {
 }
 ```
 
-## Optional combinators (standard library)
+## Absence handling (C19 forms)
 
-The Haskell trio: `fmap`, `>>=` (bind), `fromMaybe`. `match` lives *inside*
-these once; user code that composes values almost never needs it.
+The old Haskell trio (`map` / `andThen` / `orElse`) is gone: each one
+`match`es the shape, and `match` on a `T?` is a compile error (C19). The
+language's handling forms replace them — user code that composes values
+uses these, and `match` never appears:
 
 ```c
-map func [A, B] (opt Optional[A], f func (A) B) Optional[B] = {
-  match opt {
-    Some(v) => Some(f(v))
-    None    => None
-  }
-}
-
-andThen func [A, B] (opt Optional[A], f func (A) Optional[B]) Optional[B] = {
-  match opt {
-    Some(v) => f(v)
-    None    => None
-  }
-}
-
-orElse func [A] (opt Optional[A], fallback A) A = {
-  match opt {
-    Some(v) => v
-    None    => fallback
-  }
-}
+//  - `if x := e? then … else …` — branch on presence; the payload binds
+//  - `loop x := e? do …` — the same branching head for loops
+//  - `e ?? default` — fall back and keep going
+//  - `e == {}` / `e != {}` — the presence tests, anywhere
+//  - `(&e)?` — unwrap through a view; binds a const view of the payload
 ```
 
 ## Iteration protocol
@@ -206,14 +194,10 @@ current func [T] (it ListIterator[T]) &T = {
 
 ## Usage
 
-Every fallible step below is composed with combinators — **no `match`, no
-`panic`** in user code. A trailing-block lambda binds a single parameter as
-`it` (reserved inside the body); several declare their own names before `:` —
-so `l.find(20).map { it * 2 }` is the lambda `func (A) B` passed as
-`map`'s last argument `f`, spelled explicitly if you prefer:
-`l.find(20).map(f = func (v A) do v * 2)`.
-A is `*int` here — `find` hands out an element view, and operators
-auto-dereference views (README, auto dereference).
+Every fallible step below is handled by form — **no `match`, no `panic`** in
+user code: the checked `if …?` binds, `??` falls back. `find` hands out an
+element view (`*int`), and operators auto-dereference views (README, auto
+dereference).
 
 ```c
 l *Head[int] = newList()
@@ -224,34 +208,38 @@ l.pushFront(5)   // l is now: 5, 10, 20
 loop e in l do
   out.println("%d{e}")       // 5, 10, 20 — e is a view, nothing is copied
 
-// map: transform inside the context — Haskell fmap
-doubled Optional[int] = l.find(20)
-  .map { it * 2 }               // it: element view *int — operators auto-deref
-out.println("doubled = %d{doubled.orElse(-1)}")   // 40; -1 if 20 were missing
+// the checked form — presence binds the payload, absence runs the else:
+if v := l.find(20)? then
+  out.println("doubled = %d{v * 2}")      // 40 — v: element view *int, auto-deref
+else
+  out.println("20 missing")
 
-// fromMaybe: unwrap with a default, never a panic
-label string = l.find(99)
-  .map { "%d{it}" }             // formatting auto-derefs the view, like `e` above
-  .orElse("99 is not in the list")
+// fallback — unwrap with a default, never a panic (the old `orElse`):
+label string
+if v := l.find(99)? then
+  label = "%d{v}"
+else
+  label = "99 is not in the list"
 out.println(label)            // "99 is not in the list"
 
-// bind-like chain: findNode -> remove in one expression (Haskell `fmap (remove l) (find l t)`)
-popValue func [T] (l *Head[T], target T) Optional[T] = {
-  l.findNode(target)
-    .map { l.remove(it) }
+// absence is data, not a failure — popValue returns T?; a bare return is
+// absence, return v auto-wraps the success:
+popValue func [T] (l *Head[T], target T) T? = {
+  if n := l.findNode(target)? then
+    return l.remove(n)        // auto-wrap: success
+  return                      // not found — no match, no panic
 }
 
-popped int = l.popValue(10)
-  .orElse(0)   // 10 removed from l; 0 if absent
+popped int = l.popValue(10) ?? 0   // 10 removed from l; l is now: 5, 20
+
+first int = l.popFront() ?? 0   // 5 — the front after the pop; `??` keeps going
 // l is now: 20
 
-first int = l.popFront()              // decay: Some(20), unwraps; pans only if empty
-
 // true branching still exists when you want it:
-match l.popValue(20) {
-  Some(v) => out.println("still there: %d{v}")
-  None    => out.println("20 is gone")
-}
+if v := l.popValue(20)? then
+  out.println("still there: %d{v}")   // 20 was still there
+else
+  out.println("20 is gone")
 ```
 
 Generic element types are Copyable values:
@@ -274,55 +262,62 @@ points.pushBack(Point {1, 2})
 loop p in points do
   out.println("(%d{p.x}, %d{p.y})")   // (3, 4) then (1, 2)
 
-p1 *Point = points.getAt(0)           // decay; pans if the index were out of range
-p1.x = 0                              // writable view of the element — affects the list
-p1.y = 0
-
-match points.find(Point {2, 2}) {
-  Some(n) => out.println("found Point {%d{n.x}, %d{n.y}}")
-  None    => out.println("no such point")
+// getAt hands out a writable view into the list element:
+if p1 := points.getAt(0)? then {      // p1: *Point — a writable view into the node
+  p1.x = 0                            // affects the list
+  p1.y = 0
 }
+
+if p := points.find(Point {2, 2})? then
+  out.println("found Point {%d{p.x}, %d{p.y}}")
+else
+  out.println("no such point")
 ```
 
 ## Proposal: monadic block (do-notation)
 
-Deep chains of `.andThen` would get noisy. Haskell solves that with `do x <- m;
-...`, desugaring to `>>=`. Sketch for this language — the keyword is undecided
-(`do` already means one-line function/loop bodies):
+Deep chains of nested checked `if …?` forms would get noisy. Haskell solves
+that with `do x <- m; ...`, desugaring to `>>=` — this language has no
+combinators (note 1), so the block desugars to a checked-if chain. Sketch —
+the keyword is undecided (`do` already means one-line function/loop bodies):
 
 ```c
-// PROPOSAL — same desugaring as Haskell's `do`
+// PROPOSAL — desugars to a checked-if chain; tail lifting is the auto-wrap
 maybe {                              // or: opt { }, chain { } ...
-  node <- l.findNode(20)             // unwrap; absence short-circuits the block to None
-  l.remove(node)                     // last bare value lifts into Some
+  node <- l.findNode(20)             // unwrap; absence short-circuits the block to absence
+  l.remove(node)                     // last bare value lifts into the `T?`
 }
-// == l.findNode(20).andThen { Some(l.remove(it)) }
+// == inside a T? function:
+//    if n := l.findNode(20)? then return l.remove(n) else return
 ```
 
 ## Notes
 
-1. **Composers vs. unwrappers — four tools, one ladder.** `map`/`andThen` stay
-   in the context (absent-safe), `orElse` unwraps with a default (no panic),
-   decay unwraps asserting presence (pans on `None`), and `match` branches.
-   Decay is contextual: it fires only when the surrounding type is pinned to
-   exactly `T` (typed binding, typed argument, `return`, operator operand,
-   field initializer) and never to satisfy inference; it peels exactly one
-   layer and reads Copy payloads or moves heap payloads (second use of a
-   consumed binding is a compile error).
+1. **Handling by form, not by arms.** The C19 shapes are unmatchable
+   (`match` on a `T?`/`T!` value is a compile error — §8), so absence is
+   handled by form: the checked heads (`if x := e? then … else`, `loop x :=
+   e? do`) branch on presence, `?? default` falls back and keeps going, the
+   presence tests `x == {}` / `x != {}` ask directly, and `(&e)?` unwraps
+   through a view to a const payload view. There is no `Some`/`None` to
+   match and no decay — the old `map`/`andThen`/`orElse` combinators would
+   need `match` on the shape, so they are gone from the language (the
+   section above lists what replaced them). This sketch's user code carries
+   no match and no panic, exactly as before.
 
-2. **The combinators bind the payload by value.** `map`/`andThen`/`orElse`
-   take the payload as `v A` — a Copyable payload is copied in, a heap
-   payload is *moved* in (value parameters move non-Copyable values — README,
-   "Copyable types"), so `Optional[string]` chains work as well as
-   `Optional[int]`. The box itself is consumed by `match` (README,
-   "Consumption").
+2. **Unwrap is a consume.** `?` / `??` move the payload out of the shape: a
+   Copyable payload copies, a heap payload *moves* — so a box cannot be
+   unwrapped twice (README, ``## `T?` and `T!` ``). Unwrapping through a
+   *view* (`(&e)?`) binds a const view instead. This sketch unwraps owned
+   payloads only in `popFront`/`popBack` (`return first.value`); `getAt` /
+   `find` / `findNode` hand out `*T` / `*Node[T]` payloads — pointers are
+   Copy, so the checked head binds the view and the box is gone.
 
 3. **Two failure categories.** Data-dependent absence (empty list, index out
-   of range, not found) is `Optional` — the caller picks `map`, `orElse`,
-   decay, or `match`. Invariant violations (removing the sentinel, invalid
-   arguments) panic — they are bugs, not data. `getAt`, `find`, `popFront`,
-   `popBack`, and consequently all user code above carry no match and no
-   panic.
+   of range, not found) is `T?` — the caller picks the checked form, `??`,
+   or the presence tests. Invariant violations (removing the sentinel,
+   invalid arguments) panic — they are bugs, not data. `getAt`, `find`,
+   `popFront`, `popBack`, and consequently all user code above carry no
+   match and no panic.
 
 4. **`value T` parameters and returns move.** A `T` value parameter copies in
    Copyable types and *moves in* heap types (README, "Copyable types"), so
@@ -338,16 +333,17 @@ maybe {                              // or: opt { }, chain { } ...
 6. **Two props the example leans on.** (a) A pointer-typed field omitted in a
    struct literal defaults to the address of the pointee type's shared zero
    instance (never null); we override the sentinel's links right after
-   construction, so the placeholder is never dereferenced. (b) `Some` can
-   carry a pointer because `Optional const enum [T any]` accepts any `T`,
-   and matching a `const` `Optional` inspects without consuming.
+   construction, so the placeholder is never dereferenced. (b) the postfix
+   shapes wrap any payload, pointer included — `*T?` is how `find` returns a
+   writable element view; the checked head unwraps the box (the pointer
+   itself is Copy) without touching the node.
 
 7. **Function bodies are not arenas.** `&`-allocations inside a function body
    land in the nearest enclosing *statement-block* arena — the caller's
    (README "Where memory lives") — this is a rule, not an assumption. So
-   `newList` may return a node chain and `toJson` may `Ok(json)`: the objects
-   outlive the call. Owned locals still get their per-variable deallocation
-   at function end (R1).
+   `newList` may return a node chain and `toJson` may `return json`: the
+   objects outlive the call. Owned locals still get their per-variable
+   deallocation at function end (R1).
 
 8. **`newList` returns `*Head[T]`, never a `Head` value.** `Head` is Copyable
    (inline `Node` + `uint`), so returning it by value would hand out a value
@@ -360,13 +356,13 @@ maybe {                              // or: opt { }, chain { } ...
    exist as a value.
 
 9. **Queries return views, mutators must not trust their input.** `getAt` /
-   `find` return `Optional[*T]` — a writable view of the *element* (never a
-   copy: a copy would only be legal for Copy `T`, note 4, and would pay a
-   full element copy for zero aliasing gain). `remove` takes a node, so the
-   node-level query is `findNode` → `Optional[*Node[T]]`. The checker does no
-   alias analysis, so `remove` must panic on a node that is not a member of
-   this list's chain — a foreign node or an already-removed one is a bug, and
-   a silent unlink corrupts the chain. Keep the sentinel guard; extend it to
+   `find` return `*T?` — a writable view of the *element* (never a copy: a
+   copy would only be legal for Copy `T`, note 4, and would pay a full
+   element copy for zero aliasing gain). `remove` takes a node, so the
+   node-level query is `findNode` → `*Node[T]?`. The checker does no alias
+   analysis, so `remove` must panic on a node that is not a member of this
+   list's chain — a foreign node or an already-removed one is a bug, and a
+   silent unlink corrupts the chain. Keep the sentinel guard; extend it to
    the membership check.
 
 10. **Sharing vs owning resources in a list.** `dispose` makes a type
@@ -383,20 +379,20 @@ maybe {                              // or: opt { }, chain { } ...
 11. **Heap elements work through moves and `take`.** `pushBack(v)` stores `v`
     by *move* into the node, so heap element types need no Copy. Reading and
     mutating work through views (`const *T` / `&T`) as before. Extraction is
-    where the Copy-only sketch stops (`Some(first.value)` is a copy), and
+    where the Copy-only sketch stops (`return first.value` is a copy), and
     that is what `take` replaces:
 
     ```c
     take func [T] (n *Node[T]) T    // relocates the payload out, consumes n
 
-    popFront func [T] (l *Head[T]) Optional[T] = {
+    popFront func [T] (l *Head[T]) T? = {
       if l.length == 0 then
-        return None
+        return
       first *Node[T] = l.sentinel.next
       l.sentinel.next = first.next
       first.next.prev = &l.sentinel
       l.length -= 1
-      Some(first.take())            // `first` is dead afterwards
+      return first.take()           // auto-wrap; `first` is dead afterwards
     }
     ```
 

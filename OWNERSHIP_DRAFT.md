@@ -567,9 +567,43 @@ made false by value-params-move) and README's iterator *call sites*
     §8 (shapes, auto-wrap, obligated-unwrap, `!`-settles-in-region),
     §10 (`bytes!` / `*O!`), §12 (match ban, unwrap obligations).
     GMP: vocabulary rows + a C19 section. Sketches (HASH_MAP,
-    BINARY_SEARCH, BINARY_CODEC, LINKED_LIST) migrate in a follow-up
-    round — the user scoped this round to core spec + rules. —
+    BINARY_SEARCH, BINARY_CODEC, LINKED_LIST, LISTEN.md) migrate in a
+    follow-up round — the user scoped this round to core spec + rules. —
     decision C19.
+27. Sketch migration to the C19 spelling (follow-up to C19): the shipped
+    sketches drop every `Optional[T]` / `Result[T]` / `Some` / `None` /
+    `Ok(v)` / `Error(kind { … })` spelling for the postfix shapes.
+    `HASH_MAP.md`: `Slot { entry Entry[K, V]? }` — an empty bucket is the
+    `T?` default absence (`{}`), never a vacated slot; reads (`probe`,
+    `get`, the shift's decision) unwrap through a view —
+    `if kv := (&slot.entry)?` binds a const view, nothing moves (the
+    README-cited container-inspection pattern); mutation consumes through
+    owned-slot `?` in the checked head (`takeEntry`, `grow`'s reinsert),
+    leaving the field *absent* — a real value — so the vacated-slot
+    discipline is gone from the table entirely; `entry = {}` clears, `=`
+    re-wraps, `get`/`remove` return `const *V?` / `V?` with bare `return`
+    + auto-wrap; notes 2/3/5 rewritten (all-absent drop, no vacated state).
+    `BINARY_SEARCH.md`: `search … uint?`, `return i` / bare `return`;
+    usage matches become `if i := a.search(3)? then … else`. `BINARY_CODEC
+    .md`: `toBytes … bytes!` / `fromBytes … *O!` / `need … uint!`; failures
+    are bare `return BinaryWriteError { … }` / `return BinaryParseError
+    { … }`, success `return b` / `return obj` (mirrors the migrated
+    toJson/fromJson), the string arm ends `return s`. `LINKED_LIST.md`:
+    signatures to `T?` / `*T?` / `*Node[T]?`; the Haskell combinator
+    section (map/andThen/orElse) removed — each needed `match` on the
+    shape, now a compile error — replaced by a C19-forms section, and the
+    usage rewritten with the checked `if …?` heads and `??` (both element
+    demos; the decay spelling is gone); the `maybe` proposal now desugars
+    to a checked-if chain; notes 1/2/6/9/11 re-spelled; the demo's stale
+    pop sequence arithmetic corrected (after popValue(10) the list is
+    [5, 20], popFront yields 5). `LISTEN.md` (the socket sketch the README
+    server descends from) migrated the same way: `uint?` /
+    `Listener!` / `Connection!` / `string!` / `uint!`, bare `return kind
+    { … }` failures, `return v` auto-wrap successes, the blocked
+    `try { loop { ch := socket.recv(conn.fd)! … } }` readLine, and
+    `portFromEnv … uint?` with bare `return` absence (its `?? 8080` call
+    site predates the round and stays). GMP: C16/C17 sketch rows and the C12
+    toJson row re-spelled to the postfix shapes. — follow-up to C19.
 
 ---
 

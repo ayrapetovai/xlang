@@ -169,7 +169,7 @@ since 1.14; contiguous copy-growing stacks since 1.3).
 | Spec rule | Go counterpart | Note |
 |---|---|---|
 | Reflection access read-only by shape (`const *O`; Copy scalars) | `reflect.Value` inspectable; writes only via `CanSet` pointer games | The spec has no mutation path at all |
-| `toJson(obj const *O) Result[string]`; failures are *values* — non-finite float, depth cap → `JsonWriteError` | `json.Marshal`: NaN/±Inf → `*UnsupportedValueError` (wrapped) | Both error *per value*; the spec enumerates kinds in `Result` |
+| `toJson(obj const *O) string!` / `fromJson(json const string) *O!` — failures are *values* — non-finite float, depth cap → `JsonWriteError` | `json.Marshal`: NaN/±Inf → `*UnsupportedValueError` (wrapped) | Both error *per value*; the spec enumerates kinds in the intrinsic error (postfix shapes, C19) |
 | `O` JSON-shaped at instantiation: no reachable `*T`/`any`/disposable — cycles impossible by construction | pointers followed; cycles detected at run time and error | Go guards cycles at runtime; the spec by construction |
 | `fromJson` success &-creates the graph in the caller's statement-block arena, returns a view | `json.Unmarshal` allocates on the GC heap | Placement differs; shape is the same |
 | Failure = `JsonParseError { message, offset, cause }` | `*json.SyntaxError { Offset int64 }`; `*json.UnmarshalTypeError { Value, Offset }` | Near-identical: kind + offset (C11 machinery both ways) |
@@ -190,12 +190,12 @@ since 1.14; contiguous copy-growing stacks since 1.3).
 
 | Spec rule | Go counterpart | Note |
 |---|---|---|
-| Open addressing over `Slot { entry Optional[Entry] }` — an empty bucket is `None`, never nil, never a vacated slot | `map[K]V` buckets; missing-key reads return the zero value | Go's map has no "empty slot" concept — absence reads as zero; the spec makes absence a first-class value |
+| Open addressing over `Slot { entry Entry[K, V]? }` — an empty bucket is the `T?` default absence (`{}`), never nil, never a vacated slot | `map[K]V` buckets; missing-key reads return the zero value | Go's map has no "empty slot" concept — absence reads as zero; the spec makes absence a first-class value (its default is the shape's own, C19) |
 | In-scope `hash func (k const *K) uint`, resolved per instantiation | hasher chosen from the key type (`runtime/type.go`); `maphash` for strings | same "the type hashes itself"; Go *enforces* equal ⇒ same hash, the spec delegates it to the author as a contract (congruence) |
-| `put` moves key/val in; `get` → `Optional[const *V]`, invalidated by growth | `m[k] = v`, `v, ok := m[k]` (copies) | Go copies values in and out; the spec moves in and views out — the map is a container like any other, not a special shape |
-| Backward-shift deletion (`dh == 0 or dh > dr`), no tombstones | `mapdelete` marks slots empty (`emptyOne`) with periodic rehash | Go leaves tombstones; the spec shifts to close the gap — no tombstone state to encode when a slot is only `Some`/`None` |
+| `put` moves key/val in; `get` → `const *V?`, invalidated by growth | `m[k] = v`, `v, ok := m[k]` (copies) | Go copies values in and out; the spec moves in and views out — the map is a container like any other, not a special shape |
+| Backward-shift deletion (`dh == 0 or dh > dr`), no tombstones | `mapdelete` marks slots empty (`emptyOne`) with periodic rehash | Go leaves tombstones; the spec shifts to close the gap — no tombstone state to encode when a slot is only full/absent |
 | Grow = rebuild by moves; old table dropped in place (assignment drops the occupant) | `growWork` rehashes into a new bucket array, keeps old buckets during the increment | Go keeps dead buckets alive across the increment; the spec's arena frees the whole old table at once |
-| Binary search: reads only, `<`-only, half-open `[lo, hi)`, `Optional[uint]` | `sort.Search` with a caller predicate | Go's `sort.Search` needs a closure; the spec's `search`/`lowerBound` are one ordering, resolved like the sorts (BINARY_SEARCH.md) |
+| Binary search: reads only, `<`-only, half-open `[lo, hi)`, `uint?` | `sort.Search` with a caller predicate | Go's `sort.Search` needs a closure; the spec's `search`/`lowerBound` are one ordering, resolved like the sorts (BINARY_SEARCH.md) |
 
 ### C17 — binary codec
 
@@ -266,7 +266,7 @@ Even where the spec says "no", the *machinery* is directly reusable:
 | Self-swap | Copy no-op | Checker elides the move trio (never vacates the slot) |
 | Ordering source | Comparator closure per call (`sort.Slice`) | The type's operators in scope, resolved per instantiation |
 | Partition values | Copied freely | View-pinned pivot — `const *T` into the slot; heap elements move, never copy |
-| JSON failures | `*UnsupportedValueError`, `*json.SyntaxError` | Enumerated kinds through `Result` (`JsonWriteError`, `JsonParseError`) |
+| JSON failures | `*UnsupportedValueError`, `*json.SyntaxError` | Enumerated kinds through the intrinsic error — `JsonWriteError`, `JsonParseError` (postfix `string!`/`*O!`, C19) |
 
 Go's model buys: flexibility, simple language, interop. This spec's model
 buys: determinism, no GC pauses, freedom-from-bugs at compile time. The Go

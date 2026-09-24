@@ -1,7 +1,7 @@
 # Hash Map
 
 A generic open-addressed hash map. Written only with what the language
-already has: `&`-created containers in the arena, `Optional` as the honest
+already has: `&`-created containers in the arena, `T?` as the honest
 "maybe", the `+=` move-append family, `infix_operator==` for key equality,
 and — the one mechanism this sketch establishes (ruling C16) — a **`hash`
 function resolved per instantiation**, exactly like the ordering operators:
@@ -11,8 +11,9 @@ There are **no null pointers**, so an empty bucket cannot be a `nil` pointer
 and (worse) cannot be a *vacated* slot — a vacated slot is an unreadable,
 tracked non-value (`OWNERSHIP_RULES.md` §6), the wrong thing for a
 long-lived table. The sketch's answer: **open addressing over
-`Slot { entry Optional[Entry] }`** — an empty slot is the real value `None`.
-Every slot is always some value; only `count` says how many are live.
+`Slot { entry Entry[K, V]? }`** — an empty slot is the `T?` default
+absence (`{}`), a real value (C19). Every slot is always some value; only
+`count` says how many are live.
 
 ## Shape
 
@@ -22,10 +23,10 @@ Entry struct [K, V] = {
   val V
 }
 
-// an empty slot is a real value — `None` — never a null and never a vacated
-// slot; the table holds only full Some/None values (note 2)
+// an empty slot is a real value — the `T?` default absence (`{}`) — never a
+// null and never a vacated slot; the table holds only full/absent values
 Slot struct [K, V] = {
-  entry Optional[Entry[K, V]]
+  entry Entry[K, V]?
 }
 
 HashMap struct [K, V] = {
@@ -86,16 +87,16 @@ dist func (a uint, b uint, len uint) uint = {
 }
 
 // the probe row: `key` present (found), else the first free slot. Reads go
-// through a const view, so the match *inspects* — nothing moves (note 3).
+// through a const view, so the unwrap *inspects* — nothing moves (note 3).
 probe func [K, V] (m const *HashMap[K, V], key const *K) Probe = {
   pos := hash(key) % m.buckets.length
   scanned uint = 0
   loop scanned < m.buckets.length {
-    match m.buckets[pos].entry {
-      None     => return Probe { pos = pos, found = false }
-      Some(kv) => if kv.key == key then
-                    return Probe { pos = pos, found = true }
-    }
+    if kv := (&m.buckets[pos].entry)? then {   // const view — inspect, no move
+      if kv.key == key then
+        return Probe { pos = pos, found = true }
+    } else
+      return Probe { pos = pos, found = false }
     pos = (pos + 1) % m.buckets.length
     scanned += 1
   }
@@ -106,39 +107,35 @@ probe func [K, V] (m const *HashMap[K, V], key const *K) Probe = {
 probeEmpty func [K, V] (b const *[]Slot[K, V], key const *K) uint = {
   pos := hash(key) % b.length
   loop {
-    match b[pos].entry {
-      None => return pos
-      Some(_) => {}
-    }
+    if b[pos].entry == {} then      // absence test — legal on `T?`
+      return pos
     pos = (pos + 1) % b.length
   }
 }
 
 // a view into the stored value — read-only by construction, invalidated by
-// growth (note 4). Absence is data: Optional, never Result.
-get func [K, V] (m const *HashMap[K, V], key const *K) Optional[const *V] = {
+// growth (note 4). Absence is data: `T?`, never `T!`.
+get func [K, V] (m const *HashMap[K, V], key const *K) const *V? = {
   if m.buckets.length == 0 then
-    return None
+    return                    // absence
   p := m.probe(key)
   if !p.found then
-    return None
-  match m.buckets[p.pos].entry {      // const map: inspection, no consumption
-    Some(kv) => return Some(&kv.val)  // const *V into the map's slot
-    None     => panic("probe found a free slot at its pos")   // unreachable
-  }
+    return                    // absence
+  if kv := (&m.buckets[p.pos].entry)? then    // const map: inspection, no consumption
+    return &kv.val            // auto-wrap: const *V into the map's slot
+  panic("probe found a free slot at its pos")   // unreachable
 }
 ```
 
 ## Mutation
 
 ```c
-// move the pair out of a live slot; the slot is left *uninitialized* — the
-// caller must reinitialize it before the map escapes (put and remove do)
+// move the pair out of a live slot; the slot falls back to the `T?` default
+// — absent — a real value, never uninitialized. put and remove re-wrap it.
 takeEntry func [K, V] (m *HashMap[K, V], pos uint) Entry[K, V] = {
-  match m.buckets[pos].entry {        // owned slot: the match consumes it
-    Some(kv) => return kv
-    None     => panic("takeEntry on a free slot")      // invariant violation
-  }
+  if kv := m.buckets[pos].entry? then   // owned slot: the unwrap consumes it
+    return kv
+  panic("takeEntry on a free slot")     // invariant violation
 }
 
 put func [K, V] (m *HashMap[K, V], key K, val V) = {
@@ -146,8 +143,8 @@ put func [K, V] (m *HashMap[K, V], key K, val V) = {
     m.grow()                          // belt and braces; newHashMap already sized
   p := m.probe(key)
   if p.found then {
-    old := m.takeEntry(p.pos)         // move out — the slot is now uninitialized
-    m.buckets[p.pos].entry = Some(Entry { key = key, val = val })   // reinit
+    old := m.takeEntry(p.pos)         // move out — the slot is now absent (a value)
+    m.buckets[p.pos].entry = Entry { key = key, val = val }   // re-wrap by assignment
     // `old` is deallocated at this block's exit — built-in machinery only:
     // K and V may not define `dispose` (note 7)
   } else {
@@ -155,67 +152,62 @@ put func [K, V] (m *HashMap[K, V], key K, val V) = {
       m.grow()
     }
     pos := m.probeEmpty(key)
-    m.buckets[pos].entry = Some(Entry { key = key, val = val })  // over a `None`
+    m.buckets[pos].entry = Entry { key = key, val = val }  // over an absent slot
     m.count += 1
   }
 }
 
 // grow: a fresh table of twice the size, rehashed by moves. The old table is
-// consumed slot-by-slot and dropped all-vacated at the assignment (notes 4, 5).
+// consumed slot-by-slot and dropped all-absent at the assignment (notes 4, 5).
 grow func [K, V] (m *HashMap[K, V]) = {
   newLen := m.buckets.length * 2
   if newLen < 16 then
     newLen = 16
   nb []Slot[K, V] = {}
   loop i := 0; i < newLen {
-    nb += Slot { entry = None }       // move-append: every slot starts real
+    nb += Slot { entry = {} }         // move-append: every slot starts absent
     i += 1
   }
   loop i := 0; i < m.buckets.length {
-    match m.buckets[i].entry {
-      Some(kv) => {
-        pos := nb.probeEmpty(kv.key)  // nb is fresh — no conflicts, no replace
-        nb[pos].entry = Some(kv)      // move-in
-      }
-      None => {}
+    if kv := m.buckets[i].entry? then {   // owned slot: the unwrap moves it out
+      pos := nb.probeEmpty(kv.key)    // nb is fresh — no conflicts, no replace
+      nb[pos].entry = kv              // move-in; assignment wraps
     }
     i += 1
   }
-  m.buckets = nb          // drops the old (all-vacated) table in place
+  m.buckets = nb          // drops the old table — every entry absent by now
 }
 
 // backward-shift deletion: pull each following entry left that may (its home
 // is not strictly between hole and r), until the first free slot; the
-// trailing vacated slot becomes `None`. Every surviving key stays reachable
+// trailing cleared slot is absent again. Every surviving key stays reachable
 // from its home (note 6).
-remove func [K, V] (m *HashMap[K, V], key const *K) Optional[V] = {
+remove func [K, V] (m *HashMap[K, V], key const *K) V? = {
   if m.buckets.length == 0 then
-    return None
+    return
   p := m.probe(key)
   if !p.found then
-    return None
-  e := m.takeEntry(p.pos)             // the removed pair; p.pos vacated
+    return
+  e := m.takeEntry(p.pos)             // the removed pair; p.pos is now absent
   len := m.buckets.length
   hole := p.pos
   r := (p.pos + 1) % len
   loop r != p.pos {
-    match &m.buckets[r].entry {       // inspect — decide without moving
-      None => break                   // cluster ends
-      Some(kv) => {
-        dh := dist(hole, hash(kv.key) % len, len)
-        dr := dist(hole, r, len)
-        if dh == 0 || dh > dr then {  // home not in (hole, r] — may shift left
-          e := m.takeEntry(r)         // move it: r is vacated, becomes the hole
-          m.buckets[hole].entry = Some(e)
-          hole = r
-        }
+    if kv := (&m.buckets[r].entry)? then {   // inspect — decide without moving
+      dh := dist(hole, hash(kv.key) % len, len)
+      dr := dist(hole, r, len)
+      if dh == 0 || dh > dr then {    // home not in (hole, r] — may shift left
+        shifted := m.takeEntry(r)     // move it: r is absent, becomes the hole
+        m.buckets[hole].entry = shifted
+        hole = r
       }
-    }
+    } else
+      break                            // cluster ends
     r = (r + 1) % len
   }
-  m.buckets[hole].entry = None        // the trailing vacated slot is free
+  m.buckets[hole].entry = {}          // trailing slot cleared — absent again
   m.count -= 1
-  return Some(e.val)                  // the key dies with e — dropped at return
+  return e.val                        // the key dies with e — dropped at return
 }
 ```
 
@@ -230,23 +222,21 @@ m.put("alice", 30)
 m.put("bob", 40)
 m.put("alice", 31)                       // replace: the old pair is deallocated
 
-match m.get("alice") {
-  Some(a) => out.println("alice is %d{a}")   // 31 — a: const *int, auto-deref
-  None    => out.println("alice missing")
-}
+if v := m.get("alice")? then
+  out.println("alice is %d{v}")          // 31 — v: const *int, auto-deref
+else
+  out.println("alice missing")
 
-removed int = m.remove("bob").orElse(0)  // 40 — the combinators of LINKED_LIST
-match m.remove("alice") {
-  Some(old) => out.println("alice held %d{old}")   // 31
-  None      => out.println("alice was gone")
-}
+removed int = m.remove("bob") ?? 0       // 40 — `??` falls back on absence
+if old := m.remove("alice")? then
+  out.println("alice held %d{old}")      // 31
+else
+  out.println("alice was gone")
 
 total uint = 0
 loop i := 0; i < m.buckets.length {      // const iteration — the documented form
-  match m.buckets[i].entry {
-    Some(kv) => total += uint(kv.val)
-    None     => {}                       // empty arms spell `{}`
-  }
+  if kv := (&m.buckets[i].entry)? then   // view inspection — nothing moves
+    total += uint(kv.val)
   i += 1
 }
 out.println("total %d{total}")  // 0 — both keys were removed
@@ -259,10 +249,10 @@ m2 *HashMap[Point, string] = newHashMap()
 m2.put(Point { x = 1, y = 2 }, "one-two")
 m2.put(Point { x = 3, y = 4 }, "three-four")
 
-match m2.get(Point { x = 1, y = 2 }) {
-  Some(s) => out.println("%s{s}")        // "one-two" — s: const *string
-  None    => out.println("missing")
-}
+if s := m2.get(Point { x = 1, y = 2 })? then
+  out.println("%s{s}")        // "one-two" — s: const *string
+else
+  out.println("missing")
 ```
 
 ## Notes
@@ -276,44 +266,53 @@ match m2.get(Point { x = 1, y = 2 }) {
    document it beside every user `hash`, as the totality contract of C13 is
    documented beside every ordering.
 
-2. **Empty slots are `None`, never vacated.** A vacated slot is a tracked
-   non-value; reading it is a compile error until reinitialized (§6) — so a
-   table whose "empties" were vacated could never escape. Encoding absence
-   as `None` keeps every slot a real value. This is the same reasoning that
-   keeps the language free of null pointers: absence is always a *value*.
+2. **Empty slots are the default absence, never vacated.** `Entry[K, V]?`
+   defaults to absent — a real value (`{}`), read by the `== {}` absence
+   test, written by `= {}` (C19; §6). A vacated slot is a tracked non-value;
+   reading it is a compile error until reinitialized (§6) — so vacated-state
+   storage could never back a long-lived table. The `T?` default *is* the
+   table's emptiness: no slot is ever uninitialized. This is the same
+   reasoning that keeps the language free of null pointers: absence is
+   always a *value*.
 
-3. **Probing inspects; mutation takes.** Reads (`probe`, `get`) go through
-   const views, so their matches inspect without consuming; moves happen only
-   through `takeEntry` and the shift's explicit take — slot-take, followed by
-   an immediate move-in. No map code ever reads a vacated slot, and a vacated
-   slot never survives to the map's escape.
+3. **Probing inspects; mutation takes.** Reads (`probe`, `get`, the shift's
+   decision) hold the map `const` and unwrap through a view —
+   `(&slot.entry)?` binds a const view of the payload, nothing moves. Moves
+   happen only through `takeEntry`, whose owned-slot `?` consumes the
+   payload and leaves the field **absent** — the `T?` default, a real value
+   — never uninitialized. No map code ever reads a vacated slot, and no slot
+   is ever vacated.
 
 4. **Growth is the sanctioned invalidation — the whole table moves.** `grow`
    rehashes every live pair into a fresh table; the old table is consumed by
-   the reinsert match and dropped all-vacated at `m.buckets = nb`. Two round
-   rulings ride on this: **assignment drops the previous occupant in place**
-   (compiler-generated deallocation only — see note 7), and **a dropped
-   container may hold vacated slots** — §6's repair-before-escape governs the
-   containers that *leave* the function, not ones that die in place. And this
-   is C15's rule in its sharpest form: buffer growth invalidates outstanding
-   views — an open-addressed table relocates its entries, so **any `const *V`
-   view from `get` dangles after a growing `put`**. Views into the map are
-   const, short-lived, and never held across a mutation.
+   the reinsert unwraps and dropped **all-absent** at `m.buckets = nb` (note
+   5). Two round rulings ride on this: **assignment drops the previous
+   occupant in place** (compiler-generated deallocation only — see note 7),
+   and a dropped container's leftover state is never inspected — §6's
+   repair-before-escape governs the containers that *leave* the function,
+   not ones that die in place. And this is C15's rule in its sharpest form:
+   buffer growth invalidates outstanding views — an open-addressed table
+   relocates its entries, so **any `const *V` view from `get` dangles after
+   a growing `put`**. Views into the map are const, short-lived, and never
+   held across a mutation.
 
-5. **The old table dies all-vacated on purpose.** The reinsert match
-   consumes every slot (`match x consumes`), Some arms included, so the old
-   `buckets` array is entirely uninitialized when it is dropped. That is
-   fine — exactly the shape of `MERGE_SORT.md`'s scratch buffer, which also
-   dies vacated: the repair discipline is about escaping, not about dying
-   locals (note 4).
+5. **The old table dies all-absent on purpose.** The reinsert
+   `if kv := m.buckets[i].entry?` consumes every live slot's payload (owned
+   unwrap), leaving each field **absent** — the `T?` default; empty slots
+   were already absent. So when `m.buckets = nb` drops the old table, no
+   slot is uninitialized and no payload is orphaned: this is the C19 point
+   for a long-lived table — absence is the shape's default state, so the
+   vacated-slot discipline of §6 is never needed here. (`MERGE_SORT.md`'s
+   scratch buffer stays the vacated-state example.)
 
 6. **Backward-shift deletion is arithmetic, not comparison.** The shift test
    is pure `dist` arithmetic: `dh == 0 || dh > dr` — the entry at `r` moves
    into the hole exactly when its home is not strictly between them going
    forward, so every surviving key stays reachable from its home. Key
    equality itself is `infix_operator==` — the `find` operator of §4 —
-   nothing else. Coalesced clusters get no tombstones: the last shifted slot
-   becomes `None`, so a probing `get` never needs to skip graves.
+   nothing else. Coalesced clusters get no tombstones: the trailing slot is
+   cleared back to the default absence (`m.buckets[hole].entry = {}`), so a
+   probing `get` never needs to skip graves.
 
 7. **No disposable K/V.** "Assignment drops the previous occupant" means
    *compiler-generated* deallocation: `put`'s replace path and `grow`'s drop
@@ -324,10 +323,11 @@ match m2.get(Point { x = 1, y = 2 }) {
 
 8. **`loop e in m` is deliberately omitted.** The `begin`/`end`/`next`/
    `current` protocol demands `current &Entry` — a *writable* view of a
-   payload living inside an `Optional` slot — and matching an owned slot
-   consumes it. There is no spelling for a writable view into a `Some`'s
-   payload; the const walk in the usage section is the documented iteration,
-   and a const-current variant of the protocol is the future door.
+   payload living inside a `T?` field — and there is no spelling for that:
+   `&x?` unwraps through a view to a **const** payload view (C19), and an
+   owned unwrap consumes the slot. So the const walk in the usage section is
+   the documented iteration, and a const-current variant of the protocol is
+   the future door.
 
 9. **The load contract and uint guards.** Growth fires at `count * 4 >=
    length * 3` (≈ 0.75), which keeps probe walks short and guarantees a free
