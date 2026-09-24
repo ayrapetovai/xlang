@@ -374,7 +374,8 @@ maybe {                              // or: opt { }, chain { } ...
     be *copied*, but it *can* be moved in (`pushBack` moves by value). The
     list then owns the payloads and must discharge them —
     `Head[T]`/`Node[T]` become disposable and the synthesized dispose walks
-    the live nodes (`OWNERSHIP_DRAFT.md`, missing rules — linked list #4).
+    the live nodes (`OWNERSHIP_RULES.md` §1 — disposable types discharge
+    exactly once).
     For resources with external owners the simpler shape stays `*T` views
     (pointers are Copy) and the real owner disposes; arena bulk-free covers
     every node.
@@ -408,6 +409,5 @@ maybe {                              // or: opt { }, chain { } ...
     container slot (`take(a[i])`, or the implicit `t := a[i]` move-out) the
     same machinery leaves the slot **uninitialized**, not R4-consumed: reads
     are compile errors until a move-in (`a[i] = v`) **reinitializes** it —
-    the slot-take rule (`OWNERSHIP_DRAFT.md`, missing rules — linked list
-    #6; QUICK_SORT note 1). An unlinked node's location is unreachable, so
+    the slot-take rule (`OWNERSHIP_RULES.md` §6; QUICK_SORT note 1). An unlinked node's location is unreachable, so
     reinit never applies there — the two forms are one rule, two states.

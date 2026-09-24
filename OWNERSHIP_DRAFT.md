@@ -1,11 +1,13 @@
-# Memory ownership — the rules (normative: `QUERY.txt`)
+# Memory ownership — deliberation and resolution record
 
-**Premise.** Memory management rules are normative; the shipped sketches
-(README socket server, `LISTEN.md`, `QUICK_SORT.md`, `LINKED_LIST.md`, the
-threads/channels sections, `## Bytes`, reflection) are drafts and must conform
-to these rules. Where a draft contradicts a rule, the draft is wrong. The
-numbered rules below are `QUERY.txt` verbatim in intent, rendered through the
-resolutions recorded in the appendix.
+**Premise.** The normative rules are `OWNERSHIP_RULES.md` — the consolidated
+core (the original `QUERY.txt` answers plus the interview rulings C1–C13);
+the shipped sketches (README socket server, `LISTEN.md`, `QUICK_SORT.md`,
+`LINKED_LIST.md`, the threads/channels sections, `## Bytes`, reflection) are
+drafts and must conform to those rules. Where a draft contradicts a rule, the
+draft is wrong. This file is the record of the deliberations: the numbered
+rule renderings below (R1–R6, crossing-coroutine, C9+ missing rules), the
+applied fixes, and the decision appendix.
 
 ---
 
@@ -449,6 +451,29 @@ made false by value-params-move) and README's iterator *call sites*
     `r.gt < hi`) and the `i == lo` / `gt` totality invariant. Usage: `Point`
     gains `infix_operator==`, descending floats become `Desc` with reversed
     operators. — OWNERSHIP_DRAFT missing-rules + decision C13.
+21. Normative-core consolidation + Go-runtime mapping sync (ruling C14):
+    `QUERY.txt` renamed to **`OWNERSHIP_RULES.md`** and rewritten as the
+    consolidated normative core — the original questionnaire rules preserved
+    verbatim in intent (§O) with the C1–C13 rulings folded in as rules
+    (§1–§12), outranking every example; `OWNERSHIP_DRAFT.md` re-billed as
+    the deliberation / resolution record (header + premise updated).
+    `GO_RUNTIME_MAPPING.md` synced to the whole rule set: header pin
+    refreshed, vocabulary + deliberate-difference tables extended, and
+    per-rule sections added for C10 (intrinsic errors / `Result[T]` / flat
+    `catch` ↔ Go's `(T, error)` / `if err != nil`; `panic`=abort vs unwind),
+    C11 (`is` deep walk / view-only binding ↔ `errors.Is` / `errors.As`;
+    opaque `causes` vs `errors.Join` — Go *walks* Joined chains, the spec
+    refuses; `==`-on-errors CE vs Go's sentinel equality), C12 (reflection
+    read-only by shape ↔ `reflect`; `toJson` value-level failures ↔
+    `*UnsupportedValueError` for NaN/±Inf; `JsonParseError.offset` ↔
+    `*json.SyntaxError.Offset`; JSON-shaped constraint ↔ struct tags; arena
+    &-create ↔ heap allocation), and C13 (operator-resolved ordering ↔
+    `sort.Slice`'s closure comparator; pdqsort (1.19+); `SliceStable`'s
+    aux-buffer O(n log n); Go's copy-swap vs the spec's view-pinned pivot
+    and self-swap elision). Housekeeping: OWNERSHIP_DRAFT C7 entry's "`toJson`
+    as written" corrected (C12 rewrote it); README checker list gains the
+    self-swap-elision carve-out; sketch citations (QUICK_SORT note 1,
+    LINKED_LIST notes) repointed to `OWNERSHIP_RULES.md` §6. — decision C14.
 
 ---
 
@@ -477,8 +502,9 @@ made false by value-params-move) and README's iterator *call sites*
    `&`-creations and owned buffers inside a callee land in the nearest
    enclosing *statement-block* arena — the caller's — bulk-freed at that
    block's exit; owned locals still get per-variable deallocation at the end
-   of the function body (R1). Keeps `newList`/`pushBack`/`toJson` as written;
-   README "Where memory lives" amended; LINKED_LIST note 7 restated as a rule.
+   of the function body (R1). Keeps `newList`/`pushBack` as written (`toJson`
+   later rewritten — decision C12); README "Where memory lives" amended;
+   LINKED_LIST note 7 restated as a rule.
 8. **C9 slot-take (ruling)**: moving a value out of a live container slot is
    defined — the slot becomes *uninitialized* (a tracked non-value); reads
    are compile errors (R4) until a move-in **reinitializes** it (the one R4
@@ -552,3 +578,17 @@ made false by value-params-move) and README's iterator *call sites*
     the machinery writes `<` / `==` literally, compiler-resolved per
     instantiation; the explicit-ordering entry `sortBy` removed, orderings
     expressed as wrapper types (single sort, operator-native).
+13. **C14 normative-core policy + mapping (Sep 24)**: (1) the normative core
+    is a single renamed file — `QUERY.txt` → **`OWNERSHIP_RULES.md`** —
+    consolidated: the original questionnaire rules kept (§O, verbatim in
+    intent) and the C1–C13 rulings folded in as dense normative rules
+    (§1–§12). It outranks all examples; `OWNERSHIP_DRAFT.md` is the
+    deliberation / resolution record (title + premise updated). (2)
+    `GO_RUNTIME_MAPPING.md` must track the whole rule set: header pin
+    refreshed to the core, §1 vocabulary and §4 deliberate-difference rows
+    extended, and per-rule mapping sections added for C10–C13. (3)
+    Housekeeping: the stale C7 "`toJson` as written" corrected (C12 rewrote
+    it), the README checker list gains self-swap elision, sketch slot-take
+    citations repointed to `OWNERSHIP_RULES.md` §6. Answers (user): rename →
+    OWNERSHIP_RULES.md as the normative core; sync the Go-runtime mapping;
+    fix the drift.

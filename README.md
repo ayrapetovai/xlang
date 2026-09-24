@@ -648,7 +648,9 @@ re-borrowing a consumed binding, moving a value out of a view binding — a
 view has no ownership to give away — reading an uninitialized slot, moving
 or returning a container that still holds an uninitialized slot, reading an
 error payload without a kind-bound name, comparing error values with `==`,
-and declaring an error type with a disposable field. No
+and declaring an error type with a disposable field. `swap(a, i, i)`
+is identity — the checker elides the self-swap move trio instead of
+vacating the slot. No
 lifetime inference, no alias analysis.
 
 ### Semantics that touch ownership

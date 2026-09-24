@@ -7,7 +7,8 @@ arena-based with single-owner moves. The mapping is *conceptual and
 structural* — for each rule, which Go mechanism does the same job, and what
 the difference teaches.
 
-Normative spec: `QUERY.txt` + `OWNERSHIP_DRAFT.md` (R1–R6, C7, C9).
+Normative spec: `OWNERSHIP_RULES.md` (consolidated core: original Q-rules +
+C1–C13 rulings). Deliberations: `OWNERSHIP_DRAFT.md`.
 Go facts: runtime as of Go 1.20–1.26 (GMP model unchanged; async preemption
 since 1.14; contiguous copy-growing stacks since 1.3).
 
@@ -29,6 +30,11 @@ since 1.14; contiguous copy-growing stacks since 1.3).
 | checker (static) | `vet`/`staticcheck` + race detector | compile-time `-race` (ThreadSanitizer) |
 | frozen pool (`const string`) | string literals, immutable by convention | read-only data section / rodata |
 | move / own / consume | *nothing* (copies + aliases) | the fundamental gap Go doesn't model |
+| `Result[T]` | `(T, error)` | Go's pair convention as a builtin sum shape |
+| flat `catch` / `try` | `if err != nil` | one guard + one handler vs explicit per-call checks |
+| `is` / kind binding | `errors.Is` / `errors.As` | deep chain walk + type extraction, both native (C11) |
+| error kinds (declared) | `error` interface + dynamic type | the same dispatch, spelled in the type system |
+| JSON-shaped constraint | struct tags (`json:"-"`) | serializability fixed at compile vs by decoder convention |
 
 ---
 
@@ -129,6 +135,50 @@ since 1.14; contiguous copy-growing stacks since 1.3).
 | Non-blocking callbacks can't capture views | Go: closures capture freely; GC keeps env alive | — |
 | Receive arena: receivers allocate into their coroutine's arena | `chanrecv` copies into the receiver's stack/heap | Same: the receiver's memory, every time |
 
+### C10 — intrinsic errors, `Result[T]`, flat `catch`
+
+| Spec rule | Go counterpart | Note |
+|---|---|---|
+| Errors are an intrinsic kind with payload fields (non-disposable) | `error` interface; concrete types with fields | Go's payload is just a struct; the spec gates disposables out |
+| `Result[T]` (single type arg) | `(T, error)` — the pair convention | From an idiomatic shape to a builtin sum |
+| `try <statement>` / one flat `catch e` | `if err != nil { return … }` per call | Spec: one guard region, one handler; Go: unwinding spelled out at every site |
+| `!` forces `Result[_]`, `?` forces `Optional[_]`; bare ones are CE inside a guard; `?? default` everywhere; `main` exempt | No Result/Optional; zero values + multiple returns | — |
+| Handlers checkable but not exhaustive | nothing checkable; ignored errors via `_ =` | Same pragmatism, statically visible in the spec |
+| `panic` = abort, skips defers | panic unwinds and runs defers | Deliberate difference — §4 |
+
+### C11 — `is`, binding, and error kinds
+
+| Spec rule | Go counterpart | Note |
+|---|---|---|
+| `e is K k` — deep: walks the `cause` spine top-first, first match binds | `errors.Is` — walks `Unwrap()` comparing sentinels | Same "find it in the chain" semantics; Go tests values, the spec tests kinds |
+| Binding (Model B): `e is IOError io` binds a *new* name; `e` unchanged | `errors.As` — type-test through the chain, fills a target | As mutates a caller pointer; the spec binds a view-only name |
+| Bound names view-only; no extraction; chains append-only | the `errors.As` target is usable and copyable | The spec is stricter — a bound member can't escape the match |
+| Built-in public `Error { message string; code int }` | `syscall.Errno` (code + string form) | the spec has one canonical fallback kind |
+| `causes []error` **opaque** to `is` (explicit iteration only) | `errors.Join`: its `Unwrap()` returns the slice and `Is` *walks it* | Go deliberately makes Joined chains inspectable; the spec refuses |
+| `==` on errors is a compile error; sentinels are payload-less kinds | `err == io.EOF` sentinel comparison | Go equates values; the spec tests kinds — no aliasing trap |
+
+### C12 — reflection and JSON
+
+| Spec rule | Go counterpart | Note |
+|---|---|---|
+| Reflection access read-only by shape (`const *O`; Copy scalars) | `reflect.Value` inspectable; writes only via `CanSet` pointer games | The spec has no mutation path at all |
+| `toJson(obj const *O) Result[string]`; failures are *values* — non-finite float, depth cap → `JsonWriteError` | `json.Marshal`: NaN/±Inf → `*UnsupportedValueError` (wrapped) | Both error *per value*; the spec enumerates kinds in `Result` |
+| `O` JSON-shaped at instantiation: no reachable `*T`/`any`/disposable — cycles impossible by construction | pointers followed; cycles detected at run time and error | Go guards cycles at runtime; the spec by construction |
+| `fromJson` success &-creates the graph in the caller's statement-block arena, returns a view | `json.Unmarshal` allocates on the GC heap | Placement differs; shape is the same |
+| Failure = `JsonParseError { message, offset, cause }` | `*json.SyntaxError { Offset int64 }`; `*json.UnmarshalTypeError { Value, Offset }` | Near-identical: kind + offset (C11 machinery both ways) |
+| Field metadata (`#json.…`); enum arms `"%q{e.name}"` | struct tags `json:"-"`, `json:"name"`; named strings marshal plainly | tags are the Go original |
+
+### C13 — sorting, operators, slot discipline
+
+| Spec rule | Go counterpart | Note |
+|---|---|---|
+| Ordering = the element type's `<` and `==` in scope, resolved per instantiation; machinery comparator-free | `sort.Slice` takes a comparator closure per call | The philosophical fork: Go trusts the caller's closure; the spec trusts the type's operators |
+| Three-way (Dijkstra) partition, median-of-three | pdqsort (1.19+): insertion + quicksort + heapsort hybrid | both degenerate-proof, via different mechanisms |
+| Not stable; a stable sort is "to be written" | `sort.Slice` unstable; `sort.SliceStable` O(n log n) via auxiliary buffer | the same tradeoff Go offers by API choice |
+| Pivot view-pinned (`const *T` into `a[hi]`); heap elements sort by moves | element values copied freely; swap is copy | Go can copy because it has no uninitialized-slot concept — exactly the gap the spec's pivot avoids |
+| `swap(a, i, i)` is identity — checker elides the move trio | `i == j` swap is a harmless no-op copy | the spec's elision is a linear-logic carve-out (§6) |
+| Adversarial orderings = wrapper types (`Desc`) with their own operators | wrapper types *or* functional comparators | the spec has one ordering source per type |
+
 ---
 
 ## 3. Go mechanisms worth studying for the implementation
@@ -168,6 +218,11 @@ Even where the spec says "no", the *machinery* is directly reusable:
 | Empty slots | Zero values (always initialized) | Tracked uninitialized slots (must be reinitialized) |
 | Aliasing | Default (slices, maps, pointers) | Compile error (single owner) |
 | When memory frees | Whenever GC runs | Exactly at scope end |
+| Sentinel equality | `err == io.EOF` legal | Compile error — sentinels are payload-less kinds, tested with `is` |
+| Self-swap | Copy no-op | Checker elides the move trio (never vacates the slot) |
+| Ordering source | Comparator closure per call (`sort.Slice`) | The type's operators in scope, resolved per instantiation |
+| Partition values | Copied freely | View-pinned pivot — `const *T` into the slot; heap elements move, never copy |
+| JSON failures | `*UnsupportedValueError`, `*json.SyntaxError` | Enumerated kinds through `Result` (`JsonWriteError`, `JsonParseError`) |
 
 Go's model buys: flexibility, simple language, interop. This spec's model
 buys: determinism, no GC pauses, freedom-from-bugs at compile time. The Go
@@ -187,3 +242,9 @@ difference is who is trusted with the rules.
   1.5; async preemption (SIGURG) 1.14; open-coded defers 1.14; `arena`
   experiment 1.20, proposal on hold indefinitely — never stabilized.
 - The G-M-P scheduler model is unchanged through Go 1.26 (as of Sep 2026).
+- Stdlib (concept): `errors` (`Is`/`As`/`Join`, the `Unwrap` protocol, 1.13+);
+  `encoding/json` (`Marshal` errors on NaN/±Inf via `*UnsupportedValueError`;
+  `Unmarshal` syntax errors as `*json.SyntaxError` with an `Offset`; struct
+  tags); `sort` (pdqsort adopted for `Sort`/`Slice` in 1.19; `Stable` /
+  `SliceStable` O(n log n) via an auxiliary buffer); `reflect` (the type
+  descriptors underlying `encoding/json`).

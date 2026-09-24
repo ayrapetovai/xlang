@@ -140,8 +140,8 @@ loop d in ds do
    strings and other heap types it is a **move**. Moving a value out of a
    slot is *defined* — reading a non-Copy element leaves the slot
    **uninitialized**, and the two assignments in the body are **move-in
-   reinitializations** (the slot-take rule: `OWNERSHIP_DRAFT.md`, missing
-   rules — linked list #6; LINKED_LIST note 11). The checker verifies every
+   reinitializations** (the slot-take rule: `OWNERSHIP_RULES.md` §6;
+   LINKED_LIST note 11). The checker verifies every
    slot is reinitialized before the array escapes the function, so no
    observable empty slot ever exists. All moves re-home backing within the
    caller's statement-block arena, so nothing allocates and nothing copies
