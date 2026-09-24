@@ -252,14 +252,10 @@ outer: loop do
     if x == 5 then
       break outer // same for `continue` and `yield`
   }
-// proposal
-loop in in arr {
-  // we want to know, whether this iteration is last or first
-  // or pre-last or post-first
-  // TODO Come up with syntax for that!
-  last?
-  first?
-}
+
+arr []int = {1, 2, 3}
+loop i, x in arr do
+  out.println("%d{i}th element is %d{x}")
 ```
 
 ## `loop` with `in` 
