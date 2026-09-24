@@ -216,18 +216,44 @@ Morphological check at the site, per instantiation:
    *unread* error needs no discharge — just the R1 dealloc machinery at the
    end of its scope. Wrapping is allowed: an error may carry `cause error`
    (the Go `%w`-chain analog), and kind tests see through `cause` levels.
-4. **Kind test is `is`, narrowing is checked.** `e is IOError` tests the
-   error's **dynamic kind** — type identity, distinct from `==` value
-   equality (a type never appears as a value operand). After a true `is`,
-   `e` narrows to `IOError` inside the branch and its payload fields become
-   readable as read-only views; reading a payload through an unnarrowed `e`
-   is a compile error. The checker verifies narrowing with the same machinery
-   `match` uses — morphological, provable per branch.
+4. **Kind test is `is`, deep, binding a new name.** `e is IOError io` tests
+   the error's **dynamic kind** — type identity — along the `cause` spine,
+   outermost first, first match wins (Go's `errors.Is` walk). A true test
+   binds the found member under the given name; `e` is untouched and its
+   payload is statically unreadable until a name is bound. Bound names are
+   **view-only**: `return io` is a compile error (R4 — a nested value cannot
+   move out of its wrapper); chains are append-only. `==` between error
+   values is a compile error — sentinels are payload-less kinds, tested with
+   `is`. (Deep-`is` and binding rulings: C11 below.)
 5. **Checkable, not exhaustive.** Error handlers are the deliberate Go-style
    relaxation of `match` exhaustiveness: a new error kind compiles everywhere
    and simply falls through until a test is added; the end of the handler is
    the implicit catch-all. (Answers the "this `e` must be any error"
    requirement — `catch e` binds the intrinsic error by construction.)
+
+# Missing rules now specified — error-handling interview rulings (C11)
+
+1. **`is` is deep.** Tests dynamic kind along the `cause` spine, outermost
+   first; first match wins (Go's `errors.Is` walk).
+2. **Model B binding.** `e is IOError io` is a pure boolean test; a true
+   test binds the found member to the *given* name (`io`). `e` never
+   changes referent — it stays the caught, top error.
+3. **View-only binds, no extraction.** A bound name is a read-only view into
+   the chain; `return io` is a compile error. Chains are append-only: the
+   only transform is wrapping the top (`return SocketError { message = …,
+   cause = e }`); re-contextualizing an inner error is impossible.
+4. **Built-in `Error { message string, code int }` is public.** Intrinsics
+   fill it from the OS (errno → `code`, message); user code may construct
+   it; it is always a possible `cause`; fields read like any declared kind.
+5. **Aggregates are opaque.** `causes []error` is legal payload (errors are
+   non-disposable, so the slice is too) but `is` follows only the single
+   `cause` spine; children are reached by explicit iteration.
+6. **Loop `i` is the ordinal.** In `loop i, x in ar`, `i` is a 0-based
+   iteration count the loop machinery maintains — always legal, uniform for
+   every iterable; for arrays it coincides with the slot index.
+7. **`==` on errors is a compile error.** Every "is this the error" question
+   is answered by `is`; sentinels are payload-less kinds (`NotFound error =
+   {}`), tested the same way.
 
 # Draft fixes applied (rules-first)
 
@@ -313,6 +339,22 @@ made false by value-params-move) and README's iterator *call sites*
     cross-referenced as the first declared error kind. Modeled on Go's
     `error` interface + the `errors.Is`/`errors.As` distinction — grounded in
     the Go source (context7, Sep 24). — OWNERSHIP_DRAFT missing rules above.
+18. Error-handling interview rulings (C11): `is` made explicitly deep
+    (cause spine, top-first, first match wins); the committed C10 reading
+    "e narrows" corrected to **binding** — `e is IOError io` binds the found
+    member to a new name, `e` untouched; bound names declared **view-only**
+    (no extraction; `return io` CE; chains append-only); built-in public
+    `Error { message string, code int }` documented (intrinsics fill from
+    errno; user-constructible; always a possible cause); `causes []error`
+    aggregates declared **opaque** to the walk (explicit iteration only);
+    `==` between error values made a compile error (sentinels = payload-less
+    kinds, tested with `is`); loop pair-binding `loop i, x in ar` defined —
+    `i` is the iteration ordinal, 0-based, uniform, machinery-maintained.
+    — README `### Error kinds, `is`, and binding` rewritten (example now
+    `if e is IOError io … %s{io.customMessage}`), checker list updated
+    (payload reads need a kind-bound name; `==` on errors CE),
+    `## loop with in` gains the ordinal rule; OWNERSHIP_DRAFT C10 rule #4
+    corrected + missing-rules + decision C11.
 
 ---
 
@@ -363,3 +405,16 @@ made false by value-params-move) and README's iterator *call sites*
    interface and the `errors.Is` (value/sentinel) vs `errors.As` (type-test)
    split — grounded in the Go source. (Missing rules section + applied-fix
    #17; README try/catch and `!`/`?` sections rewritten.)
+10. **C11 error-handling rulings (interview, Sep 24)**: (1) `is` is deep —
+    kind test walks the `cause` spine top-first, first match wins (Go's
+    `errors.Is` walk); (2) Model B — a true `is` binds the found member to a
+    new name (`e is IOError io`), `e` never changes referent; (3) bound
+    names are view-only — no extraction, `return io` is a compile error,
+    chains are append-only (wrapping the top is the only transform);
+    (4) built-in `Error { message string, code int }` is public — intrinsics
+    fill it from errno, user-constructible, always a possible cause;
+    (5) `causes []error` aggregates are opaque to `is` (explicit iteration
+    only); (6) `loop i, x` binds the iteration ordinal, 0-based,
+    machinery-maintained, uniform; (7) `==` on error values is a compile
+    error — sentinels are payload-less kinds tested with `is`. Corrects the
+    C10 "narrowing" wording (binding, not narrowing).

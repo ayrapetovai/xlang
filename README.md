@@ -264,6 +264,13 @@ Operator `in` requires functions to be in scope; containers are iterated by
 **view** — `begin`/`end` take `*T`, and `loop e in ar` auto-addresses the
 container (`begin(&ar)`), exactly as method sugar auto-addresses a receiver:
 
+A second binding — `loop i, x in ar` — adds the **iteration ordinal**: `i`
+is a 0-based count the loop machinery maintains itself, independent of the
+container and uniform for every iterable (for arrays it coincides with the
+slot index). Each iteration that starts increments it — `continue` does not
+reset it — and each step receives a fresh copy: mutating `i` in the body is
+legal, but has no effect on the loop.
+
 ```c
 begin func [T](c *T) Iterator[T]
 end func [T](c *T) Iterator[T]
@@ -640,8 +647,8 @@ struct), returning a view of a local, writing through a `const` view,
 re-borrowing a consumed binding, moving a value out of a view binding — a
 view has no ownership to give away — reading an uninitialized slot, moving
 or returning a container that still holds an uninitialized slot, reading an
-error payload through an unnarrowed `e`, and declaring an error type with a
-disposable field. No
+error payload without a kind-bound name, comparing error values with `==`,
+and declaring an error type with a disposable field. No
 lifetime inference, no alias analysis.
 
 ### Semantics that touch ownership
@@ -935,7 +942,7 @@ Semantics:
 - **Panic is not a failure.** `panic` aborts the process; it never jumps to
   `catch` and skips every defer, exactly like it bypasses `dispose`.
 
-### Error kinds, `is`, and narrowing
+### Error kinds, `is`, and binding
 
 Errors are an intrinsic kind — a declared error type carries payload fields:
 
@@ -946,6 +953,11 @@ IOError error = {
 }
 JsonParseError error = { customMessage string }
 ```
+
+One **built-in** kind is public and structurally normal: `Error { message
+string, code int }`. Intrinsics fill it from the OS (errno into `code`, a
+message for `%s{e}`), and user code may construct it directly; it is always
+a possible `cause`.
 
 On failure the failing operation fills a payload and stacks it in the
 `Result` box; the handler binds it (`catch e`) and dispatches by kind:
@@ -958,23 +970,36 @@ loadUser func (path const string) = {
   try u := parseUser(s)                    // Result[*User]
   authorize(u)                             // success tail
   catch e
-  if e is IOError then
-    out.println("failed to read user: %s{e.customMessage}")
-  else if e is JsonParseError then
-    out.println("failed to parse user: %s{e.customMessage}")
+  if e is IOError io then
+    out.println("failed to read user: %s{io.customMessage}")
+  else if e is JsonParseError jp then
+    out.println("failed to parse user: %s{jp.customMessage}")
   // kinds without a test fall through — handled implicitly by the handler's end
 }
 ```
 
-- **`is` is the kind test.** `e is IOError` tests the error's *dynamic kind*
-  — type identity. `==` stays value equality; a type never appears as a value
-  operand, and kinds carry payloads, so plain equality is meaningless for
-  them.
-- **Narrowing.** After a true `is`, `e` narrows to `IOError` inside the
-  branch and its payload fields become readable — as read-only views
-  (`e.customMessage` prints; it never takes). Reading a payload through an
-  unnarrowed `e` is a compile error; the checker verifies narrowing with the
-  same per-branch machinery `match` uses.
+- **`is` is deep.** `e is IOError io` tests the error's *dynamic kind* —
+  type identity — along the **`cause` spine**, outermost first; the first
+  match wins (Go's `errors.Is` walk).
+- **The find binds a new name.** A true `is` binds the found member to the
+  name you give it; `e` itself is untouched and remains the caught, top
+  error — owned, printable, returnable, wrappable as a whole. Reading a
+  payload through *unbound* `e` is a compile error; the checker verifies
+  binding with the same per-branch machinery `match` uses. `==` between
+  error values is a compile error — every "is this the error I care about"
+  is answered by `is`; a payload-less kind (`NotFound error = {}`) is a
+  sentinel, tested the same way.
+- **Bound names are views.** The named member is a read-only view into the
+  chain: payload fields print, never move — `return io` is a compile error
+  (a nested value cannot be moved out of its wrapper, R4). An error chain
+  is therefore **append-only**: the only transform is wrapping the top —
+  `return SocketError { message = "accept: %s{e}", cause = e }` — and a
+  found member can never be re-contextualized into a new wrapper.
+- **Aggregates are opaque.** A kind may carry `causes []error` — legal
+  payload (errors are non-disposable, so the slice is too) — but the deep
+  walk follows only the single `cause` spine; reaching the children is
+  explicit iteration (`loop c in v.causes`), and a bare `e is IOError` never
+  fires on a child that sits only inside an aggregate.
 - **Non-disposable payloads.** An error type may name only non-disposable
   field types — the declaration itself is rejected otherwise. Errors never
   carry owned resources, so the failure-path rule (dispose before `Err`) is
@@ -984,8 +1009,6 @@ loadUser func (path const string) = {
   relaxation of `match` exhaustiveness: a new error kind compiles everywhere
   and falls through until a test is added. The handler's end is the implicit
   catch-all.
-- **Wrapping.** An error may carry `cause error`; `is` tests see through one
-  or more `cause` levels, like Go's `errors.Is` walk.
 
 
 ## `!` and `?`
