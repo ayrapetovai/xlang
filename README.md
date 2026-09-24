@@ -944,6 +944,8 @@ main func () = {
 own lighter handling — the `?`, `??` and `if ...?` forms of
 ``## `T?` and `T!` `` — and never enters a guarded scope.
 
+`try` may be applied only to a statement or an expression, never to a block of code.
+
 The `try-catch` pair — from the first `try` to the single `catch` — is one
 lifetime, like a code block `{ statements }`.
 
@@ -998,8 +1000,7 @@ Semantics:
 - **Panic is not a failure.** `panic` aborts the process; it never jumps to
   `catch` and skips every defer, exactly like it bypasses `dispose`.
 - **`!` settles inside a region.** A bare `!` anywhere in a guarded scope is
-  not an early return — it fails the region to its own `catch`, so a
-  `try { … }` block can loop over fallible reads. `?` stays a compile
+  not an early return — it fails the region to its own `catch`. `?` stays a compile
   error inside a region — absence has no handler — and `??` stays legal
   (``## `T?` and `T!` ``).
 
@@ -1409,13 +1410,11 @@ accept func (listener *Listener) Connection! = {
 // -- slurp one line (until \n, or EOF with data)
 readLine func (conn *Connection) string! = {
   buf string
-  try {
-    loop {
-      ch := socket.recv(conn.fd)!       // view: conn is *Connection; fails to the catch
-      if ch == '\n' then
-        return buf                      // auto-wrap: success
-      buf += string.from(ch)
-    }
+  try loop {
+    ch := socket.recv(conn.fd)!       // view: conn is *Connection; fails to the catch
+    if ch == '\n' then
+      return buf                      // auto-wrap: success
+    buf += string.from(ch)
   }
   catch e
   if buf.length > 0 then
@@ -1435,11 +1434,9 @@ write func (conn *Connection, data const string) uint! = {
 echo func (conn &Connection) = {
   peer := conn.peer                          // const string — value binding
   defer conn.dispose()                       // fires on both paths
-  try {
-    text := conn.readLine()!
-    n    := conn.write(text)!
-    out.println("echoed %d{n} bytes to %s{peer}")
-  }
+  try text := conn.readLine()
+  try n    := conn.write(text)
+  out.println("echoed %d{n} bytes to %s{peer}")
   catch e
   out.println("to %s{peer}: %s{e}")
 }
