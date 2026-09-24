@@ -1476,8 +1476,11 @@ readRequest func (conn *Connection) Result[Request] = {
 }
 ```
 
-A canonical, reflection-driven `bytes.from(v)` for whole structs stays an
-option, not a requirement — `toBytes` / `fromBytes` above are the norm.
+The reflection-driven whole-struct binary codec — `toBytes` / `fromBytes` —
+is `BINARY_CODEC.md` (C17): the C12 shape, binary instead of text — one wire
+format, fixed-width, `Endian.big`, length-prefixed names and counts. Manual
+codecs stay the norm when the wire is externally specified or framed
+per-packet; `readRequest` above is that style, without reflection.
 
 ## Resources (dispose)
 
