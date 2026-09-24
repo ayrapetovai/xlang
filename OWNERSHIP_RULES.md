@@ -118,6 +118,11 @@ runtime mapping is in `GO_RUNTIME_MAPPING.md`.
   caller's — and are bulk-freed at that block's exit.
 - Owned locals still get per-variable deallocation at the end of the
   function body (§1).
+- Owned `[]T` grows by **element move-append** — `buf += a[i]` moves the
+  value into a freshly grown arena slot (copies nothing; heap types need no
+  Copy; `MERGE_SORT.md`). **Buffer growth invalidates outstanding views**:
+  it is the single sanctioned invalidation point — hold no view into a
+  growing buffer.
 - No GC and no cycle recovery: cycles are impossible by construction.
 
 ## 6 — Slots (the checker's linear discipline)

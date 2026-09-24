@@ -111,6 +111,16 @@ a []int = {
 r []int = 0..=5 // r is {0, 1, 2, 3, 4, 5}
 ```
 
+An owned buffer grows by **element move-append** — the `+=` family alongside
+`string +` and `bytes +=` (`MERGE_SORT.md` stages its merge workspace this
+way). The value moves into a freshly grown arena slot; copies nothing;
+growth invalidates outstanding views, so hold none across it:
+
+```c
+buf []T = {}
+buf += a[i]   // move-append: a[i] is vacated (slot-take); buf grows in the arena
+```
+
 ## Pointers
 
 ```c

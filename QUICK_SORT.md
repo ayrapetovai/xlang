@@ -199,4 +199,5 @@ loop d in ds do
    costs no copies and works for every type.
 
 8. **Not stable.** Equal keys are permuted freely. If relative order of
-   equals matters, a stable sort (e.g. merge sort, to be written) is the fix.
+   equals matters, the stable sort is `MERGE_SORT.md` — it needs only
+   `infix_operator<` and stages its workspace by move-appends.

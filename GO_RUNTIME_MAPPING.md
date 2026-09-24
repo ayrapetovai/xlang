@@ -35,6 +35,7 @@ since 1.14; contiguous copy-growing stacks since 1.3).
 | `is` / kind binding | `errors.Is` / `errors.As` | deep chain walk + type extraction, both native (C11) |
 | error kinds (declared) | `error` interface + dynamic type | the same dispatch, spelled in the type system |
 | JSON-shaped constraint | struct tags (`json:"-"`) | serializability fixed at compile vs by decoder convention |
+| element move-append (`buf += a[i]`) | `append(buf, a[i])` | Go copies into the backing; the spec moves the value in (growth = the sanctioned invalidation, MERGE_SORT.md) |
 
 ---
 

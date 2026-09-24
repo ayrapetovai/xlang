@@ -474,6 +474,25 @@ made false by value-params-move) and README's iterator *call sites*
     as written" corrected (C12 rewrote it); README checker list gains the
     self-swap-elision carve-out; sketch citations (QUICK_SORT note 1,
     LINKED_LIST notes) repointed to `OWNERSHIP_RULES.md` §6. — decision C14.
+22. Stable merge sort (ruling C15): new conformant sketch `MERGE_SORT.md` —
+    bottom-up (no recursion), stable, `infix_operator<` **only** — the
+    merge's test is "take left unless right < left", so `==` is never
+    consulted (the opposite half of quickSort's C13 contract). **New
+    mechanism established**: the element move-append `buf += a[i]` on owned
+    `[]T` — moves the value into a freshly grown arena slot (`string +` /
+    `bytes +=` precedent; growth already the single sanctioned invalidation
+    point for views into owned buffers), now stated as a normative rule in
+    OWNERSHIP_RULES.md §5. Arena discipline: each bottom-up level wrapped in
+    `{ … }` (C7) bounds peak live arena to O(n) with O(n log n) churn freed
+    at level boundaries; `buf` never escapes, so its slots may die vacated
+    (repair-before-escape governs escaping containers); the right-run tail
+    is never moved — when the left run exhausts the write head sits exactly
+    on the right head, so any tail write would be self-moves (C13 identity),
+    and the code omits them. Usage: `Item { key, seq }` stability demo (seq
+    stays ascending among equals — the thing quickSort would permute);
+    `Point` sorts with `<` only. README `## Array declaration` gains the
+    move-append spelling; QUICK_SORT note 8 repointed (the stable sort is
+    now MERGE_SORT.md); GMP gains the append-mapping row. — decision C15.
 
 ---
 
@@ -592,3 +611,18 @@ made false by value-params-move) and README's iterator *call sites*
     citations repointed to `OWNERSHIP_RULES.md` §6. Answers (user): rename →
     OWNERSHIP_RULES.md as the normative core; sync the Go-runtime mapping;
     fix the drift.
+14. **C15 stable merge sort (Sep 24)**: (1) **move-append workspace** — the
+    user ruling: the merge's scratch is `buf []T = {}` grown by `buf += a[i]`
+    element move-appends (the `+=` family: `string +`, `bytes +=`); an
+    append moves the value into a freshly grown arena slot, never copies;
+    growth is the single sanctioned invalidation point and no view is held
+    across it (now a normative rule in OWNERSHIP_RULES.md §5); (2)
+    **bottom-up** iteration — no recursion — with every level wrapped in
+    `{ … }` arenas, bounding peak live memory to O(n); (3) **stability via
+    "take left unless right < left"** — merge sort needs only
+    `infix_operator<` in scope; `==` is never consulted (totality of C13
+    still required); (4) the **right-run tail never moves** — when the left
+    run exhausts, the write head sits exactly on the right run's head, so a
+    tail write would be a chain of self-moves elided by the C13 identity
+    rule; the code omits them. Answers (user): go for it — move-append
+    scratch (C15).
