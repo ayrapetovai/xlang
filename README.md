@@ -13,7 +13,7 @@ Each variable, func parameter of field can be const.
 Assignment is a statement, not an expression: no chained `a = b = c`, no `++`/`--` — use `i += 1`.
 Other statements are expressions.
 Strings can be concatenated and multiplicated like in python.
-Data types: `void`, `byte`, `char`,  `int`, `float`, `bool`, `string`, `struct`, arrays, `enum`, `interface`.
+Data types: `void`, `byte`, `char`,  `int`, `float`, `bool`, `string`, `struct`, arrays, `enum`, `interface`. Absence and fallibility are postfix shapes — `T?` (maybe-value) and `T!` (fallible) — see ``## `T?` and `T!` ``.
 Meta types: `type`, `func`, `field`, `pointer`, `value`, `any`.
 Function's return type counts for signature.
 Function's return type participates in overload resolution.
@@ -166,9 +166,9 @@ Field access: `.`
 Literal fields and named arguments: `name = value`
 Assignment: `=` (statement only, yields no value); no `++`/`--` — use `i += 1`
 Declaration: `name type`, initialization `name type = value`, deduced `name := value`
-Channel send/receive: `ch <- v` (moves/copies a value into the cell), `v = <-ch` or `<-ch` (receive, yields `Optional[T]`)
+Channel send/receive: `ch <- v` (moves/copies a value into the cell), `v = <-ch` or `<-ch` (receive, yields `T?`)
 Coroutine operator: `spawn f(args)` — starts `f` on its own coroutine, returns `void`
-Result/Optional unwrap (propagate): postfix `!` on `Result[T]` (returns the intrinsic error from the function, or panics in `main`), postfix `?` on `Optional[T]` (returns `None`, or panics in `main`), and fallback `?? default` (keeps going with `default`) — see ``## `!` and `?` ``
+Unwrap (propagate): postfix `!` on a `T!` (returns the intrinsic error from the function, or panics in `main`), postfix `?` on a `T?` (returns absence, or panics in `main`), and fallback `?? default` (keeps going with `default`) — see ``## `T?` and `T!` ``
 User-defined overloads: `infix_operator<`, `infix_operator==`, … take `const *T` operands (auto-borrowed, non-owning) — see "Copyable types".
 
 ## Control structures
@@ -204,12 +204,43 @@ if b { // multi line statements allowed for code block `{}`
 }
 ```
 
+### If over a `T?` — the checked form
+
+Reading a `T?` obligates an explicit unwrap; the condition head is the
+checked form: the payload binds for the `then`-branch, absence runs the
+`else`. The head's `?` never propagates — it branches (``## `T?` and `T!` ``).
+
+```c
+if x := m.get(key)? then            // binds payload x for the branch
+  process(x)
+// the `then`-branch may be omitted — absence runs the else:
+if y := m.get(other)? else          // else handles the absent case
+  logNoX()
+// a named `T?` tested in place rebinds its payload (smart-cast):
+if m.get(key)? then
+  out.println("hit")
+else
+  out.println("miss")
+// loop while present — the same branching rule:
+loop b := q.poll()? do
+  process(b)
+```
+
+The binding's scope is the branch's block; `else` is optional on either
+side (`if x := f()? then stmt` — absence does nothing). Unwrapping an
+*owned* payload moves it out (consume); unwrapping through a view binds a
+const view of the payload (`if kv := (&slot.entry)?` — the container
+inspection pattern, `HASH_MAP.md`).
+
 ### Switch statement
 
 ```c
-match x {
-  Some(s) => foo(s)
-  None => bar()
+handlerResult enum = { Accepted, Rejected(reason string) }
+
+r := handlerResult.Rejected("busy")
+match r {
+  Accepted => out.println("ok")
+  Rejected(reason) => out.println("no: %s{reason}")
 }
 ```
 
@@ -363,16 +394,21 @@ MyBeInt enum = { // implicitly has field with type descriptor
   Somting int = 1
   Empty
 }
-// in standard library
-Optional const enum [T any] = {
-  Some(T)
-  None
-}
+// there is no user `Optional[T]` — absence is the postfix shape `T?`
+// (Option under the hood: the checker's shape is `{ Some(T), None }`,
+// but users never spell either arm, and `match` on a `T?` is a compile
+// error). Absence is written as `return` (bare), `{}` (the default of a
+// `T?`), or the `else` of an `if ...?` form — see "## `T?` and `T!`".
 ```
 
 ## Pattern matching
 
 The result of the last calculated statement is returned by `match`.
+
+`match` covers enums, structs, and type reflection — never `T?` or `T!`:
+the absence/failure shapes are handled **by form, not by arms** (the checked
+`if ...?` form, `?` / `??`, and `## Try / catch`). `match` on a `T?` or `T!`
+value is a compile error (``## `T?` and `T!` ``).
 
 ```c
 MyEnum enum = { A, B }
@@ -498,7 +534,7 @@ NumberError error = { message string }
 
 // first argument is type, we have nothing to do with it
 // intrinsic function, defined in 'basic' package
-from func (int, s const string) Result[int] = {
+from func (int, s const string) int! = {
   r := 0
   loop c in s.length>..=0 do
     if '0' <= c && c <= '9' then
@@ -506,13 +542,15 @@ from func (int, s const string) Result[int] = {
     else if c == '-' then
        r = -1 * r
     else
-      return Error(NumberError { message = "string value is not an integer number" })
-  return Ok(r)
+      return NumberError { message = "string value is not an integer number" }
+  return r
 }
 // user can define func like this, it allows to do that:
 
-x int
-x = int.from("1234")
+parse2x func (s const string) int! = {
+  x := int.from(s)!          // unwrap — failure propagates the intrinsic error
+  return x * 2               // auto-wrap: success
+}
 ```
 
 ## Memory Ownership
@@ -529,7 +567,7 @@ Memory is owned, moved, or borrowed — never shared-mutable.
   callee's `&`-creations and owned buffers land in the nearest enclosing
   *statement-block* arena — the caller's. So a function may return an
   `&`-created object (`newList()` → `*Head[T]`) or wrap one in an owned return
-  (`toJson` → `Ok(json)`), and it survives the call, dying with the caller's
+  (`toJson` → `string!`), and it survives the call, dying with the caller's
   block. Owned *locals* still die at the end of the function body — each gets
   its per-variable deallocation there (R1) — even though the underlying buffer
   lives in the outer arena.
@@ -658,7 +696,11 @@ re-borrowing a consumed binding, moving a value out of a view binding — a
 view has no ownership to give away — reading an uninitialized slot, moving
 or returning a container that still holds an uninitialized slot, reading an
 error payload without a kind-bound name, comparing error values with `==`,
-and declaring an error type with a disposable field. `swap(a, i, i)`
+declaring an error type with a disposable field, reading a `T?` / `T!`
+without an explicit unwrap (`?` / `??` / the checked if-form for `T?`;
+`!` / `try` for `T!`), `match` on a `T?` / `T!` value, and the stacked
+shapes `T??` / `T!!` / `T!?` (and `T!` whose `T` is an error kind).
+`swap(a, i, i)`
 is identity — the checker elides the self-swap move trio instead of
 vacating the slot. No
 lifetime inference, no alias analysis.
@@ -666,6 +708,9 @@ lifetime inference, no alias analysis.
 ### Semantics that touch ownership
 
 - `match x` consumes x (bindings move out); `match &x` inspects via views.
+- Unwrap is a consume: `x?` / `x!` / `??` move owned payloads out; a
+  view-unwrap (`&x?`) binds a const view of the payload — the container
+  inspection pattern (`HASH_MAP.md`).
 - `loop e in arr` binds a view (via `current &T`).
 - Closures capture by value (copy const handles, move owned values); they own
   their environment and may escape. A callback registered asynchronously runs
@@ -782,19 +827,15 @@ last handle dies; sends to a closed channel abort.
 
 ```c
 pong func (ch const chan[string]) = {
-  loop {
-    match <-ch {
-      Some(s) => out.println(s)
-      None    => return          // closed and drained — done
-    }
-  }
+  loop s := <-ch? do       // receive; absence (closed and drained) ends the loop
+    out.println(s)
 }
 
 ch chan[string] = chan[string].new(0)  // new(n): n slots; 0 = unbuffered rendezvous
 
 spawn pong(ch)                    // owned handle widens to const: the cell is shared
 ch <- "hello, world"              // frozen literal — the pool buffer is shared into the cell
-ch.dispose()                      // close: no more sends; pong drains, then sees None
+ch.dispose()                      // close: no more sends; pong drains, then sees absence
 ```
 
 The operators are Go's, spelled on ownership. `ch <- v` *moves* `v` into the
@@ -806,9 +847,10 @@ the `### Thread boundary` rule, so no view can reach another coroutine
 through a channel. Sending and receiving take the const handle; closing is
 allowed from any holder.
 
-`v = <-ch` yields `Optional[T]` — the language never fabricates a zero value
-where Go's `v, ok := <-ch` would: `Some(x)` is a value, `None` means closed
-and drained. `loop x in ch` iterates until `None`. `chan[T].new(16)` is
+`v = <-ch` yields `T?` — the language never fabricates a zero value where
+Go's `v, ok := <-ch` would: a value means the receive succeeded, absence
+means closed and drained. `loop x in ch` iterates until absence.
+`chan[T].new(16)` is
 buffered — sends settle while a slot is free. After `dispose()` a send
 aborts, buffered values still drain, and a double-close aborts too.
 Unbuffered sends and receives park the coroutine, the same machinery as
@@ -826,11 +868,9 @@ body, `default` escape), the same shape as `match` arms.
 worker func (jobs const chan[int], results const chan[int], cancel const chan[bool]) = {
   loop {
     select {
-      j := <-jobs =>               // fires when a job arrives; j is Optional[int]
-        match j {
-          Some(j) => results <- j * 2
-          None    => return        // jobs closed and drained — we are done
-        }
+      j := <-jobs =>               // fires when a job arrives; j binds the payload
+        results <- j * 2
+      (<-jobs)? => return          // absence — jobs closed and drained: we are done
       <-cancel => return           // fires when cancel is closed or delivers
     }
   }
@@ -838,9 +878,9 @@ worker func (jobs const chan[int], results const chan[int], cancel const chan[bo
 ```
 
 Ready rules are judged on the `### Channels` cell state:
-- receive: ready when a value is buffered, an unbuffered sender is parked, or the
-  channel is closed — the arm then fires, its binding `Some(x)`, or `None` once
-  closed and drained;
+- a receive arm fires on **presence** (`j := <-ch =>`, binding the payload);
+  a `(<-ch)?` arm fires on **absence** — once the channel is closed and
+  drained;
 - send: ready when a buffer slot is free or a receiver is parked.
 
 Every case expression (the channel and value operands) is evaluated exactly
@@ -852,8 +892,9 @@ random, like Go — a busy channel cannot starve the others. If none is ready,
 `lock()`) until one becomes ready.
 
 A send arm selected on a closed channel aborts, exactly like `ch <- v`
-outside `select`. A receive arm on a closed channel fires with `None`
-forever — its body must exit on `None`, per `### Channels`. `select` covers
+outside `select`. A receive must spell its absence per `### Channels`: after
+the channel is closed and drained, `j := <-ch` never fires and `(<-ch)?`
+fires — the body must exit. `select` covers
 channels only: there are no lock or timer arms. An empty `select` is a
 compile error — an eternal park has no place under the deadlock rule. A
 parked `select` counts like any other park, so "every coroutine parked"
@@ -896,17 +937,17 @@ main func () = {
 
 ## Try / catch
 
-`try` guards an operation that returns `Result[T]` — and only `Result`:
-`Optional[T]` has its own lighter handling — the `?` and `??` of
-``## `!` and `?` `` — and never enters a guarded scope.
+`try` guards an operation that returns `T!` — and only `T!`: `T?` has its
+own lighter handling — the `?`, `??` and `if ...?` forms of
+``## `T?` and `T!` `` — and never enters a guarded scope.
 
 The `try-catch` pair — from the first `try` to the single `catch` — is one
 lifetime, like a code block `{ statements }`.
 
 A guarded scope is the tail of a block:
 
-- the fallible operations stack as `try <statement>` — one statement each, no
-  block, all at the top level of the region;
+- the fallible operations stack as `try <statement>` — one statement each (a
+  `{ … }` block counts as one), all at the top level of the region;
 - the region ends with exactly one `catch <name>` — a **label with a
   parameter**. Every statement after it, to the end of the enclosing block, is
   the handler region: flat, no braces, no extra indent;
@@ -919,10 +960,10 @@ A guarded scope is the tail of a block:
 readFile func (path const string) = {
   status int = 200
 
-  try file := open(path)              // Result[File]
+  try file := open(path)              // File! — unwrapped by the guard
   defer file.dispose()                // registered only because the try above succeeded
 
-  try data := file.readAll()          // Result[[]byte]
+  try data := file.readAll()          // []byte!
   try use(data)                       // success tail
 
   // both paths settle here — defers registered above fire now
@@ -936,7 +977,7 @@ readFile func (path const string) = {
 
 Semantics:
 
-- **One error kind.** `Result[T]` carries no error parameter: every fallible
+- **One error kind.** `T!` carries no error parameter: every fallible
   operation reports through the single intrinsic error type, so mixed origins
   in one region need no unification — `catch e` binds whatever the failed op
   produced. (Declared error kinds and `is`-testing: the next subsection.)
@@ -953,6 +994,11 @@ Semantics:
   its own tail.
 - **Panic is not a failure.** `panic` aborts the process; it never jumps to
   `catch` and skips every defer, exactly like it bypasses `dispose`.
+- **`!` settles inside a region.** A bare `!` anywhere in a guarded scope is
+  not an early return — it fails the region to its own `catch`, so a
+  `try { … }` block can loop over fallible reads. `?` stays a compile
+  error inside a region — absence has no handler — and `??` stays legal
+  (``## `T?` and `T!` ``).
 
 ### Error kinds, `is`, and binding
 
@@ -976,15 +1022,15 @@ string, code int }`. Intrinsics fill it from the OS (errno into `code`, a
 message for `%s{e}`), and user code may construct it directly; it is always
 a possible `cause`.
 
-On failure the failing operation fills a payload and stacks it in the
-`Result` box; the handler binds it (`catch e`) and dispatches by kind:
+On failure the failing operation fills a payload and stacks it as the
+intrinsic error; the handler binds it (`catch e`) and dispatches by kind:
 
 ```c
-// readConfig: Result[string] — IOError possible; parseUser: Result[*User] —
+// readConfig: string! — IOError possible; parseUser: *User! —
 // JsonParseError possible (the &-created user lands in the caller's arena, C7)
 loadUser func (path const string) = {
-  try s := readConfig(path)                // Result[string] — any intrinsic error
-  try u := parseUser(s)                    // Result[*User]
+  try s := readConfig(path)                // string! — any intrinsic error
+  try u := parseUser(s)                    // *User!
   authorize(u)                             // success tail
   catch e
   if e is IOError io then
@@ -1010,7 +1056,7 @@ loadUser func (path const string) = {
   chain: payload fields print, never move — `return io` is a compile error
   (a nested value cannot be moved out of its wrapper, R4). An error chain
   is therefore **append-only**: the only transform is wrapping the top —
-  `return Error(SocketError { message = "accept: %s{e}", cause = e })` — and a
+  `return SocketError { message = "accept: %s{e}", cause = e }` — and a
   found member can never be re-contextualized into a new wrapper.
 - **Aggregates are opaque.** A kind may carry `causes []error` — legal
   payload (errors are non-disposable, so the slice is too) — but the deep
@@ -1028,56 +1074,88 @@ loadUser func (path const string) = {
   catch-all.
 
 
-## `!` and `?`
+## `T?` and `T!`
 
-`!` unwraps a `Result[T]`, `?` and `??` an `Optional[T]`, in expression
-position — the lighter counterparts to `## Try / catch`, which settles errors
-locally. These propagate them outward instead:
+Absence and fallibility are **postfix type shapes**: `T?` is the
+maybe-value (`Optional[T]` under the hood), `T!` the fallible value
+(`Result[T]` under the hood, carrying the single intrinsic error). The
+checker's shapes are `{ Some(T), None }` and a success/failure pair — but
+users never spell `Some` / `None` / `Ok` / `Error`: absence and failure are
+handled **by form, not by arms**, so `match` on a `T?` or `T!` value is a
+compile error (`## Pattern matching`). Stacking is banned too (`T??`,
+`T!!`, `T!?` are compile errors), and `T` in `T!` must not itself be an
+error kind — a bare `return v` could not tell a success from a failure
+otherwise.
 
-- `expr!` — `Result[T]` only. On error the enclosing function returns the
-  intrinsic error — or the whole process panics, if that function is `main` —
-  and otherwise the expression evaluates to the inner `T`.
-- `expr?` — `Optional[T]` only. On `None` the function returns `None` (in
-  `main`: panic); otherwise the expression evaluates to the inner `T`.
-- `expr ?? default` — `Optional[T]` only. On `None` the expression evaluates
-  to `default` and the function keeps going. There is never a return, so `??`
+**Writing the shapes.** In a `T!` function a failure is `return <error-kind
+value>` and the success is `return v` — the compiler wraps by the declared
+return type (`return NumberError { … }` is a failure, `return r` a success,
+`return f()` with `f : V!` passes through, and `return e` re-raises the
+intrinsic error from a handler). In a `T?` function `return v` wraps the
+success and a bare `return` returns **absence**. Assignment to a `T?`
+target wraps the same way: a declared `T?` — local or field — defaults to
+absent, `x = v` wraps, `x = {}` clears. The implicit tail return wraps like
+`return`.
+
+**Reading the shapes is obligated-unwrap** — the checker rejects any bare
+use of a `T?` as its `T` (arithmetic, passing to a `T` parameter, assigning
+to a `T`), with one exception: the absence tests `x == {}` / `x != {}`.
+`T!` is readable only through `!` or `try`. The unwrap forms, in expression
+position:
+
+- `expr!` — `T!` only. On error the enclosing function returns the
+  intrinsic error — or the whole process panics in `main` — otherwise the
+  expression evaluates to the payload. Inside a guarded scope `!` is not an
+  early return: it fails the region to its own `catch` (`## Try / catch`).
+- `expr?` — `T?` only. On absence the function returns (bare) — or panics
+  in `main` — otherwise the expression evaluates to the payload. In a
+  conditional **head** (`if x := expr?`, `loop x := expr?`) `?` instead
+  *branches*: the payload binds for the block, absence runs the `else`
+  (`### If statement`).
+- `expr ?? default` — `T?` only. On absence the expression evaluates to
+  `default` and the function keeps going. There is never a return, so `??`
   works in any function, `main` included, and inside guarded scopes.
 
+**Unwrap is a consume.** `!`, `?`, and `??` move the payload out of the
+shape; a non-Copy payload is moved, so a box cannot be unwrapped twice.
+Unwrapping through a *view* (`&x?`) binds a **const view of the payload**
+instead — the container inspection pattern (`HASH_MAP.md`): the map reads a
+slot's `T?` entry through a view without ever taking ownership.
+
 ```c
-truncateRead func (f *File, n int) Result[string] = {
+truncateRead func (f *File, n int) string! = {
   buffer bytes = {}
   s := f.readLine(&buffer)!       // writable view of the caller's scratch buffer
-  return Ok(string.from(s[:n]))   // successes return explicitly, wrapped
+  return string.from(s[:n])       // auto-wrap: success
 }
 
-getUserAuthorities func (login const string) Optional[[]string] = {
+getUserAuthorities func (login const string) []string? = {
   aths := repository.selectAuthoritiesForUser(login)?
-  return Some(aths.filter(s != ""))
+  return aths.filter(s != "")     // auto-wrap: success
 }
 
 greet func (login const string) string = {
-  name := repository.nickname(login) ?? login   // None: keep going with login
+  name := repository.nickname(login) ?? login   // absent: keep going with login
   return "hello, " + name
 }
 ```
 
 Rules:
 
-- **Forced return types.** A bare `!` forces its function to return
-  `Result[_]`; a bare `?` forces `Optional[_]`. The two cannot coexist in
-  one function — they force incompatible return types — while `??` forces
-  nothing and mixes freely. `main` is exempt from the forcing: its failure
-  path is a `panic` (abort), not a return.
-- **Payloads.** `?` returns `None`, which carries nothing, so an `Optional[Y]`
-  can feed a function returning any `Optional[X]`. `!` returns the intrinsic
-  error value — a kind-tagged payload and the one and only error type — so
-  the expression's error and the function's error match by construction.
+- **Forced return types.** A bare `!` forces its function to return `T!`; a
+  bare `?` forces `T?`. The two cannot coexist in one function — they force
+  incompatible return types — while `??` forces nothing and mixes freely.
+  `main` is exempt from the forcing: its failure path is a `panic` (abort),
+  not a return. The checked conditional head and `try` force nothing.
+- **Payloads.** `?` returns absence, which carries nothing, so a `Y?` can
+  feed a function returning any `X?`. `!` returns the intrinsic error value
+  — a kind-tagged payload and the one and only error type — so the
+  expression's error and the function's error match by construction.
   Success payloads are unconstrained.
-- **Unwrap is a consume.** `!`, `?`, and `??` move the value out of the box; a
-  non-Copy payload is moved, so a box cannot be unwrapped twice.
-- **Guarded scopes.** A bare `!` or `?` inside a `## Try / catch` region is a
-  compile error — the region settles its own errors, and an early return
-  would silently bypass `catch`. `??` has no failure path, so it stays legal.
+- **Guarded scopes.** Inside a `## Try / catch` region a bare `!` is not an
+  early return — it fails the region to its own `catch`; a bare `?` is a
+  compile error (absence has no handler); `??` has no failure path, so it
+  stays legal.
 
 
 ## Generics
@@ -1086,7 +1164,7 @@ Rules:
 word — `func [T]`, `struct [T]`, constraint forms like `struct [E
 Iterable]`, `interface [T[E, _]]`, and specializations like `func
 [array[E]]` above. Instantiation puts *arguments* on the referenced name:
-`*Head[T]`, `Optional[B]`, `Iterable[T] interface`. Calls never repeat type
+`*Head[T]`, `B?`, `Iterable[T] interface`. Calls never repeat type
 arguments: `foo(x)` deduces them from the argument types, and when the
 arguments carry no type information (as in `newList()`) from the expected
 result type.
@@ -1170,15 +1248,15 @@ JsonWriteError error = { message string; cause error }
 // fields), so serialization cannot cycle: there are no references to follow.
 // The output is arena-built in the caller's statement-block arena (C7) and
 // dies with the caller's block.
-toJson func [O] (obj const *O, n := 0) Result[string] = {
+toJson func [O] (obj const *O, n := 0) string! = {
   if n > 64 then
-    return Error(JsonWriteError { message = "too deeply nested" })
+    return JsonWriteError { message = "too deeply nested" }
   indents := "    " * n
   json := indents + match O {
     String(s) => "%q{s}\n"                       // s: const view of the value
     Integer(i) => "%n{i}\n"                      // scalars arrive Copy
     Float(f) => if f.isFinite() then "%f{f}\n"
-                else return Error(JsonWriteError { message = "non-finite float" })
+                else return JsonWriteError { message = "non-finite float" }
     Boolean(b) => "%b{b}\n"
     Enum(e) => "%q{e.name}: {\n" + toJson(e.value(), n + 1)! + "\n}\n"  // deep failures propagate
     Array(a) =>
@@ -1196,21 +1274,21 @@ toJson func [O] (obj const *O, n := 0) Result[string] = {
       }
       "{\n" + subjson + indents + "}\n"
   }
-  return Ok(json)
+  return json
 }
 
-// -- parse: genuinely fallible — malformed input is data (Result), unlike the
+// -- parse: genuinely fallible — malformed input is data (T!), unlike the
 // -- invariant panics above. Success **&-creates the whole O graph** in the
 // -- caller's statement-block arena and returns a view into it: survives the
 // -- call, bulk-freed at the caller's block exit, no dispose (the newList
 // -- precedent, C7). The same JSON-shaped constraint applies: a parser cannot
 // -- construct `*T`/`any`/disposable fields from text.
-fromJson func [O] (json const string) Result[*O] = {
+fromJson func [O] (json const string) *O! = {
   parser := JsonParser { input = json, at = 0 }       // JsonParser: intrinsic
   try obj := parser.parse[O]()                        // nested &-creates land in
-  Ok(obj)                                             // the caller's arena (C7)
+  return obj                                          // the caller's arena (C7)
   catch e
-  Error(JsonParseError { message = "json parse failed", offset = parser.at, cause = e })
+  return JsonParseError { message = "json parse failed", offset = parser.at, cause = e }
 }
 ```
 
@@ -1266,7 +1344,7 @@ field struct = {
 
 ## Socket server
 
-A TCP echo server, exercising `Result` for syscall failures, exhaustive
+A TCP echo server, exercising `T!` for syscall failures, exhaustive
 `match`, `&` move-in for single-owner sockets, method sugar, `dispose` for
 OS resources (`## Resources` below), `spawn` — the coroutine operator
 (used like Go's `go`), and channels (`### Channels`). Only `socket.*`
@@ -1274,7 +1352,7 @@ intrinsics (from `clib("c")`) are sketched beyond the core language.
 
 ```c
 // A TCP echo server: accept forever, echo each received line back, close.
-// OS failures are data — Result, not exceptions. Panic stays for bugs.
+// OS failures are data — T!, not exceptions. Panic stays for bugs.
 
 // -- the handle barrier: an fd is its own disposable type, not a Copy int
 Fd struct = {
@@ -1308,43 +1386,41 @@ SocketError error = {
 }
 
 // -- bind + listen
-newListener func (address const string, port uint) Result[Listener] = {
-  fdResult := socket.listen(address, port)   // intrinsic from clib("c"), returns Result[Fd]
-  return match fdResult {
-    Error(e) => Error(SocketError { message = "cannot listen on %s{address}:%d{port}: %s{e}", cause = e })
-    Ok(fd)   => Ok(Listener { fd = fd })
-  }
+newListener func (address const string, port uint) Listener! = {
+  try fd := socket.listen(address, port)   // Fd! — unwrapped by the guard
+  return Listener { fd = fd }              // auto-wrap: success
+  catch e
+  return SocketError { message = "cannot listen on %s{address}:%d{port}: %s{e}", cause = e }
 }
 
 // -- accept one connection; failures here are transient, the caller keeps serving
-accept func (listener *Listener) Result[Connection] = {
-  return match socket.accept(listener.fd) {  // fd through a view: *Fd
-    Error(e) => Error(SocketError { message = "accept: %s{e}", cause = e })
-    Ok(fd)   =>
-      peer := socket.peerName(fd)     // read fd first — then move it into the field
-      Ok(Connection { fd = fd, peer = peer })
-  }
+accept func (listener *Listener) Connection! = {
+  try fd := socket.accept(listener.fd)   // fd through a view: *Fd
+  peer := socket.peerName(fd)            // read fd first — then move it into the field
+  return Connection { fd = fd, peer = peer }
+  catch e
+  return SocketError { message = "accept: %s{e}", cause = e }
 }
 
 // -- slurp one line (until \n, or EOF with data)
-readLine func (conn *Connection) Result[string] = {
+readLine func (conn *Connection) string! = {
   buf string
-  loop {
-    match socket.recv(conn.fd) {          // view: conn is *Connection
-      Ok(ch) =>
-        if ch == '\n' then
-          return Ok(buf)
-        buf += string.from(ch)
-      Error(e) =>
-        if buf.length > 0 then
-          return Ok(buf)               // EOF with data: deliver what we have
-        return Error(SocketError { message = "connection closed: %s{e}", cause = e })
+  try {
+    loop {
+      ch := socket.recv(conn.fd)!       // view: conn is *Connection; fails to the catch
+      if ch == '\n' then
+        return buf                      // auto-wrap: success
+      buf += string.from(ch)
     }
   }
+  catch e
+  if buf.length > 0 then
+    return buf               // EOF with data: deliver what we have
+  return SocketError { message = "connection closed: %s{e}", cause = e }
 }
 
-write func (conn *Connection, data const string) Result[uint] = {
-  socket.send(conn.fd, data)           // returns Result[uint]
+write func (conn *Connection, data const string) uint! = {
+  socket.send(conn.fd, data)           // uint! — tail return passes through
 }
 
 // -- `Connection.dispose` / `Listener.dispose` are synthesized from the fd
@@ -1353,36 +1429,34 @@ write func (conn *Connection, data const string) Result[uint] = {
 
 // -- one coroutine per connection; `&` moves ownership in
 echo func (conn &Connection) = {
-  match conn.readLine() {
-    Ok(text) =>
-      match conn.write(text) {
-        Ok(n)    => out.println("echoed %d{n} bytes to %s{conn.peer}")
-        Error(e) => out.println("write to %s{conn.peer}: %s{e}")
-      }
-    Error(e) => out.println("read from %s{conn.peer}: %s{e}")
+  peer := conn.peer                          // const string — value binding
+  defer conn.dispose()                       // fires on both paths
+  try {
+    text := conn.readLine()!
+    n    := conn.write(text)!
+    out.println("echoed %d{n} bytes to %s{peer}")
   }
-  conn.dispose()   // the coroutine owns the connection
+  catch e
+  out.println("to %s{peer}: %s{e}")
 }
 
 serve func (listener *Listener) = {
   loop {
-    match listener.accept() {
-      Ok(conn) => spawn echo(&conn)    // the fd's ownership moves into the coroutine
-      Error(e) => out.println("%s{e}")
-    }
+    try conn := listener.accept()        // Connection!
+    spawn echo(&conn)                    // the fd's ownership moves into the coroutine
+    catch e
+    out.println("%s{e}")
   }
 }
 
 main func () = {
   cfg := ServerConfig { address = "0.0.0.0", port = 8080 }
-  match newListener(cfg.address, cfg.port) {
-    Ok(l) =>
-      serve(&l)                // serve borrows a view; we still own the listener
-      l.dispose()
-    Error(e) =>
-      out.println("fatal: %s{e}")
-      panic("server cannot start")
-  }
+  try l := newListener(cfg.address, cfg.port)
+  serve(&l)                // serve borrows a view; we still own the listener
+  l.dispose()
+  catch e
+  out.println("fatal: %s{e}")
+  panic("server cannot start")
 }
 ```
 
@@ -1437,12 +1511,12 @@ Endianness defaults to hardware native; a per-buffer override switches it for
 portable files and protocols: `b.endian(Endian.big)` / `b.endian(Endian.little)`.
 
 Bounds: an `as*` / `peek` / `writeAt` past the end **panics** — a programmer
-bug, not a `Result`. `recvExact` guarantees lengths at the I/O boundary, so a
+bug, not a `T!`. `recvExact` guarantees lengths at the I/O boundary, so a
 framed read never runs past its frame. A *short* read — fewer bytes than
 requested — is data, reported with the shared `IOError` vocabulary —
 `ShortRead` is a declared error kind (`IOError error = {…}`, see
 `## Try / catch`); EOF is *not* an error — a receive on a drained channel/socket
-yields `None`, per `### Channels`.
+yields absence, per `### Channels`.
 
 Slicing — views, not copies: `b[2..<5]` is a write-through view (a mutation
 through it hits the buffer), `.copy()` for owned data, `b[i]` reads one
@@ -1457,7 +1531,7 @@ shorter key cycles); `b.not()` flips every bit. Byte arithmetic wraps modulo
 Manual codecs are the recommended shape — a cursor makes them trivial:
 
 ```c
-sendRequest func (conn *Connection, req Request) Result[uint] = {
+sendRequest func (conn *Connection, req Request) uint! = {
   body bytes
   body.writeU16(req.kind)
   body.writeU16(req.count)
@@ -1465,14 +1539,14 @@ sendRequest func (conn *Connection, req Request) Result[uint] = {
   frame.writeU32(0)                  // length-prefix placeholder
   frame += body
   frame.writeU32At(0, body.length)   // patch it in place — cursor-free
-  socket.send(conn.fd, frame)
+  socket.send(conn.fd, frame)        // uint! — tail return passes through
 }
 
-readRequest func (conn *Connection) Result[Request] = {
-  hdr  := socket.recvExact(conn.fd, 4)!
+readRequest func (conn *Connection) Request! = {
+  hdr  := socket.recvExact(conn.fd, 4)!   // failure propagates
   n    := hdr.asU32()
   body := socket.recvExact(conn.fd, n)!
-  Request { kind = body.asU16(), count = body.asU16() }
+  Request { kind = body.asU16(), count = body.asU16() }   // tail: auto-wrap
 }
 ```
 
@@ -1537,9 +1611,9 @@ checked per instantiation — a generic body that neither disposes nor re-moves
 its `&T` parameter fails to instantiate for a disposable `T`. Panic bypasses
 dispose: abort abandons resources with the app, exactly like memory today.
 
-**Failure-path disposal.** A function returning `Error(e)` / `None` must have
+**Failure-path disposal.** A function returning a failure or absence must have
 discharged every owned disposable it still holds first — open → read → fail
-⇒ close before returning `Err`.
+⇒ close before returning the failure.
 
 **Interfaces and disposal.** Every `interface` implicitly carries a `dispose`
 member, dispatched through the same method table as any interface call — no

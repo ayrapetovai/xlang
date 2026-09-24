@@ -140,11 +140,13 @@ runtime mapping is in `GO_RUNTIME_MAPPING.md`.
 - **`swap(a, i, i)` is identity** (C13): the checker elides the move trio —
   it never vacates a slot to move a value back into itself.
 - **Declaration defaults are real values** — `x int` is `0`, a declared
-  `[]T` is empty; "uninitialized" names only the post-take state. A
-  long-lived table encodes absence with a real value (`None`), never with a
-  vacated slot (`HASH_MAP.md`).
+  `[]T` is empty, and a declared `T?` (local or field) is **absent**: the
+  `T?` shape's default *is* absence, spelled `{}` when assigned (`entry =
+  {}` clears), never a vacated slot. "Uninitialized" names only the
+  post-take state. A long-lived table encodes absence with the `T?`
+  default, never with a vacated slot (`HASH_MAP.md`).
 - **Assignment drops the previous occupant in place** — replacing an owned
-  value (`slot.entry = Some(v)`, `m.buckets = nb`) deallocates the old one
+  value (`slot.entry = v`, `m.buckets = nb`) deallocates the old one
   with compiler-generated machinery, never a built `dispose` (take-first
   stays the idiom for disposable types). A **dropped container may hold
   vacated slots**: repair-before-escape governs containers that leave the
@@ -169,16 +171,34 @@ runtime mapping is in `GO_RUNTIME_MAPPING.md`.
 - Errors are an intrinsic kind with payload fields (`X error = { … }`);
   payloads are **non-disposable** (an error type with a disposable field is
   a compile error).
-- `Result[T]` (single type argument) is the fallible-return shape;
-  `Optional[T]` is the maybe-value shape.
-- A failure is constructed **`Error(kind { … })`** — one spelling (the C18
-  sweep unified the earlier bare-kind returns): the `Error` combinator wraps
-  a kind-tagged error value, `Ok(v)` the success. `main`'s failure path is
-  a `panic` instead (§1).
-- `try <statement>` guards one statement; a single flat `catch e` binds the
-  intrinsic error. Bare `!` (force `Result[_]`) and bare `?` (force
-  `Optional[_]`) are compile errors **inside a guarded scope**; `?? default`
-  is legal everywhere; `main` is exempt. `!` and `?` are mutually exclusive.
+- The fallible shape is the postfix **`T!`** (a `Result[T]` under the hood,
+  single type argument, carrying no error parameter — every fallible
+  operation reports through the single intrinsic error); the maybe-value
+  shape is the postfix **`T?`** (`Optional[T]` under the hood, the checker's
+  shape `{ Some(T), None }` — never spelled by users). Both are
+  **unmatchable**: `match` on a `T?`/`T!` value is a compile error, absence
+  and failure are handled by form. No stacking (`T??`, `T!!`, `T!?`); `T`
+  in `T!` must not be an error kind.
+- **Return wraps automatically** — the one failure-construction path: in a
+  `T!` function `return v` wraps a payload value as the success, wraps an
+  error-kind value (`return NumberError { … }`) as the failure, and passes
+  an already-shaped `T!` or the intrinsic error `e` through; in a `T?`
+  function `return v` wraps the success and a bare `return` returns
+  **absence**. The `Error(kind { … })` combinator (C18) is gone — its
+  call sites spell `return kind { … }`; `Ok(v)` is gone too (`return v`).
+  Assignment to a `T?` target wraps the same way: `x = v` wraps, `x = {}`
+  clears; a declared `T?` defaults to absent. The implicit tail return
+  wraps like `return`. `main`'s failure path is a `panic` instead (§1).
+- Reads are **obligated-unwrap**: a `T?` payload is read only through `?`
+  (unwrap-propagate), `?? default`, the checked `if/loop …?` form, or the
+  absence tests `==`/`!= {}`; a `T!` payload only through `!` or `try`. A
+  bare read as `T` is a compile error (§12).
+- `try <statement>` guards one statement (a `{ … }` block counts as one); a
+  single flat `catch e` binds the intrinsic error. **Inside a guarded scope
+  a bare `!` is not an early return — it fails the region to its own
+  `catch`;** a bare `?` is a compile error there (absence has no handler).
+  `?? default` is legal everywhere; `main` is exempt; `!` and `?` are
+  mutually exclusive.
 - Handlers are **checkable but not exhaustive** (Go-style): an unhandled
   failure path stays live.
 - Error payload reads need a **kind-bound name** (a `is` binding — §9 below);
@@ -206,20 +226,20 @@ runtime mapping is in `GO_RUNTIME_MAPPING.md`.
 - Reflection access is **read-only by shape**: every reflected value is a
   const view (heap shapes) or a Copy scalar, enforced via `const *O`
   parameters; consumption through `const` is a compile error.
-- `toJson(obj const *O) Result[string]`; failures are **values**, never
+- `toJson(obj const *O) string!`; failures are **values**, never
   types: a non-finite float or the depth cap yields `JsonWriteError`.
 - `O` must be **JSON-shaped at instantiation**: no reachable `*T`, `any`, or
   disposable fields — cycles are impossible by construction, so no pointer
   arm and no cycle machinery.
-- `fromJson[O] (json const string) Result[*O]`: success **&-creates the
+- `fromJson[O] (json const string) *O!`: success **&-creates the
   whole O graph in the caller's statement-block arena** (§5) and returns a
   view into it; failure is `JsonParseError { message, offset, cause }` under
   the C11 machinery.
 - Enum arms serialize as `"%q{e.name}"` — no type qualifier. Field metadata
   (`#json.…`) adjusts shape at compile time.
 - The binary codec is the same shape (`BINARY_CODEC.md`, C17):
-  `toBytes(obj const *O, n := 0) Result[bytes]` /
-  `fromBytes[O] (b const bytes) Result[*O]`; failures
+  `toBytes(obj const *O, n := 0) bytes!` /
+  `fromBytes[O] (b const bytes) *O!`; failures
   `BinaryWriteError { message, cause }` /
   `BinaryParseError { message, offset, cause }`; the wire is pinned
   `Endian.big`. A coded parser **bounds-checks before every intrinsic
@@ -254,6 +274,12 @@ runtime mapping is in `GO_RUNTIME_MAPPING.md`.
 - The loop keyword is **`loop`**, not `for` (conditional and C-style forms
   exist); `loop i, x in ar` binds the iteration ordinal `i` (§9).
 - Assignment is a **statement**; `++`/`--` do not exist (use `+= 1`).
-- `match` is **exhaustive**; bindings move out when consuming.
+- `match` is **exhaustive**; bindings move out when consuming. `match`
+  never covers `T?`/`T!` (compile error — absence/failure are handled by
+  form, §8).
+- `T?`/`T!` reads are **obligated-unwrap** (§8): payload use without `?` /
+  `??` / the checked `if/loop …?` form (for `T?`) or `!` / `try` (for
+  `T!`) is a compile error; unwrap of an owned payload is a consume, a
+  view-unwrap (`&x?`) binds a const view of the payload.
 - The checker is **morphological**: no lifetime inference, no alias
   analysis; generic functions are checked per instantiation.

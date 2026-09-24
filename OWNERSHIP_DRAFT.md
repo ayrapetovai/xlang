@@ -551,6 +551,25 @@ made false by value-params-move) and README's iterator *call sites*
     authoritative); sized-array declaration `a [10]int` remains the one
     unrulled area (move-append is the sanctioned growth, C15). —
     decision C18.
+26. `T?` / `T!` shapes (ruling C19): README core migrated from
+    `Optional[T]` / `Result[T]` to the postfix shapes — the ``## `!` and
+    `?` `` section rewritten as ``## `T?` and `T!` ``; every
+    `Optional`/`Result`/`Some`/`None`/`Ok`/`Error(…)` spelling in the
+    abstract, operators index, pattern matching, control flow (new
+    checked-form `if/loop …?` head), try/catch (blocked `try { … }`;
+    bare `!` inside a guarded scope now settles at the region's catch),
+    error kinds (`Error(kind { … })` → bare `return kind { … }`),
+    Generics, toJson/fromJson (`string!` / `*O!`), the socket server
+    (newListener/accept/readLine/write/echo/serve/main), Bytes manual
+    codecs (`uint!` / `Request!`), channels/select (`(<-ch)?` absence
+    arm; `loop s := <-ch?`), the checker list, and the dispose section.
+    Normative mirror: OWNERSHIP_RULES §6 (the `T?` default / `{}`),
+    §8 (shapes, auto-wrap, obligated-unwrap, `!`-settles-in-region),
+    §10 (`bytes!` / `*O!`), §12 (match ban, unwrap obligations).
+    GMP: vocabulary rows + a C19 section. Sketches (HASH_MAP,
+    BINARY_SEARCH, BINARY_CODEC, LINKED_LIST) migrate in a follow-up
+    round — the user scoped this round to core spec + rules. —
+    decision C19.
 
 ---
 
@@ -713,3 +732,29 @@ made false by value-params-move) and README's iterator *call sites*
     `truncateRead` typo; rewrite the Bytes de-scope note; carry the round's
     rulings into OWNERSHIP_RULES §6/§8/§10/§11; sync GO_RUNTIME_MAPPING.
     Answers (user): sweep the README (C18).
+19. **C19 `T?` / `T!` shapes (user-ruled, Sep 25)**: proposal — replace
+    `Optional[T]` / `Result[T]` with postfix `T?` / `T!`; `return value`
+    auto-wraps by the declared return type (an error-kind value = failure);
+    never `match` a Result or Optional; errors handled with try-catch;
+    optionals with `if x := foo()? then process(x) else logNoX()` (`then`
+    or the first block omittable); bare `return` returns absence. The vet
+    surfaced four collisions: maps must still void slots (with `None`
+    uncreatable — who writes the empty bucket?), the map's
+    inspect-without-consuming needs a spelling, the example's `if cond do`
+    conflates `then` (if) and `do` (func/loop bodies), and the if-let
+    grammar needed pinning. Answers (user): **core spec + rules first**
+    (README + OWNERSHIP_RULES + records + GMP now; sketches follow);
+    **keep `then`**; the **`T?` model** — `Optional[T]` under the hood,
+    primitives allowed (`x int?`), the checker obligates an explicit unwrap
+    before any use (`y := x?`, `y := x ?? 42`, `if x? then process(x) else
+    logNoX()`), struct fields `fieldName type?` default to implicit absence
+    and must be checked before read. Round rulings: `{}` is the `T?` default
+    (absent) — `entry = {}` clears, `x == {}` / `x != {}` test absence;
+    view-unwrap (`&x?`) binds a const view of the payload (container
+    inspection); `loop x := e?` extends the checked head; a blocked
+    `try { … }` is one guarded statement and a bare `!` inside a guarded
+    scope fails the region to its own `catch` (it cannot bypass the handler;
+    early-return `?` stays banned there — absence has no handler); select
+    receive arms spell absence with `(<-ch)?`; auto-wrap on `return` (bare
+    `return kind { … }` / `return v`) supersedes the C18 `Error(kind { … })`
+    / `Ok(v)` combinators.

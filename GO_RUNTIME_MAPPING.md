@@ -30,7 +30,10 @@ since 1.14; contiguous copy-growing stacks since 1.3).
 | checker (static) | `vet`/`staticcheck` + race detector | compile-time `-race` (ThreadSanitizer) |
 | frozen pool (`const string`) | string literals, immutable by convention | read-only data section / rodata |
 | move / own / consume | *nothing* (copies + aliases) | the fundamental gap Go doesn't model |
-| `Result[T]` | `(T, error)` | Go's pair convention as a builtin sum shape |
+| `Result[T]` | `(T, error)` | the pair convention as a builtin shape (now spelled postfix: `T!`) |
+| `T?` / `T!` postfix shapes | nil pointer / `v, ok :=` | absence and fallibility as shape suffixes — `Optional`/`Result` under the hood, never `Some`/`None`/`Ok`/`Error` visible (C19) |
+| auto-wrap on `return` | explicit `return v, nil` / `return nil, err` | the spec wraps by the declared `T!`/`T?` return type — one construction path (C19) |
+| checked `if/loop …?` form | `if v, ok := m[k]; ok { … }` | smart-cast over existence; forward-compatible — Go tests then re-reads (C19) |
 | flat `catch` / `try` | `if err != nil` | one guard + one handler vs explicit per-call checks |
 | `is` / kind binding | `errors.Is` / `errors.As` | deep chain walk + type extraction, both native (C11) |
 | error kinds (declared) | `error` interface + dynamic type | the same dispatch, spelled in the type system |
@@ -207,8 +210,18 @@ since 1.14; contiguous copy-growing stacks since 1.3).
 
 | Spec rule | Go counterpart | Note |
 |---|---|---|
-| A `Result[T]` failure is always constructed `Error(kind { … })` — one spelling | `errors.New` / `fmt.Errorf` return `error` values | both languages settle on one construction idiom; the sweep removed the spec's earlier bare-kind returns |
+| A `T!` failure is constructed by **auto-wrap on `return`** — `return kind { … }` (C19) | `errors.New` / `fmt.Errorf` return `error` values | both languages settle on one construction idiom; C19's auto-wrap superseded C18's `Error(kind { … })` combinator — the bare return itself is now the one spelling |
 | Error payloads non-disposable; unbound-`e` payload reads are compile errors | `error` may carry anything; `errors.As` needs a typed target | — |
+
+### C19 — `T?`/`T!` shapes, auto-wrap, the checked form
+
+| Spec rule | Go counterpart | Note |
+|---|---|---|
+| `T?`/`T!` are postfix shapes (`Optional`/`Result` under the hood), unmatchable | nil-able pointers / `(T, error)` | absence/failure handled by form — `?`, `??`, the checked `if/loop …?`, `!`, `try … catch`; no user-visible `Some`/`None`/`Ok`/`Error`, no null-like value to create |
+| `return v` auto-wraps by the declared return type (payload → success, error-kind → failure, bare `return` → absence) | explicit `return v, nil` / `return nil, err` | the wrap is type-directed and checker-verified; Go spells the pair at every return |
+| `if x := e? then … else …`, `if x?` (smart-cast), `loop x := e? do` | `if v, ok := m[k]; ok { … }` | the checked form is the only branch on existence; owned payloads move, view-unwrap (`&x?`) binds a const view |
+| `{}` is the `T?` default — `x = {}` clears, `x == {}` tests absence | `nil` / `, ok` tests | no fabricated zero for the shape; emptiness is a real default state (spec §6) |
+| bare `!` inside a guarded scope fails the region's own `catch` | layered `if err != nil` with explicit defer | a `try { … }` block loops over fallible reads; `?` stays banned there (absence has no handler) |
 
 ---
 
