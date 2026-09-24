@@ -255,6 +255,19 @@ made false by value-params-move) and README's iterator *call sites*
     slot-swap edge — the existing `swap` body sorts heap elements unchanged.
     — OWNERSHIP_DRAFT missing rules #6, QUICK_SORT note 1 & note 5,
     LINKED_LIST note 11.
+16. README integration of the remaining draft-only rules: new
+    `### Slots: moving values out` (slot-take: uninitialized slots, reads CE,
+    move-in reinitialization as the one R4 carve-out, no observable empty
+    slots, per-slot checker state — incl. `take` spelled for the first time);
+    checker list gains the two slot errors; `Where memory lives` gains the
+    three-lifetimes (code block scope / function body / expression temporary)
+    and literal-materialization (pool copy then move into owned `string`
+    params) bullets; `Semantics that touch ownership` gains async-tenure
+    (retention ⇒ move or pool-promotion, never a view) and callback-view
+    rules; `Resources (dispose)` gains the failure-path-disposal rule
+    (discharge before `Error`/`None` return). Closes the "integrated?"
+    gap list (README only: container-level `take`/dead-node mechanics stay in
+    the sketches).
 
 ---
 

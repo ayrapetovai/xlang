@@ -518,6 +518,10 @@ Memory is owned, moved, or borrowed — never shared-mutable.
   block. Owned *locals* still die at the end of the function body — each gets
   its per-variable deallocation there (R1) — even though the underlying buffer
   lives in the outer arena.
+- Lifetimes are exactly three — **code block scope**, **function body**,
+  **expression (temporary value)**. A temporary not bound to a name dies at
+  the end of the enclosing expression; a bound one (`x := f()`) extends to
+  the binding's lifetime.
 
 ```c
 { // code block is a lifetime space
@@ -529,6 +533,10 @@ Memory is owned, moved, or borrowed — never shared-mutable.
 
 - String literals and `const` arrays live in a module-global pool, freed only
   on module unload; they can never dangle.
+- A string literal handed to an *owned* `string` parameter materializes a
+  copy of the pool bytes into the current arena, then moves — a frozen value
+  has no unique owner to move. A `const string` (shared) parameter keeps the
+  pool share directly, no copy, no move.
 - Panic = abort: no destructors run, memory is abandoned with the app.
 
 ### const = shared, owned = unique
@@ -547,6 +555,30 @@ the caller promised immutable, so it is a compile error. A mutable argument
 binds to either kind — passing it to a `const` parameter only widens access.
 Returning a `const` view where a mutable one is expected is likewise an
 error.
+
+### Slots: moving values out
+
+Moving an owned element out of a live container slot is *defined*. Reading a
+non-Copy element into a local (`t := a[i]`) or the explicit `take(a[i])`
+**moves the element out** and leaves the slot **uninitialized** — a tracked
+non-value, not a null.
+
+- Reads of an uninitialized slot are compile errors until it is
+  reinitialized (Rust: "prevents further reads until it is reinitialized").
+- Assignment `a[i] = v` into an uninitialized slot is a **move-in
+  reinitialization** — the sanctioned repair, and the one carve-out from the
+  no-return rule of ownership transmission (`### The checker`).
+- A slot still uninitialized when its container moves, returns, or leaves
+  the function is a compile error: no *observable* empty slot ever exists.
+- The checker tracks slot state linearly (initialized → taken →
+  reinitialized) — morphological, no inference, like the rest of the checker.
+
+Consequence: the three-line swap (`t := a[i]; a[i] = a[j]; a[j] = t`) moves
+heap elements in place — take, then two reinitializations — with no copies,
+no `Option` wrapper, and (within the caller's statement-block arena, see
+`### Where memory lives`) no new allocations. `take` on an *unlinked* list
+node is the dead form: the node's location is unreachable, so
+reinitialization never applies there (`LINKED_LIST.md`, note 11).
 
 ### Copyable types
 
@@ -607,20 +639,26 @@ handles only (see `### Thread boundary`). No lifetime inference.
 Compile errors for: use-after-consume, consume-twice, copying a heap value by
 value, partial consumption (consuming a struct field consumes the whole
 struct), returning a view of a local, writing through a `const` view,
-re-borrowing a consumed binding, and moving a value out of a view binding —
-a view has no ownership to give away. No lifetime inference, no alias
-analysis.
+re-borrowing a consumed binding, moving a value out of a view binding — a
+view has no ownership to give away — reading an uninitialized slot, and
+moving or returning a container that still holds an uninitialized slot. No
+lifetime inference, no alias analysis.
 
 ### Semantics that touch ownership
 
 - `match x` consumes x (bindings move out); `match &x` inspects via views.
 - `loop e in arr` binds a view (via `current &T`).
 - Closures capture by value (copy const handles, move owned values); they own
-  their environment and may escape.
+  their environment and may escape. A callback registered asynchronously runs
+  as another coroutine: owned moves and frozen shares cross in; a view in its
+  captures is a compile error.
 - Channels: sending an owned mutable value moves it; const handles are shared.
   Suspended coroutines keep their arena chain alive.
 - clib("m"): C receives a raw `*T` borrow; the caller's arena must outlive the
   call; C must not retain the pointer after return.
+- Asynchronous registrations (epoll / kqueue / io_uring completions) retain
+  their buffer past the call: they are crossing sites, so they take an
+  ownership move or a pool-promotion — never a view.
 
 ### Thread boundary
 
@@ -1367,6 +1405,10 @@ functions are templates compiled per concrete type, so the obligation is
 checked per instantiation — a generic body that neither disposes nor re-moves
 its `&T` parameter fails to instantiate for a disposable `T`. Panic bypasses
 dispose: abort abandons resources with the app, exactly like memory today.
+
+**Failure-path disposal.** A function returning `Error(e)` / `None` must have
+discharged every owned disposable it still holds first — open → read → fail
+⇒ close before returning `Err`.
 
 **Interfaces and disposal.** Every `interface` implicitly carries a `dispose`
 member, dispatched through the same method table as any interface call — no
