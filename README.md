@@ -698,8 +698,11 @@ or returning a container that still holds an uninitialized slot, reading an
 error payload without a kind-bound name, comparing error values with `==`,
 declaring an error type with a disposable field, reading a `T?` / `T!`
 without an explicit unwrap (`?` / `??` / the checked if-form for `T?`;
-`!` / `try` for `T!`), `match` on a `T?` / `T!` value, and the stacked
-shapes `T??` / `T!!` / `T!?` (and `T!` whose `T` is an error kind).
+`!` / `try` for `T!`), `match` on a `T?` / `T!` value, the stacked
+shapes `T??` / `T!!` / `T!?` (and `T!` whose `T` is an error kind), and
+calling `panic(...)` — user code never spells an abort: only the runtime
+aborts (`main`'s unwrap failure, `as*` / `peek` / `writeAt` past the end,
+close failure).
 `swap(a, i, i)`
 is identity — the checker elides the self-swap move trio instead of
 vacating the slot. No
@@ -915,7 +918,7 @@ worker func (id int, counter const Mutex[Counter], ops const Atomic[uint]) = {
     g.value.total += 1
     g.value.last = id
     g.dispose()                          // unlock — forced by the resource gate
-    // do work; a panic here aborts the process, not just this coroutine
+    // do work; an abort is process-wide — never just this coroutine
   }
 }
 
@@ -1145,8 +1148,9 @@ Rules:
 - **Forced return types.** A bare `!` forces its function to return `T!`; a
   bare `?` forces `T?`. The two cannot coexist in one function — they force
   incompatible return types — while `??` forces nothing and mixes freely.
-  `main` is exempt from the forcing: its failure path is a `panic` (abort),
-  not a return. The checked conditional head and `try` force nothing.
+  `main` is exempt from the forcing: its failure path is an abort — the
+  runtime reports the intrinsic error and terminates, never a return. The
+  checked conditional head and `try` force nothing.
 - **Payloads.** `?` returns absence, which carries nothing, so a `Y?` can
   feed a function returning any `X?`. `!` returns the intrinsic error value
   — a kind-tagged payload and the one and only error type — so the
@@ -1352,7 +1356,7 @@ intrinsics (from `clib("c")`) are sketched beyond the core language.
 
 ```c
 // A TCP echo server: accept forever, echo each received line back, close.
-// OS failures are data — T!, not exceptions. Panic stays for bugs.
+// OS failures are data — T!, not exceptions; user code never calls panic.
 
 // -- the handle barrier: an fd is its own disposable type, not a Copy int
 Fd struct = {
@@ -1451,12 +1455,9 @@ serve func (listener *Listener) = {
 
 main func () = {
   cfg := ServerConfig { address = "0.0.0.0", port = 8080 }
-  try l := newListener(cfg.address, cfg.port)
+  l := newListener(cfg.address, cfg.port)!   // main is exempt: failure aborts the process
   serve(&l)                // serve borrows a view; we still own the listener
   l.dispose()
-  catch e
-  out.println("fatal: %s{e}")
-  panic("server cannot start")
 }
 ```
 

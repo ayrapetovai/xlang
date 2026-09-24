@@ -88,19 +88,23 @@ dist func (a uint, b uint, len uint) uint = {
 
 // the probe row: `key` present (found), else the first free slot. Reads go
 // through a const view, so the unwrap *inspects* — nothing moves (note 3).
-probe func [K, V] (m const *HashMap[K, V], key const *K) Probe = {
+// A table under the load contract can never be full — `TableFullError` is a
+// typed backstop: the failure is reported, never silently assumed away.
+TableFullError error = { message string }
+
+probe func [K, V] (m const *HashMap[K, V], key const *K) Probe! = {
   pos := hash(key) % m.buckets.length
   scanned uint = 0
   loop scanned < m.buckets.length {
     if kv := (&m.buckets[pos].entry)? then {   // const view — inspect, no move
       if kv.key == key then
-        return Probe { pos = pos, found = true }
+        return Probe { pos = pos, found = true }   // auto-wrap: success
     } else
-      return Probe { pos = pos, found = false }
+      return Probe { pos = pos, found = false }    // auto-wrap: success
     pos = (pos + 1) % m.buckets.length
     scanned += 1
   }
-  panic("hash table full")   // unreachable: the load contract keeps a free slot
+  return TableFullError { message = "hash table is full" }   // contract broken
 }
 
 // first free slot for `key` — terminates because the table is never full
@@ -114,34 +118,37 @@ probeEmpty func [K, V] (b const *[]Slot[K, V], key const *K) uint = {
 }
 
 // a view into the stored value — read-only by construction, invalidated by
-// growth (note 4). Absence is data: `T?`, never `T!`.
+// growth (note 4). Absence is data: `T?`, never `T!`; probe's backstop
+// failure (a broken load contract) also reads as absence from here.
 get func [K, V] (m const *HashMap[K, V], key const *K) const *V? = {
   if m.buckets.length == 0 then
-    return                    // absence
-  p := m.probe(key)
+    return                    // absence — before any probe
+  try p := m.probe(key)       // Probe! — failure settles at the catch
   if !p.found then
     return                    // absence
   if kv := (&m.buckets[p.pos].entry)? then    // const map: inspection, no consumption
     return &kv.val            // auto-wrap: const *V into the map's slot
-  panic("probe found a free slot at its pos")   // unreachable
+  return                      // slot absent — unreachable from a found probe
+  catch _
+  return                        // table corrupt — "not found" from get
 }
 ```
 
 ## Mutation
 
 ```c
-// move the pair out of a live slot; the slot falls back to the `T?` default
-// — absent — a real value, never uninitialized. put and remove re-wrap it.
-takeEntry func [K, V] (m *HashMap[K, V], pos uint) Entry[K, V] = {
-  if kv := m.buckets[pos].entry? then   // owned slot: the unwrap consumes it
-    return kv
-  panic("takeEntry on a free slot")     // invariant violation
+// move the pair out of a live slot — or absence, if the slot is free
+// (put/remove call it only after a found probe, so absence never fires; the
+// slot falls back to the `T?` default — absent — a real value, never
+// uninitialized, and the `Entry[K, V]?` box carries the moved-out pair).
+takeEntry func [K, V] (m *HashMap[K, V], pos uint) Entry[K, V]? = {
+  return m.buckets[pos].entry?          // unwrap-propagation: absent slot → absence
 }
 
 put func [K, V] (m *HashMap[K, V], key K, val V) = {
   if m.buckets.length == 0 then
     m.grow()                          // belt and braces; newHashMap already sized
-  p := m.probe(key)
+  try p := m.probe(key)       // Probe! — failure settles at the catch
   if p.found then {
     old := m.takeEntry(p.pos)         // move out — the slot is now absent (a value)
     m.buckets[p.pos].entry = Entry { key = key, val = val }   // re-wrap by assignment
@@ -155,6 +162,8 @@ put func [K, V] (m *HashMap[K, V], key K, val V) = {
     m.buckets[pos].entry = Entry { key = key, val = val }  // over an absent slot
     m.count += 1
   }
+  catch _
+  return                        // load contract broken — the insert is skipped
 }
 
 // grow: a fresh table of twice the size, rehashed by moves. The old table is
@@ -185,29 +194,33 @@ grow func [K, V] (m *HashMap[K, V]) = {
 remove func [K, V] (m *HashMap[K, V], key const *K) V? = {
   if m.buckets.length == 0 then
     return
-  p := m.probe(key)
+  try p := m.probe(key)       // Probe! — failure settles at the catch
   if !p.found then
     return
-  e := m.takeEntry(p.pos)             // the removed pair; p.pos is now absent
-  len := m.buckets.length
-  hole := p.pos
-  r := (p.pos + 1) % len
-  loop r != p.pos {
-    if kv := (&m.buckets[r].entry)? then {   // inspect — decide without moving
-      dh := dist(hole, hash(kv.key) % len, len)
-      dr := dist(hole, r, len)
-      if dh == 0 || dh > dr then {    // home not in (hole, r] — may shift left
-        shifted := m.takeEntry(r)     // move it: r is absent, becomes the hole
-        m.buckets[hole].entry = shifted
-        hole = r
-      }
-    } else
-      break                            // cluster ends
-    r = (r + 1) % len
+  if e := m.takeEntry(p.pos)? then {   // move out — p.pos is now absent
+    len := m.buckets.length
+    hole := p.pos
+    r := (p.pos + 1) % len
+    loop r != p.pos {
+      if kv := (&m.buckets[r].entry)? then {   // inspect — decide without moving
+        dh := dist(hole, hash(kv.key) % len, len)
+        dr := dist(hole, r, len)
+        if dh == 0 || dh > dr then {    // home not in (hole, r] — may shift left
+          if shifted := m.takeEntry(r)? then
+            m.buckets[hole].entry = shifted   // absence unreachable — inspected present
+          hole = r
+        }
+      } else
+        break                            // cluster ends
+      r = (r + 1) % len
+    }
+    m.buckets[hole].entry = {}          // trailing slot cleared — absent again
+    m.count -= 1
+    return e.val                        // the key dies with e — dropped at return
   }
-  m.buckets[hole].entry = {}          // trailing slot cleared — absent again
-  m.count -= 1
-  return e.val                        // the key dies with e — dropped at return
+  return                        // absence unreachable — p.found said live
+  catch _
+  return                        // table corrupt — "not removed" from remove
 }
 ```
 
@@ -331,7 +344,9 @@ else
 
 9. **The load contract and uint guards.** Growth fires at `count * 4 >=
    length * 3` (≈ 0.75), which keeps probe walks short and guarantees a free
-   slot inside every probe — the `panic("hash table full")` sites are
-   unreachable. All index arithmetic is modulo `length`; `dist` is
-   wrap-safe by construction (`b + len - a < 2·len`); the load test, the
-   doubling, and `pos + 1` overflow only past ~2^62 entries.
+   slot inside every probe — `probe`'s `TableFullError` is a typed backstop,
+   unreachable in a contract-abiding table. The callers map it locally:
+   get/remove read absence, put skips the insert. All index arithmetic is
+   modulo `length`; `dist` is wrap-safe by construction
+   (`b + len - a < 2·len`); the load test, the doubling, and `pos + 1`
+   overflow only past ~2^62 entries.

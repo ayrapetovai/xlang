@@ -327,10 +327,11 @@ maybe {                              // or: opt { }, chain { } ...
 3. **Failure and absence categories.** Data-dependent absence (empty list,
    index out of range, not found) is `T?` — the caller picks the checked
    form, `??`, or the presence tests. Invariant violations (removing the
-   sentinel, invalid arguments) are bugs, not data: an author may report
-   them as declared `T!` failures with an error kind (`remove` returns
-   `NotInListError`) or panic. `getAt`, `find`, `popFront`, `popBack`, and
-   consequently all user code above carry no match and no panic.
+   sentinel, invalid arguments) are bugs, not data: an author reports them
+   as declared `T!` failures with an error kind (`remove` returns
+   `NotInListError`). There is no other exit — user code never calls
+   `panic` (C20) — so `getAt`, `find`, `popFront`, `popBack`, and all user
+   code above carry no match and no panic.
 
 4. **`value T` parameters and returns move.** A `T` value parameter copies in
    Copyable types and *moves in* heap types (README, "Copyable types"), so

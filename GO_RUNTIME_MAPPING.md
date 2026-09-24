@@ -223,6 +223,13 @@ since 1.14; contiguous copy-growing stacks since 1.3).
 | `{}` is the `T?` default — `x = {}` clears, `x == {}` tests absence | `nil` / `, ok` tests | no fabricated zero for the shape; emptiness is a real default state (spec §6) |
 | bare `!` inside a guarded scope fails the region's own `catch` | layered `if err != nil` with explicit defer | a `try { … }` block loops over fallible reads; `?` stays banned there (absence has no handler) |
 
+### C20 — user code never calls `panic` (C20)
+
+| Spec rule | Go counterpart | Note |
+|---|---|---|
+| User code never calls `panic(...)` — a compile error; failure is always spelled `T?` / `T!` | `panic()` / `log.Fatal` / `os.Exit` are user-callable | Go hands programmers an explicit abort; the spec routes every failure through the shapes — the only aborts are the runtime's own (`main`'s unwrap failure, `as*`/`peek`/`writeAt` past-end, close failure) |
+| `main`'s unwrap failure aborts; the runtime reports the intrinsic error | unhandled error with `os.Exit(1)` | main is exempt from forced returns — "cannot continue" is spelled by *not catching* (`newListener(...)!` in a server main) |
+
 ---
 
 ## 3. Go mechanisms worth studying for the implementation

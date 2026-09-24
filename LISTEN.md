@@ -1,13 +1,13 @@
 Here's a sketch — a TCP echo server — written strictly against the syntax we've
 settled on: colonless declarations, exhaustive `match`, `&` move-in, the `Fd`
 handle barrier with synthesized `dispose`, `defer` for cleanup, and the error
-trio — `## Try / catch` for failures settled locally, `!` for unwrap-or-panic,
+trio — `## Try / catch` for failures settled locally, `!` for unwrap-or-abort,
 `?` / `??` for `T?` absence (not failure). Only `socket.*` and
 `runtime.process.*` intrinsics are sketched beyond the core language.
 
 ```c
 // A TCP echo server: accept forever, echo each received line back, close.
-// OS failures are data — T!, not exceptions. Panic stays for bugs.
+// OS failures are data — T!, not exceptions; user code never calls panic.
 
 // -- the handle barrier: an fd is its own disposable type, not a Copy int
 Fd struct = {
@@ -113,7 +113,7 @@ main func () = {
     address = "0.0.0.0"
     port    = portFromEnv("PORT") ?? 8080   // absent → keep going with the default
   }
-  l := newListener(cfg.address, cfg.port)!  // failure → panic (main is exempt)
+  l := newListener(cfg.address, cfg.port)!  // failure → abort (main is exempt)
   serve(&l)                                 // serve borrows a view; we still own the listener
   l.dispose()
 }

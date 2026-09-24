@@ -65,7 +65,9 @@ runtime mapping is in `GO_RUNTIME_MAPPING.md`.
   for shared-cell handles).
 - `defer` fires at the end of the lifetime where it was defined (LIFO,
   before arena teardown); a deferred body must be infallible.
-- **`panic` aborts the program and skips defers.** No invariant survives.
+- **`panic` aborts the program and skips defers** — an intrinsic exit, never
+  user-callable: `panic(...)` in user code is a compile error (C20); failure
+  is always spelled `T?` / `T!`. No invariant survives.
 
 ## 2 — Ownership and transfers
 
@@ -203,7 +205,7 @@ runtime mapping is in `GO_RUNTIME_MAPPING.md`.
   failure path stays live.
 - Error payload reads need a **kind-bound name** (a `is` binding — §9 below);
   reading a payload through unbound `e` is a compile error.
-- `panic` = abort (§1).
+- `panic` = abort (§1) — intrinsic only, never user-callable (C20).
 
 ## 9 — Error kinds, `is`, and binding (C11)
 

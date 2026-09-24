@@ -608,6 +608,25 @@ made false by value-params-move) and README's iterator *call sites*
     through `try … catch _` in `popValue` and the `maybe` desugar — failure
     maps to absence; notes 3/9 re-spelled), LISTEN `write` unwraps
     `socket.send` with `!`. — follow-up to C19.
+28. No user abort verb (decision C20 round): the four user-callable panic
+    sites are gone. `HASH_MAP.md`: takeEntry → `Entry[K, V]?` with the
+    single-statement unwrap-propagation `return m.buckets[pos].entry?`; the
+    probe row becomes `Probe!` with a declared `TableFullError` (the
+    full-table backstop is now a reported failure, `return TableFullError
+    { message = "hash table is full" }`) and get's fallthrough is a bare
+    `return` — the map is panic-free. Reading `Probe!` forces guarded
+    scopes on all three callers: `get`/`put`/`remove` open with
+    `try p := m.probe(key)` and settle the (unreachable under the load
+    contract) failure with `catch _`: get/remove map it to absence, void
+    `put` skips the insert. Inside those regions the `takeEntry` reads move
+    from `?`-propagation to checked heads (`if e := m.takeEntry(p.pos)?
+    then …`) — only *bare* `?` is banned inside a guarded scope (first
+    in-repo use of a checked head in a region; the reading is pinned for
+    the record). `README.md`: the server main's catch-and-`panic("server
+    cannot start")` reshapes to `l := newListener(cfg.address, cfg.port)!`
+    — main is exempt, failure aborts, "cannot continue" is *not catching*;
+    the checker list and OWNERSHIP_RULES §1/§8 gain the compile-error rule;
+    LISTEN.md's prose follows. GMP gains the C20 section. — decision C20.
 
 ---
 
@@ -796,3 +815,18 @@ made false by value-params-move) and README's iterator *call sites*
     receive arms spell absence with `(<-ch)?`; auto-wrap on `return` (bare
     `return kind { … }` / `return v`) supersedes the C18 `Error(kind { … })`
     / `Ok(v)` combinators.
+20. **C20 no user abort verb (user-ruled, Sep 25)**: proposal — user code
+    never calls `panic(...)`; failure is always spelled `T?` / `T!`, and
+    only the runtime aborts (main's unwrap failure, `as*`/`peek`/`writeAt`
+    past-end, close failure). The survey found exactly four user-callable
+    sites; reshaping removed all of them — takeEntry → `Entry[K, V]?` (a
+    free slot is absence, `return m.buckets[pos].entry?`), probe → `Probe!`
+    with `TableFullError`, get's fallthrough → bare `return`, and the README
+    server main → `newListener(...)!` ("cannot continue" is spelled by *not
+    catching*). Consequence of `Probe!`: get/put/remove read it through
+    `try … catch _` — the map's first guarded scopes — and their `takeEntry`
+    reads must use checked heads, since only *bare* `?` is banned in a
+    region; void `put`'s handler skips the insert (its surface is pinned by
+    the usage statements). The proposed `unreachable` marker was rejected:
+    **no user abort verb exists in the language**; only the runtime aborts.
+    Answers (user): Option (b) — the pure endgame.
