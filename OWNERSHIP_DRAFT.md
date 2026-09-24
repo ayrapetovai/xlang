@@ -283,6 +283,37 @@ Morphological check at the site, per instantiation:
    declared kind with a byte offset (`JsonParseError { message, offset,
    cause }`), tested and bound under C11.
 
+# Missing rules now specified — three-way partition (C13)
+
+1. **The pivot is a view into its own slot, never a value.** The partition
+   compares through `pivot const *T = &a[hi]`. A *value* pivot would MOVE a
+   heap element out of `a[hi]` (C8/C5), leaving the slot uninitialized, and
+   the scan reads `a[hi]` — a slot-take CE (C9). The median stays pinned in
+   its slot for the whole scan and afterwards sorts with the right subrange.
+   (Corrects the earlier Lomuto endgame, which read the vacated slot.)
+2. **Ordering needs both `<` and `==`, written literally, not threaded.**
+   The sort machinery takes **no comparator parameters**: `partition3By` /
+   `sortRangeBy` / `quickSort` write `a[i] == pivot` and `a[i] < pivot`
+   inline, and the compiler resolves `infix_operator<` /
+   `infix_operator==` for `T` at each instantiation (scope-based; user
+   ruling, Sep 24 — the comparator parameters are gone). Dispatch is `==`
+   first, then `<`, else `>` — the pairing must form a **total order** (for
+   any a, b exactly one of a < b, a == b, a > b holds), which is also what
+   guarantees the `>` branch never fires at `i == lo` (so `gt` is
+   uint-safe). Incomparable values (float NaN) fall to the `>` side and
+   cluster there. An explicit or reversed ordering is expressed by wrapping
+   the type (`Desc`-style struct) and giving the wrapper its own operators —
+   one sort, one place the ordering lives.
+3. **Self-swap is identity — the checker elides it.** `swap(a, i, i)` skips
+   the move-out/move-in trio; performing it would read back the slot just
+   vacated (a slot-take CE for heap elements) — a C9/R4 carve-out on top of
+   move-in reinitialization. The old Lomuto sketch already contained one on
+   its first iteration; the three-way makes the ruling unavoidable.
+4. **Boundaries return by value, not by view.** `partition3By` returns a
+   two-uint Copy struct — `Range { lt, gt }` — owning nothing, no views
+   escaping the function; recursion re-derives the two subranges from it
+   under the usual `uint` guards (`r.lt > lo`, `r.gt < hi`).
+
 # Draft fixes applied (rules-first)
 
 Applied per approval (Sep 24) across `README.md`, `LISTEN.md`, `QUICK_SORT.md`,
@@ -397,6 +428,27 @@ made false by value-params-move) and README's iterator *call sites*
     example aligned to the canonical `JsonParseError` shape
     (`%s{jp.customMessage}` → `%s{jp.message}`) + missing-rules + decision
     C12.
+20. Three-way partition (ruling C13): QUICK_SORT.md `partitionBy` (Lomuto)
+    replaced by Dijkstra three-way `partition3By` returning the two-uint Copy
+    struct `Range { lt, gt }`; the median pivot is **view-pinned**
+    (`pivot const *T = &a[hi]`) and left in its slot — a value pivot would
+    MOVE a heap element out and vacate the slot the scan reads; this
+    corrects the latent Lomuto endgame bug (`pivot T = a[hi]` then
+    `a.swap(i, hi)` read the vacated slot for heap T). **Comparator
+    parameters removed from the whole machinery** (user ruling, Sep 24): the
+    sort is operator-resolved — `partition3By` / `sortRangeBy` / `quickSort`
+    write `<` and `==` literally, the compiler resolving `infix_operator<` /
+    `infix_operator==` for `T` per instantiation; `sortBy` is dropped in
+    favor of wrapper types (`Desc`) providing their own operators; the pair
+    must form a **total order** (exactly one of a<b / a==b / a>b). Dispatch
+    is `==` first, then `<`, else `>`. **Self-swap is identity** — the
+    checker elides `swap(a, i, i)`'s move trio (a C9/R4 carve-out), settling
+    the self-swap already latent in Lomuto's first iteration. Note 3 TODO
+    closed: all-equal input is one pass (O(n)); note 4's uint-guard
+    discipline restated for the two recursion ranges (`r.lt > lo`,
+    `r.gt < hi`) and the `i == lo` / `gt` totality invariant. Usage: `Point`
+    gains `infix_operator==`, descending floats become `Desc` with reversed
+    operators. — OWNERSHIP_DRAFT missing-rules + decision C13.
 
 ---
 
@@ -473,3 +525,30 @@ made false by value-params-move) and README's iterator *call sites*
     failure = `JsonParseError { message, offset, cause }` under C11
     machinery. Answers: keep Result; add fromJson; reject pointers at
     instantiation.
+12. **C13 three-way partition (follow-up, Sep 24)**: (1) **view-pinned
+    pivot** — the median is compared through `const *T` into its own slot
+    `a[hi]` and never copied or moved; a value pivot would move a heap
+    element out of its slot (vacated-slot CE) and the scan reads `a[hi]` —
+    the ruling also corrects the prior Lomuto endgame bug (`pivot T = a[hi]`
+    then `a.swap(i, hi)` read the vacated slot); (2) **`==` joins the
+    ordering contract** — three-way dispatch is `==` / `<` / else `>`:
+    `quickSort` resolves `infix_operator<` AND `infix_operator==` from
+    scope; the machinery is **comparator-free** — `partition3By` /
+    `sortRangeBy` / `quickSort` write `<` and `==` literally, the compiler
+    resolving them per instantiation (user ruling: no comparator
+    parameters); the explicit-ordering entry `sortBy` is dropped — reversed
+    or by-field orderings become wrapper types with their own operators
+    (`Desc`); together the operators must form a total order, which also
+    keeps the `>` branch from firing at `i == lo`
+    (uint-safe gt; incomparable values like float NaN cluster on the `>`
+    side); (3) **self-swap is identity** — `swap(a, i, i)` is elided by the
+    checker (a slot-take C9/R4 carve-out), surfacing the self-swap already
+    latent in Lomuto's first iteration and made frequent by the three-way
+    (`swap(lt, i)` at i == lt, `swap(i, gt)` at i == gt); (4) **boundaries
+    by value** — `partition3By` returns the two-uint Copy struct
+    `Range { lt, gt }`; the pinned pivot at `a[hi]` sorts with the right
+    subrange. Answers: view-pinned; require `==`; Range struct; elide
+    self-swap. Follow-up (same day): **no comparator parameters anywhere** —
+    the machinery writes `<` / `==` literally, compiler-resolved per
+    instantiation; the explicit-ordering entry `sortBy` removed, orderings
+    expressed as wrapper types (single sort, operator-native).

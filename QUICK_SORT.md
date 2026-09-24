@@ -2,80 +2,77 @@
 
 An in-place, generic quick sort, written only with what the language already
 has: `&`-method sugar on writable array views, generic functions, the
-`loop j in lo..<hi` range form, and **scope-based operator overloading** — the
-ordering for `quickSort` comes from `infix_operator<` being in scope for the
-element type, exactly like `infix_operator==` powers `find` in the linked
-list.
+`loop i <= gt` conditional-loop form, and **scope-based operator overloading**
+— the ordering for `quickSort` comes from `infix_operator<` and
+`infix_operator==` being in scope for the element type, exactly like
+`infix_operator==` powers `find` in the linked list. The sort machinery
+takes no comparator parameters: it writes `<` and `==` literally, and the
+compiler resolves those operators for `T` at each instantiation.
 
 ## The sort
 
 ```c
-// Swap two slots of an array. `t` holds a copy, so T must be Copy.
+// Swap two slots of an array. `t T` holds the first value: a copy for
+// Copyable elements, a move for heap types. swap(a, i, i) is identity —
+// the checker elides the move trio, so no slot is ever read back vacated.
 swap func [T] (a *[]T, i uint, j uint) = {
   t T = a[i]
   a[i] = a[j]
   a[j] = t
 }
 
-// Lomuto partition. The pivot is the median of {a[lo], a[mid], a[hi]},
-// which keeps sorted and reverse-sorted input at O(n log n) with no RNG.
-// Returns the pivot's final slot.
-partitionBy func [T] (a *[]T, lo uint, hi uint,
-                      less func (const *T, const *T) bool) uint = {
+// Three-way (Dijkstra) partition. The pivot is the median of {a[lo], a[mid],
+// a[hi]}, which keeps sorted and reverse-sorted input at O(n log n) with no
+// RNG. The median is *left in its slot* — compared through a const view:
+// copying it would MOVE a heap element out of a[hi] and vacate the slot the
+// scan reads. Returns the two boundaries of the middle (== pivot) region;
+// only the outer two regions are recursed over.
+Range struct = { lt uint; gt uint }   // [lo..<lt) < p, [lt..gt] == p, (gt..hi] > p
+partition3By func [T] (a *[]T, lo uint, hi uint) Range = {
   mid uint = lo + (hi - lo) / 2
-  // arrange a[lo] <= a[mid] <= a[hi], then move the median to hi
-  if a[mid].less(a[lo]) then a.swap(mid, lo)
-  if a[hi].less(a[lo]) then a.swap(hi, lo)
-  if a[hi].less(a[mid]) then a.swap(hi, mid)
-  a.swap(mid, hi)          // pivot (the median) now sits at hi
-  pivot T = a[hi]
+  if a[mid] < a[lo]  then a.swap(mid, lo)
+  if a[hi]  < a[lo]  then a.swap(hi, lo)
+  if a[hi]  < a[mid] then a.swap(hi, mid)
+  a.swap(mid, hi)                       // median at hi; a[lo] <= pivot
+  pivot const *T = &a[hi]               // view-pinned: no copy, no move
+  lt uint = lo
+  gt uint = hi - 1                      // the scan is (lo..hi): a[hi] never moves
   i uint = lo
-  loop j in lo..<hi {
-    if a[j].less(pivot) {
-      a.swap(i, j)
+  loop i <= gt {
+    if a[i] == pivot then
+      i += 1                            // == : the middle, left alone
+    else if a[i] < pivot then {
+      a.swap(lt, i)                     // < : into the lt region (self-swap elided)
+      lt += 1
       i += 1
+    } else {
+      a.swap(i, gt)                     // > : into the gt region (self-swap elided)
+      gt -= 1                           // i stays: re-examine the swapped-in value
     }
   }
-  a.swap(i, hi)            // move the pivot into place
-  return i
-}
+  return Range { lt, gt }               // a[hi] (== pivot) sorts with the right
+}                                       // subrange — it is just one more element
 
-sortRangeBy func [T] (a *[]T, lo uint, hi uint,
-                      less func (const *T, const *T) bool) = {
+sortRangeBy func [T] (a *[]T, lo uint, hi uint) = {
   if hi <= lo then
     return
-  p uint = a.partitionBy(lo, hi, less)
-  // guards keep p - 1 / p + 1 inside uint — no underflow on the ends
-  if p > lo then
-    a.sortRangeBy(lo, p - 1, less)
-  if p < hi then
-    a.sortRangeBy(p + 1, hi, less)
+  r := a.partition3By(lo, hi)
+  // guards keep lt - 1 / gt + 1 inside uint — no underflow on the ends
+  if r.lt > lo then
+    a.sortRangeBy(lo, r.lt - 1)
+  if r.gt < hi then
+    a.sortRangeBy(r.gt + 1, hi)
 }
 
-// sort in place; requires `infix_operator<` for T to be in scope
+// sort in place; requires `infix_operator<` AND `infix_operator==` for T to
+// be in scope. Together they must form a total order — for any a, b exactly
+// one of a < b, a == b, a > b holds (an incomparable value, e.g. float NaN,
+// falls to the "greater" side and clusters there). The `<` and `==` written
+// above resolve to those operators at each instantiation.
 quickSort func [T] (a *[]T) = {
   if a.length < 2 then
     return
-  a.sortRangeBy(0, a.length - 1) { x, y : x < y }
-}
-
-// sort in place by an explicit ordering
-sortBy func [T] (a *[]T, less func (const *T, const *T) bool) = {
-  if a.length < 2 then
-    return
-  a.sortRangeBy(0, a.length - 1, less)
-}
-```
-
-The intent of `quickSort` in full:
-
-```c
-quickSort func [T] (a *[]T) = {
-  if a.length < 2 then
-    return
-  a.sortRangeBy(0, a.length - 1, func (x const *T, y const *T) bool {
-    return x < y
-  })
+  a.sortRangeBy(0, a.length - 1)
 }
 ```
 
@@ -92,7 +89,7 @@ loop e in a do
 ```
 
 Operator overloading extends `quickSort` to any type with `infix_operator<`
-in scope:
+and `infix_operator==` in scope:
 
 ```c
 Point struct = {
@@ -106,19 +103,34 @@ infix_operator< func (a const *Point, b const *Point) bool = {
   return a.y < b.y          // same x: order by y
 }
 
+infix_operator== func (a const *Point, b const *Point) bool = {
+  a.x == b.x && a.y == b.y  // structural — agrees with the order
+}
+
 pts []Point = {Point {2, 9}, Point {1, 5}, Point {2, 1}}
 pts.quickSort()
 loop p in pts do
   out.println("(%d{p.x}, %d{p.y})")   // (1, 5), (2, 1), (2, 9)
 ```
 
-`sortBy` pins the ordering at the call site instead of the type system:
+Adversarial orderings — descending, by field — are orderings of the type, so
+they live in the type: wrap the element and give the wrapper its own
+operators. There is one sort, and it is always the in-scope operators' sort.
 
 ```c
-f []float = {3.5, 1.0, 2.25}
-f.sortBy { x, y : x > y }        // descending — intrinsic `>` on floats
-loop v in f do
-  out.println("%f{v}")    // 3.5, 2.25, 1.0
+// descending floats: a wrapper whose < reverses the ordering
+Desc struct = { v float }
+infix_operator< func (a const *Desc, b const *Desc) bool = {
+  b.v < a.v               // reversed: greater v sorts first
+}
+infix_operator== func (a const *Desc, b const *Desc) bool = {
+  a.v == b.v              // equality is unchanged
+}
+
+ds []Desc = {Desc {3.5}, Desc {1.0}, Desc {2.25}}
+ds.quickSort()
+loop d in ds do
+  out.println("%f{d.v}")    // 3.5, 2.25, 1.0
 ```
 
 ## Notes
@@ -133,23 +145,37 @@ loop v in f do
    slot is reinitialized before the array escapes the function, so no
    observable empty slot ever exists. All moves re-home backing within the
    caller's statement-block arena, so nothing allocates and nothing copies
-   (note 5). `const *T` comparators already make *comparing* heap elements
-   cheap (shared views, auto-borrowed).
+   (note 5). `const *T` operators already make *comparing* heap elements
+   cheap (shared views, auto-borrowed). Two more ownership rules live here:
+   the **pivot is a const view into its own slot** (`pivot const *T = &a[hi]`)
+   — compared, never copied or moved, so the partition transfers no element
+   at all — and **`swap(a, i, i)` is identity**, the checker eliding the move
+   trio that would otherwise read back the slot it just vacated.
 
-2. **The ordering is scope-based.** `quickSort` resolves `infix_operator<` for
-   `T` where it is used (intrinsic for `int`/`float`, user-defined for
-   `Point`). `sortBy` needs nothing from the type — `func (x const *T, y const
-   *T) bool` is passed explicitly, so adversarial orderings (descending, by
-   field) cost no operator definitions.
+2. **The ordering is the type's operators.** `partition3By` and `sortRangeBy`
+   take no comparators: they write `<` and `==` literally, and the compiler
+   resolves `infix_operator<` / `infix_operator==` for `T` at each
+   instantiation (intrinsic for `int`/`float`, user-defined for `Point`).
+   Together the operators must form a total order. A different order is a
+   different type: wrap the element (the `Desc` example) and give the
+   wrapper its own operators — one sort, one place the ordering lives.
 
-3. **Median-of-three handles pre-sorted data** without randomness. The one
-   degenerate input it does not fix is *all elements equal* — every partition
-   returns `lo` and the recursion degenerates to O(n²). The standard fix is a
-   three-way partition (Dijkstra), TODO.
+3. **Three-way partition kills the all-equal and pre-sorted degeneracies.**
+   Median-of-three keeps sorted and reverse-sorted input at O(n log n); the
+   middle (== pivot) region makes *all elements equal* a single pass — no
+   `<` or `>` branch ever fires, `i` walks the array once, and both
+   recursions are empty: O(n). Heavy duplication is grouped in one partition
+   instead of being dribbled out one element per pass. One artifact to note:
+   the pinned pivot sits at `a[hi]`, *inside* the right subrange, and is
+   sorted there — it is just one more element equal to the middle.
 
-4. **`uint` underflow is designed out.** `quickSort`/`sortBy` bail when
-   `length < 2`, so `a.length - 1` never wraps; the recursive calls are
-   guarded by `p > lo` and `p < hi`, so `p - 1` / `p + 1` stay in range.
+4. **`uint` underflow is designed out.** `quickSort` bails when
+   `length < 2`, so `a.length - 1` never wraps; `partition3By` is only
+   called with `hi > lo`, so `gt = hi - 1` stays in range; the recursive
+   calls are guarded by `r.lt > lo` and `r.gt < hi`, so `lt - 1` / `gt + 1`
+   stay in range. Inside the scan, the median arrangement guarantees
+   `a[lo] <= pivot`, so the `>` branch can never fire at `i == lo` and `gt`
+   never descends below `lo` — a consequence of the operators' totality.
 
 5. **In-place, no allocations.** The array is mutated through a caller-owned
    view; no arena growth — heap-element swaps re-home backing within the
@@ -160,8 +186,7 @@ loop v in f do
 6. **Trailing-lambda names are local.** A single-parameter lambda binds its
    argument as `it` (reserved inside the body): `{ it.value * 2 }`. Several
    parameters declare their own names before `:`: `{ x, y : x < y }`. Nothing
-   is inherited from the callee — `less` is typed `func (const *T, const *T)
-   bool`, with no parameter names to leak.
+   is inherited from the callee — function types carry no parameter names.
 
 7. **Operators take `const *T` — non-owning and universal.** `==` and `<` must
    never take ownership, so `&T` is out (that moves in). Value params
