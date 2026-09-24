@@ -403,3 +403,11 @@ maybe {                              // or: opt { }, chain { } ...
     — the same machinery as a channel receive — and *consumes the node*: it
     must be unlinked first, and any later read of `first` is
     use-after-consume. The sentinel is never taken.
+
+    That dead-node reading is the *unlinked-node* form of `take`. On a live
+    container slot (`take(a[i])`, or the implicit `t := a[i]` move-out) the
+    same machinery leaves the slot **uninitialized**, not R4-consumed: reads
+    are compile errors until a move-in (`a[i] = v`) **reinitializes** it —
+    the slot-take rule (`OWNERSHIP_DRAFT.md`, missing rules — linked list
+    #6; QUICK_SORT note 1). An unlinked node's location is unreachable, so
+    reinit never applies there — the two forms are one rule, two states.

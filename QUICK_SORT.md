@@ -123,18 +123,18 @@ loop v in f do
 
 ## Notes
 
-1. **Elements must be Copy for the sketch as written.** `swap` copies
-   through `t T`, so strings and other heap types cannot be sorted by this
-   body. The spec gap behind that — *moving a value out of an array slot is
-   not defined* (a slot cannot hold "nothing", there are no nulls) — is now
-   partly answered by **`take`**: `take(a[i])` relocates the slot's payload
-   into the caller's (current) arena and consumes the slot, which is exactly
-   what list extraction needs (`LINKED_LIST.md`, note 11). In-place *swap*
-   additionally needs a rule for re-populating a consumed slot by move-in —
-   an open edge; until then, heap elements sort via a permutation-based path
-   (sort `[]uint` of indices, then reorder). `const *T` comparators already
-   make *comparing* heap elements cheap (shared views, auto-borrowed — no
-   copies) — only the swap is missing.
+1. **Heap elements sort in place by moves — no Copy required.** `swap` takes
+   through a `t T` temporary: for Copyable elements that is a copy; for
+   strings and other heap types it is a **move**. Moving a value out of a
+   slot is *defined* — reading a non-Copy element leaves the slot
+   **uninitialized**, and the two assignments in the body are **move-in
+   reinitializations** (the slot-take rule: `OWNERSHIP_DRAFT.md`, missing
+   rules — linked list #6; LINKED_LIST note 11). The checker verifies every
+   slot is reinitialized before the array escapes the function, so no
+   observable empty slot ever exists. All moves re-home backing within the
+   caller's statement-block arena, so nothing allocates and nothing copies
+   (note 5). `const *T` comparators already make *comparing* heap elements
+   cheap (shared views, auto-borrowed).
 
 2. **The ordering is scope-based.** `quickSort` resolves `infix_operator<` for
    `T` where it is used (intrinsic for `int`/`float`, user-defined for
@@ -152,8 +152,10 @@ loop v in f do
    guarded by `p > lo` and `p < hi`, so `p - 1` / `p + 1` stay in range.
 
 5. **In-place, no allocations.** The array is mutated through a caller-owned
-   view; no arena growth, no moves. Recursion is plain stack (average depth
-   ~log2 n), and no block-arena work happens at any level.
+   view; no arena growth — heap-element swaps re-home backing within the
+   caller's statement-block arena instead of allocating (note 1). Recursion
+   is plain stack (average depth ~log2 n), and no block-arena work happens at
+   any level.
 
 6. **Trailing-lambda names are local.** A single-parameter lambda binds its
    argument as `it` (reserved inside the body): `{ it.value * 2 }`. Several

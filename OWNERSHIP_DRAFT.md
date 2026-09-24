@@ -136,7 +136,7 @@ Morphological check at the site, per instantiation:
 | **R1** | ✓ Arena destruction + explicit `dispose`/`defer` everywhere (`conn.dispose()`, `g.dispose()`, `ch.dispose()`); non-disposable owned values get compiler-generated dealloc at scope end (the R1 remark); temp destruction is implicit — no draft change needed. |
 | **R2** | `&T` move-ins ✓ (`spawn echo(&conn)`, `foo(&s)`, `dispose (f &Fd)`); value-param moves ✓ (`pushBack(v T)`, `mutex.new(v)`). Read-only params are `const string` or views throughout: `newListener`/`portFromEnv`/`readFile`/`getUserAuthorities`/`greet` → `const string`; `truncateRead`/`readRequest` → `*File`/`*Connection` views (applied Sep 24). |
 | **R3** | ✓ `dispose func (f &Fd) = …` is `&T` move-in; the release path is unreachable from views (handle barrier). |
-| **R4** | ✓ Whole-struct moves (`fd = fd`, `Connection { fd = fd, … }`) respect no-partial-consume. `newListener(cfg.address, cfg.port)` partial-consume hazard resolved by `const string` params; the `Connection { fd = fd, peer = socket.peerName(fd) }` read-after-move ordering fixed by hoisting `peer := socket.peerName(fd)` before the move (README + LISTEN — applied Sep 24). |
+| **R4** | ✓ Whole-struct moves (`fd = fd`, `Connection { fd = fd, … }`) respect no-partial-consume. `newListener(cfg.address, cfg.port)` partial-consume hazard resolved by `const string` params; the `Connection { fd = fd, peer = socket.peerName(fd) }` read-after-move ordering fixed by hoisting `peer := socket.peerName(fd)` before the move (README + LISTEN — applied Sep 24). One carve-out: a move-in that *reinitializes* a slot left uninitialized by a move-out/`take` is the sanctioned repair, not a use-after-consume (C9). |
 | **R5** | ✓ Views go only to *called* functions (`serve(&l)`, `quickSort` chain, `listener.accept()`); no view is ever spawned; `spawn echo(&conn)` is a move, not a view. |
 | **R6** | ✓ `spawn pong(ch)`, `spawn worker(1, counter, ops)` cross by sharing; mutex guard stays local. README channels text now states co-ownership (any holder may close; double-close aborts at runtime; refcount frees the cell at the last handle's scope exit); atomics/mutexes/channels state the dealloc-at-lifetime-end machinery; channels excused from the static gate (applied Sep 24). |
 
@@ -160,24 +160,42 @@ Morphological check at the site, per instantiation:
 
 # Missing rules now specified — bidirectional linked list (heap elements)
 
-1. **`take()` / detach.** Extracting an owned payload from a node reached
-   through a view: `take` **relocates the payload's backing into the caller's
-   (current) arena** — the same machinery as channel receive — and **consumes
-   the node** (dead afterwards; any later read is use-after-consume). The
-   node must be **unlinked first**. Reads of a taken node are compile errors
-   (R4).
+1. **`take()` / detach — unlinked-node form.** Extracting an owned payload
+   from a node reached through a view: `take` **relocates the payload's
+   backing into the caller's (current) arena** — the same machinery as
+   channel receive. The node must be **unlinked first**; an unlinked node's
+   location is unreachable, so `take` there simply **consumes the node** (dead
+   afterwards; any later read is use-after-consume, R4). On a *live*
+   container slot the same machinery instead leaves the slot uninitialized
+   and reinit-able — rule 6 below.
 2. **Move-in to slots.** Storing an owned value into a node field is a
    move-in (`pushBack(v)` by-value move; `node.value = v`). The list owns the
    value; the arena owns the memory; bulk-free covers both.
 3. **No-empty-slot is solved by dead nodes, not empty slots.** After
    unlink+take the node is unreachable; the sentinel is exempt (never
-   extracted).
+   extracted). Live container slots admit a *transient* uninitialized state
+   (rule 6) — unobservable, repaired by move-in before the container escapes.
 4. **Disposable payloads.** `Head[T]`/`Node[T]` are disposable iff `T` is —
    the synthesized dispose is a **walk-and-dispose** over live nodes (or keep
    `*T` views of externally-owned resources per LINKED_LIST note 10).
 5. **Iterator stability is a stated rule.** Arena nodes never move, so
    `ListIterator`/node views stay valid across pushes and pops; only taken
    nodes die. (This is a feature: std::list-style stable iterators.)
+6. **Slot-take: moving out of a live container slot is defined.** Reading a
+   non-Copy element into a local (`t := a[i]`) or `take`-ing an element of a
+   live `[]T` **moves the element out and leaves the slot *uninitialized*** —
+   a tracked non-value, not a null, and not an R4 consume. Reads of an
+   uninitialized slot are compile errors until it is reinitialized (Rust:
+   "prevents further reads until it is reinitialized"). Assignment `a[i] = v`
+   into an uninitialized slot is a **move-in reinitialization** — the
+   sanctioned repair, carved out of R4's point-of-no-return. A slot left
+   uninitialized when its container moves or returns is a compile error (no
+   *observable* empty slots). The checker tracks slot state linearly
+   (initialized → taken → reinitialized) — morphological, no inference.
+   Consequence: `quickSort`'s existing `swap` body (`t := a[i]; a[i] = a[j];
+   a[j] = t`) is take + two reinitializations and sorts heap elements in
+   place; the moves re-home backing within the caller's statement-block
+   arena (C7), so nothing allocates. (Ruling C9.)
 
 # Draft fixes applied (rules-first)
 
@@ -229,6 +247,14 @@ made false by value-params-move) and README's iterator *call sites*
     deallocation at function end. Resolves the arena contradiction with
     `newList`/`pushBack`/`toJson` (ruling C7). LINKED_LIST note 7 restated
     from an assumption to a rule.
+15. Slot-take rule (C9): moving an owned element out of a *live* container
+    slot leaves it **uninitialized** — reads are compile errors until a
+    move-in **reinitializes** it (the one R4 carve-out); uninitialized slots
+    must be repaired before the container moves or returns. `take` on an
+    unlinked node keeps dead-node semantics. Closes QUICK_SORT's in-place
+    slot-swap edge — the existing `swap` body sorts heap elements unchanged.
+    — OWNERSHIP_DRAFT missing rules #6, QUICK_SORT note 1 & note 5,
+    LINKED_LIST note 11.
 
 ---
 
@@ -259,3 +285,12 @@ made false by value-params-move) and README's iterator *call sites*
    block's exit; owned locals still get per-variable deallocation at the end
    of the function body (R1). Keeps `newList`/`pushBack`/`toJson` as written;
    README "Where memory lives" amended; LINKED_LIST note 7 restated as a rule.
+8. **C9 slot-take (ruling)**: moving a value out of a live container slot is
+   defined — the slot becomes *uninitialized* (a tracked non-value); reads
+   are compile errors (R4) until a move-in **reinitializes** it (the one R4
+   carve-out, mirroring Rust's "prevents further reads until it is
+   reinitialized"); uninitialized slots must be repaired before the container
+   escapes. `take` on an unlinked node keeps dead-node semantics (unreachable,
+   reinit never applies). Closed QUICK_SORT's in-place slot-swap edge: the
+   existing `swap` body sorts heap elements unchanged; moves re-home backing
+   within the caller's statement-block arena (C7), so nothing allocates.
