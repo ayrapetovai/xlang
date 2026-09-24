@@ -43,12 +43,19 @@ portFromEnv func (name const string) Optional[uint] = {
   return None
 }
 
+// -- errors are declared kinds; `cause` chains the underlying failure so
+// -- `is` tests see through the whole stack
+SocketError error = {
+  message string
+  cause  error
+}
+
 // -- bind + listen; failures settle locally with context
 newListener func (address const string, port uint) Result[Listener] = {
   try fd := socket.listen(address, port)
   Ok(Listener { fd = fd })            // success tail: everything to the catch
   catch e
-  return Error("cannot listen on %s{address}:%d{port}: %s{e}")
+  return SocketError { message = "cannot listen on %s{address}:%d{port}: %s{e}", cause = e }
 }
 
 // -- accept one connection; failures are transient, the caller keeps serving
@@ -57,7 +64,7 @@ accept func (listener *Listener) Result[Connection] = {
   peer := socket.peerName(fd)              // read fd first — then move it into the field
   Ok(Connection { fd = fd, peer = peer })
   catch e
-  return Error("accept: %s{e}")
+  return SocketError { message = "accept: %s{e}", cause = e }
 }
 
 // -- slurp one line (until \n, or EOF with data)
@@ -71,7 +78,7 @@ readLine func (conn *Connection) Result[string] = {
     catch e
     if buf.length > 0 then
       return Ok(buf)                       // EOF with data: deliver what we have
-    return Error("connection closed: %s{e}")
+    return SocketError { message = "connection closed: %s{e}", cause = e }
   }
 }
 

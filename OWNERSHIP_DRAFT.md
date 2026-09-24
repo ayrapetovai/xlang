@@ -197,6 +197,38 @@ Morphological check at the site, per instantiation:
    place; the moves re-home backing within the caller's statement-block
    arena (C7), so nothing allocates. (Ruling C9.)
 
+# Missing rules now specified — intrinsic errors (Result[T], C10)
+
+1. **Error is an intrinsic kind.** `X error = { … }` declares a named error
+   type with payload fields, syntactically a struct (`IOError error = {
+   customParam int; customMessage string }`). Errors are values: created by
+   the failing path, moved into the `Result` box on `Err`, bound by `catch e`,
+   returned/moved out again — ordinary owned values.
+2. **`Result[T]` has one parameter.** The error is implicit — the single
+   intrinsic error type. The `E` parameter is gone, and with it the
+   per-region uniform-E rule: any try region mixes failure origins freely;
+   `!` returns the intrinsic error; `catch` binds it. (Unifies the spec's
+   earlier conflicting `Result[string, error]` and single-arg `Result[...]`
+   forms.)
+3. **Payloads are non-disposable.** An error type declared with a field of a
+   disposable type is a **compile error**. Errors never carry owned resources:
+   the failure-path rule (dispose before returning `Err`) stays intact, and an
+   *unread* error needs no discharge — just the R1 dealloc machinery at the
+   end of its scope. Wrapping is allowed: an error may carry `cause error`
+   (the Go `%w`-chain analog), and kind tests see through `cause` levels.
+4. **Kind test is `is`, narrowing is checked.** `e is IOError` tests the
+   error's **dynamic kind** — type identity, distinct from `==` value
+   equality (a type never appears as a value operand). After a true `is`,
+   `e` narrows to `IOError` inside the branch and its payload fields become
+   readable as read-only views; reading a payload through an unnarrowed `e`
+   is a compile error. The checker verifies narrowing with the same machinery
+   `match` uses — morphological, provable per branch.
+5. **Checkable, not exhaustive.** Error handlers are the deliberate Go-style
+   relaxation of `match` exhaustiveness: a new error kind compiles everywhere
+   and simply falls through until a test is added; the end of the handler is
+   the implicit catch-all. (Answers the "this `e` must be any error"
+   requirement — `catch e` binds the intrinsic error by construction.)
+
 # Draft fixes applied (rules-first)
 
 Applied per approval (Sep 24) across `README.md`, `LISTEN.md`, `QUICK_SORT.md`,
@@ -268,6 +300,19 @@ made false by value-params-move) and README's iterator *call sites*
     (discharge before `Error`/`None` return). Closes the "integrated?"
     gap list (README only: container-level `take`/dead-node mechanics stay in
     the sketches).
+17. Intrinsic errors + `Result[T]` (ruling C10): README `## Try / catch` and
+    ``## `!` and `?` `` rewritten — `Result[T]` single-param everywhere
+    (`truncateRead` `Result[string, error]` → `Result[string]`; the uniform-E
+    rule dropped, replaced by the intrinsic one-error-kind model); error kinds
+    declared `X error = {…}` with non-disposable payloads (checked at
+    declaration); `e is IOError` kind test with compiler-verified narrowing
+    (payloads readable only when narrowed); handlers explicitly
+    checkable-not-exhaustive; `cause error` wrapping with `is`-through-cause
+    semantics; checker gains the unnarrowed-payload-read and
+    disposable-payload-declaration errors; Bytes `IOError` vocabulary
+    cross-referenced as the first declared error kind. Modeled on Go's
+    `error` interface + the `errors.Is`/`errors.As` distinction — grounded in
+    the Go source (context7, Sep 24). — OWNERSHIP_DRAFT missing rules above.
 
 ---
 
@@ -307,3 +352,14 @@ made false by value-params-move) and README's iterator *call sites*
    reinit never applies). Closed QUICK_SORT's in-place slot-swap edge: the
    existing `swap` body sorts heap elements unchanged; moves re-home backing
    within the caller's statement-block arena (C7), so nothing allocates.
+9. **C10 intrinsic errors (ruling)**: errors become an intrinsic kind with
+   payload fields (`X error = { … }`, non-disposable fields only);
+   `Result[T]` drops its error parameter — unifying the spec's conflicting
+   `Result[string, error]` and single-arg `Result[Connection]` forms and
+   dissolving the per-region uniform-E rule; `catch e` binds the intrinsic
+   error (any error, by construction); kind tests are `e is IOError` with
+   compiler-verified narrowing; wrapping via `cause error`; handlers are
+   checkable but not exhaustive (Go-style). Modeled on Go's `error`
+   interface and the `errors.Is` (value/sentinel) vs `errors.As` (type-test)
+   split — grounded in the Go source. (Missing rules section + applied-fix
+   #17; README try/catch and `!`/`?` sections rewritten.)

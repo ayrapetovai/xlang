@@ -158,7 +158,7 @@ Assignment: `=` (statement only, yields no value); no `++`/`--` — use `i += 1`
 Declaration: `name type`, initialization `name type = value`, deduced `name := value`
 Channel send/receive: `ch <- v` (moves/copies a value into the cell), `v = <-ch` or `<-ch` (receive, yields `Optional[T]`)
 Coroutine operator: `spawn f(args)` — starts `f` on its own coroutine, returns `void`
-Result/Optional unwrap (propagate): postfix `!` on `Result[T, E]` (returns `Err(e)` from the function, or panics in `main`), postfix `?` on `Optional[T]` (returns `None`, or panics in `main`), and fallback `?? default` (keeps going with `default`) — see ``## `!` and `?` ``
+Result/Optional unwrap (propagate): postfix `!` on `Result[T]` (returns the intrinsic error from the function, or panics in `main`), postfix `?` on `Optional[T]` (returns `None`, or panics in `main`), and fallback `?? default` (keeps going with `default`) — see ``## `!` and `?` ``
 User-defined overloads: `infix_operator<`, `infix_operator==`, … take `const *T` operands (auto-borrowed, non-owning) — see "Copyable types".
 
 ## Control structures
@@ -481,6 +481,8 @@ declares them inline (`func (a int, b int) int { … }`).
 ### Special Functions
 
 ```c
+NumberError error = { message string }
+
 // first argument is type, we have nothing to do with it
 // intrinsic function, defined in 'basic' package
 from func (int, s const string) Result[int] = {
@@ -491,8 +493,8 @@ from func (int, s const string) Result[int] = {
     else if c == '-' then
        r = -1 * r
     else
-      return Error("string value is not an integer number")
-  return r
+      return NumberError { message = "string value is not an integer number" }
+  return Ok(r)
 }
 // user can define func like this, it allows to do that:
 
@@ -640,8 +642,10 @@ Compile errors for: use-after-consume, consume-twice, copying a heap value by
 value, partial consumption (consuming a struct field consumes the whole
 struct), returning a view of a local, writing through a `const` view,
 re-borrowing a consumed binding, moving a value out of a view binding — a
-view has no ownership to give away — reading an uninitialized slot, and
-moving or returning a container that still holds an uninitialized slot. No
+view has no ownership to give away — reading an uninitialized slot, moving
+or returning a container that still holds an uninitialized slot, reading an
+error payload through an unnarrowed `e`, and declaring an error type with a
+disposable field. No
 lifetime inference, no alias analysis.
 
 ### Semantics that touch ownership
@@ -877,7 +881,7 @@ main func () = {
 
 ## Try / catch
 
-`try` guards an operation that returns `Result[T, E]` — and only `Result`:
+`try` guards an operation that returns `Result[T]` — and only `Result`:
 `Optional[T]` has its own lighter handling — the `?` and `??` of
 ``## `!` and `?` `` — and never enters a guarded scope.
 
@@ -900,10 +904,10 @@ A guarded scope is the tail of a block:
 readFile func (path const string) = {
   status int = 200
 
-  try file := open(path)              // Result[File, Error]
+  try file := open(path)              // Result[File]
   defer file.dispose()                // registered only because the try above succeeded
 
-  try data := file.readAll()          // Result[[]byte, Error]
+  try data := file.readAll()          // Result[[]byte]
   try use(data)                       // success tail
 
   // both paths settle here — defers registered above fire now
@@ -917,9 +921,10 @@ readFile func (path const string) = {
 
 Semantics:
 
-- **Uniform error.** Every try in one region must produce the same `E`.
-  Mixing `Result[T, E1]` and `Result[T, E2]` in a single guarded scope does
-  not compile — split the regions or unify the errors.
+- **One error kind.** `Result[T]` carries no error parameter: every fallible
+  operation reports through the single intrinsic error type, so mixed origins
+  in one region need no unification — `catch e` binds whatever the failed op
+  produced. (Declared error kinds and `is`-testing: the next subsection.)
 - **The settlement mark.** Both paths meet at the `catch` label. On success
   the flow reaches the mark and the block ends — the handler region is
   skipped. On failure the failed try jumps to the mark with `e` bound,
@@ -934,16 +939,68 @@ Semantics:
 - **Panic is not a failure.** `panic` aborts the process; it never jumps to
   `catch` and skips every defer, exactly like it bypasses `dispose`.
 
+### Error kinds, `is`, and narrowing
+
+Errors are an intrinsic kind — a declared error type carries payload fields:
+
+```c
+IOError error = {
+  customParam int
+  customMessage string
+}
+JsonParseError error = { customMessage string }
+```
+
+On failure the failing operation fills a payload and stacks it in the
+`Result` box; the handler binds it (`catch e`) and dispatches by kind:
+
+```c
+// readConfig: Result[string] — IOError possible; parseUser: Result[*User] —
+// JsonParseError possible (the &-created user lands in the caller's arena, C7)
+loadUser func (path const string) = {
+  try s := readConfig(path)                // Result[string] — any intrinsic error
+  try u := parseUser(s)                    // Result[*User]
+  authorize(u)                             // success tail
+  catch e
+  if e is IOError then
+    out.println("failed to read user: %s{e.customMessage}")
+  else if e is JsonParseError then
+    out.println("failed to parse user: %s{e.customMessage}")
+  // kinds without a test fall through — handled implicitly by the handler's end
+}
+```
+
+- **`is` is the kind test.** `e is IOError` tests the error's *dynamic kind*
+  — type identity. `==` stays value equality; a type never appears as a value
+  operand, and kinds carry payloads, so plain equality is meaningless for
+  them.
+- **Narrowing.** After a true `is`, `e` narrows to `IOError` inside the
+  branch and its payload fields become readable — as read-only views
+  (`e.customMessage` prints; it never takes). Reading a payload through an
+  unnarrowed `e` is a compile error; the checker verifies narrowing with the
+  same per-branch machinery `match` uses.
+- **Non-disposable payloads.** An error type may name only non-disposable
+  field types — the declaration itself is rejected otherwise. Errors never
+  carry owned resources, so the failure-path rule (dispose before `Err`) is
+  untouched, and an *unread* error needs no discharge: plain dealloc
+  machinery at the end of `e`'s scope (R1).
+- **Checkable, not exhaustive.** Handlers are the deliberate Go-style
+  relaxation of `match` exhaustiveness: a new error kind compiles everywhere
+  and falls through until a test is added. The handler's end is the implicit
+  catch-all.
+- **Wrapping.** An error may carry `cause error`; `is` tests see through one
+  or more `cause` levels, like Go's `errors.Is` walk.
+
 
 ## `!` and `?`
 
-`!` unwraps a `Result[T, E]`, `?` and `??` an `Optional[T]`, in expression
+`!` unwraps a `Result[T]`, `?` and `??` an `Optional[T]`, in expression
 position — the lighter counterparts to `## Try / catch`, which settles errors
 locally. These propagate them outward instead:
 
-- `expr!` — `Result[T, E]` only. On `Err(e)` the enclosing function returns
-  `Err(e)` — or the whole process panics, if that function is `main` — and
-  otherwise the expression evaluates to the inner `T`.
+- `expr!` — `Result[T]` only. On error the enclosing function returns the
+  intrinsic error — or the whole process panics, if that function is `main` —
+  and otherwise the expression evaluates to the inner `T`.
 - `expr?` — `Optional[T]` only. On `None` the function returns `None` (in
   `main`: panic); otherwise the expression evaluates to the inner `T`.
 - `expr ?? default` — `Optional[T]` only. On `None` the expression evaluates
@@ -951,7 +1008,7 @@ locally. These propagate them outward instead:
   works in any function, `main` included, and inside guarded scopes.
 
 ```c
-truncateRead : func (f *File, n int) Result[string, error] = {
+truncateRead : func (f *File, n int) Result[string] = {
   buffer bytes = {}
   s := f.readLine(&buffer)!       // writable view of the caller's scratch buffer
   return Ok(string.from(s[:n]))   // successes return explicitly, wrapped
@@ -971,14 +1028,15 @@ greet func (login const string) string = {
 Rules:
 
 - **Forced return types.** A bare `!` forces its function to return
-  `Result[_, E]`; a bare `?` forces `Optional[_]`. The two cannot coexist in
+  `Result[_]`; a bare `?` forces `Optional[_]`. The two cannot coexist in
   one function — they force incompatible return types — while `??` forces
   nothing and mixes freely. `main` is exempt from the forcing: its failure
   path is a `panic` (abort), not a return.
 - **Payloads.** `?` returns `None`, which carries nothing, so an `Optional[Y]`
-  can feed a function returning any `Optional[X]`. `!` returns the actual
-  `Err(e)` value, so — with explicit casts only — the expression's `E` must
-  equal the function's `E` exactly. Success payloads are unconstrained.
+  can feed a function returning any `Optional[X]`. `!` returns the intrinsic
+  error value — a kind-tagged payload and the one and only error type — so
+  the expression's error and the function's error match by construction.
+  Success payloads are unconstrained.
 - **Unwrap is a consume.** `!`, `?`, and `??` move the value out of the box; a
   non-Copy payload is moved, so a box cannot be unwrapped twice.
 - **Guarded scopes.** A bare `!` or `?` inside a `## Try / catch` region is a
@@ -1180,11 +1238,18 @@ Connection struct = {
   peer const string   // read-only shared view of the remote address
 }
 
+// -- errors are declared kinds (see ## Try / catch); `cause` chains the
+// -- underlying failure so `is` tests see through the whole stack
+SocketError error = {
+  message string
+  cause  error
+}
+
 // -- bind + listen
 newListener func (address const string, port uint) Result[Listener] = {
   fdResult := socket.listen(address, port)   // intrinsic from clib("c"), returns Result[Fd]
   return match fdResult {
-    Error(e) => Error("cannot listen on %s{address}:%d{port}: %s{e}")
+    Error(e) => SocketError { message = "cannot listen on %s{address}:%d{port}: %s{e}", cause = e }
     Ok(fd)   => Ok(Listener { fd = fd })
   }
 }
@@ -1192,7 +1257,7 @@ newListener func (address const string, port uint) Result[Listener] = {
 // -- accept one connection; failures here are transient, the caller keeps serving
 accept func (listener *Listener) Result[Connection] = {
   return match socket.accept(listener.fd) {  // fd through a view: *Fd
-    Error(e) => Error("accept: %s{e}")
+    Error(e) => SocketError { message = "accept: %s{e}", cause = e }
     Ok(fd)   =>
       peer := socket.peerName(fd)     // read fd first — then move it into the field
       Ok(Connection { fd = fd, peer = peer })
@@ -1211,7 +1276,7 @@ readLine func (conn *Connection) Result[string] = {
       Error(e) =>
         if buf.length > 0 then
           return Ok(buf)               // EOF with data: deliver what we have
-        return Error("connection closed: %s{e}")
+        return SocketError { message = "connection closed: %s{e}", cause = e }
     }
   }
 }
@@ -1312,8 +1377,9 @@ portable files and protocols: `b.endian(Endian.big)` / `b.endian(Endian.little)`
 Bounds: an `as*` / `peek` / `writeAt` past the end **panics** — a programmer
 bug, not a `Result`. `recvExact` guarantees lengths at the I/O boundary, so a
 framed read never runs past its frame. A *short* read — fewer bytes than
-requested — is data, reported with the shared `IoError` vocabulary
-(`ShortRead`); EOF is *not* an error — a receive on a drained channel/socket
+requested — is data, reported with the shared `IOError` vocabulary —
+`ShortRead` is a declared error kind (`IOError error = {…}`, see
+`## Try / catch`); EOF is *not* an error — a receive on a drained channel/socket
 yields `None`, per `### Channels`.
 
 Slicing — views, not copies: `b[2..<5]` is a write-through view (a mutation
