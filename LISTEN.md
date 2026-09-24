@@ -34,7 +34,7 @@ Connection struct = {
 }
 
 // -- the port: absence (env unset) is Optional absence, not a failure — `?` propagates
-portFromEnv func (name string) Optional[uint] = {
+portFromEnv func (name const string) Optional[uint] = {
   raw := process.env(name)?      // Optional[string]; None → return None
   try p := uint.from(raw)        // a malformed value settles here, not a panic
   return Some(p)
@@ -44,7 +44,7 @@ portFromEnv func (name string) Optional[uint] = {
 }
 
 // -- bind + listen; failures settle locally with context
-newListener func (address string, port uint) Result[Listener] = {
+newListener func (address const string, port uint) Result[Listener] = {
   try fd := socket.listen(address, port)
   Ok(Listener { fd = fd })            // success tail: everything to the catch
   catch e
@@ -54,7 +54,8 @@ newListener func (address string, port uint) Result[Listener] = {
 // -- accept one connection; failures are transient, the caller keeps serving
 accept func (listener *Listener) Result[Connection] = {
   try fd := socket.accept(listener.fd)     // fd through a view: *Fd
-  Ok(Connection { fd = fd, peer = socket.peerName(fd) })
+  peer := socket.peerName(fd)              // read fd first — then move it into the field
+  Ok(Connection { fd = fd, peer = peer })
   catch e
   return Error("accept: %s{e}")
 }

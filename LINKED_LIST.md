@@ -43,7 +43,7 @@ newList func [T] () *Head[T] = {
   }
   head.sentinel.prev = &head.sentinel
   head.sentinel.next = &head.sentinel
-  head
+  return head
 }
 
 pushBack func [T] (list *Head[T], v T) = {
@@ -78,7 +78,7 @@ popFront func [T] (list *Head[T]) Optional[T] = {
   list.sentinel.next = first.next
   first.next.prev = &list.sentinel
   list.length -= 1
-  Some(first.value)   // T is Copy (see note 4), so this is a copy, not a move
+  return Some(first.value)   // T is Copy (see note 4), so this is a copy, not a move
 }
 
 popBack func [T] (list *Head[T]) Optional[T] = {
@@ -88,7 +88,7 @@ popBack func [T] (list *Head[T]) Optional[T] = {
   list.sentinel.prev = last.prev
   last.prev.next = &list.sentinel
   list.length -= 1
-  Some(last.value)
+  return Some(last.value)
 }
 
 clear func [T] (list *Head[T]) = {
@@ -103,24 +103,36 @@ clear func [T] (list *Head[T]) = {
 
 ```c
 // Out of range is a data condition -> Optional, no panic inside.
-getAt func [T] (list *Head[T], i uint) Optional[*Node[T]] = {
+getAt func [T] (list *Head[T], i uint) Optional[*T] = {
   if i >= list.length then
     return None
   node *Node[T] = list.sentinel.next
   loop _ in 0..<i do
     node = node.next
-  Some(node)
+  return Some(&node.value)
 }
 
 // `Optional` is a `const enum [T any]`, so the payload may be a pointer.
-find func [T] (list *Head[T], v T) Optional[*Node[T]] = {
+find func [T] (list *Head[T], v T) Optional[*T] = {
+  node *Node[T] = list.sentinel.next
+  loop node != &list.sentinel {
+    if node.value == v then
+      return Some(&node.value)
+    node = node.next
+  }
+  return None
+}
+
+// Removal needs the node, so `findNode` is the node-level query; element
+// views cannot feed `remove`.
+findNode func [T] (list *Head[T], v T) Optional[*Node[T]] = {
   node *Node[T] = list.sentinel.next
   loop node != &list.sentinel {
     if node.value == v then
       return Some(node)
     node = node.next
   }
-  None
+  return None
 }
 
 // Passing the sentinel here is an invariant violation, a bug — panic stays.
@@ -130,7 +142,7 @@ remove func [T] (list *Head[T], node *Node[T]) T = {
   node.prev.next = node.next
   node.next.prev = node.prev
   list.length -= 1
-  node.value   // copy, see note 4
+  return node.value   // copy, see note 4
 }
 ```
 
@@ -197,9 +209,11 @@ current func [T] (it ListIterator[T]) &T = {
 Every fallible step below is composed with combinators — **no `match`, no
 `panic`** in user code. A trailing-block lambda binds a single parameter as
 `it` (reserved inside the body); several declare their own names before `:` —
-so `l.find(20).map { it.value * 2 }` is the lambda `func (A) B` passed as
+so `l.find(20).map { it * 2 }` is the lambda `func (A) B` passed as
 `map`'s last argument `f`, spelled explicitly if you prefer:
-`l.find(20).map(f = func (v A) do v.value * 2)`.
+`l.find(20).map(f = func (v A) do v * 2)`.
+A is `*int` here — `find` hands out an element view, and operators
+auto-dereference views (README, auto dereference).
 
 ```c
 l *Head[int] = newList()
@@ -212,18 +226,18 @@ loop e in l do
 
 // map: transform inside the context — Haskell fmap
 doubled Optional[int] = l.find(20)
-  .map { it.value * 2 }
+  .map { it * 2 }               // it: element view *int — operators auto-deref
 out.println("doubled = %d{doubled.orElse(-1)}")   // 40; -1 if 20 were missing
 
 // fromMaybe: unwrap with a default, never a panic
 label string = l.find(99)
-  .map { "%d{it.value}" }
+  .map { "%d{it}" }             // formatting auto-derefs the view, like `e` above
   .orElse("99 is not in the list")
 out.println(label)            // "99 is not in the list"
 
-// bind-like chain: find -> remove in one expression (Haskell `fmap (remove l) (find l t)`)
+// bind-like chain: findNode -> remove in one expression (Haskell `fmap (remove l) (find l t)`)
 popValue func [T] (l *Head[T], target T) Optional[T] = {
-  l.find(target)
+  l.findNode(target)
     .map { l.remove(it) }
 }
 
@@ -260,11 +274,12 @@ points.pushBack(Point {1, 2})
 loop p in points do
   out.println("(%d{p.x}, %d{p.y})")   // (3, 4) then (1, 2)
 
-p1 *Node[Point] = points.getAt(0)     // decay; pans if the index were out of range
-p1.value = Point {0, 0}               // writable view into a node, affects the list
+p1 *Point = points.getAt(0)           // decay; pans if the index were out of range
+p1.x = 0                              // writable view of the element — affects the list
+p1.y = 0
 
 match points.find(Point {2, 2}) {
-  Some(n) => out.println("found Point {%d{n.value.x}, %d{n.value.y}}")
+  Some(n) => out.println("found Point {%d{n.x}, %d{n.y}}")
   None    => out.println("no such point")
 }
 ```
@@ -278,10 +293,10 @@ Deep chains of `.andThen` would get noisy. Haskell solves that with `do x <- m;
 ```c
 // PROPOSAL — same desugaring as Haskell's `do`
 maybe {                              // or: opt { }, chain { } ...
-  node <- l.find(20)                // unwrap; absence short-circuits the block to None
-  l.remove(node)                    // last bare value lifts into Some
+  node <- l.findNode(20)             // unwrap; absence short-circuits the block to None
+  l.remove(node)                     // last bare value lifts into Some
 }
-// == l.find(20).andThen { Some(l.remove(it)) }
+// == l.findNode(20).andThen { Some(l.remove(it)) }
 ```
 
 ## Notes
@@ -295,10 +310,12 @@ maybe {                              // or: opt { }, chain { } ...
    layer and reads Copy payloads or moves heap payloads (second use of a
    consumed binding is a compile error).
 
-2. **The combinators require `A` to be Copy** — `map`/`andThen`/`orElse` bind
-   the payload by value (`v A`), valid only for scalars, pointers, and
-   Copyable structs/enums. For heap payloads (`Optional[string]`) there is no
-   copy: use explicit `match` or view-based variants (`const *A`).
+2. **The combinators bind the payload by value.** `map`/`andThen`/`orElse`
+   take the payload as `v A` — a Copyable payload is copied in, a heap
+   payload is *moved* in (value parameters move non-Copyable values — README,
+   "Copyable types"), so `Optional[string]` chains work as well as
+   `Optional[int]`. The box itself is consumed by `match` (README,
+   "Consumption").
 
 3. **Two failure categories.** Data-dependent absence (empty list, index out
    of range, not found) is `Optional` — the caller picks `map`, `orElse`,
@@ -307,10 +324,12 @@ maybe {                              // or: opt { }, chain { } ...
    `popBack`, and consequently all user code above carry no match and no
    panic.
 
-4. **`value T` parameters and returns require `T` to be Copy** (scalars,
-   pointers, structs/enums built from those). `Head[int]`, `Head[Point]`
-   qualify. For heap element types the list still works — access and mutate
-   through views (`const *T` / `&T`) instead.
+4. **`value T` parameters and returns move.** A `T` value parameter copies in
+   Copyable types and *moves in* heap types (README, "Copyable types"), so
+   `pushBack(v T)` stores a heap `v` by move. Extraction is the limit: a
+   plain `node.value` expression *copies*, legal only for Copyable `T` —
+   heap payloads leave the list via `take` (note 11). `Head[int]`,
+   `Head[Point]` qualify as is.
 
 5. **Iterator `!=` is structural.** `ListIterator` has one pointer field, so
    `l.begin() != l.end()` compares node addresses — every pointer is non-null,
@@ -323,10 +342,12 @@ maybe {                              // or: opt { }, chain { } ...
    carry a pointer because `Optional const enum [T any]` accepts any `T`,
    and matching a `const` `Optional` inspects without consuming.
 
-7. **The arena assumption.** This example relies on `&`-allocations inside a
-   function body going to the *caller's* arena (they do for `toJson`'s
-   `Result[string]`). If that decision changes, `newList` and `pushBack` need
-   an explicit pool parameter.
+7. **Function bodies are not arenas.** `&`-allocations inside a function body
+   land in the nearest enclosing *statement-block* arena — the caller's
+   (README "Where memory lives") — this is a rule, not an assumption. So
+   `newList` may return a node chain and `toJson` may `Ok(json)`: the objects
+   outlive the call. Owned locals still get their per-variable deallocation
+   at function end (R1).
 
 8. **`newList` returns `*Head[T]`, never a `Head` value.** `Head` is Copyable
    (inline `Node` + `uint`), so returning it by value would hand out a value
@@ -339,18 +360,46 @@ maybe {                              // or: opt { }, chain { } ...
    exist as a value.
 
 9. **Queries return views, mutators must not trust their input.** `getAt` /
-   `find` return `Optional[*Node[T]]` — a view into a node, never a copy of
-   the element (a copy would only be legal for Copy `T`, note 4, and would
-   pay a full element copy for zero aliasing gain). The checker does no alias
-   analysis, so `remove` must panic on a node that is not a member of this
-   list's chain — a foreign node or an already-removed one is a bug, and a
-   silent unlink corrupts the chain. Keep the sentinel guard; extend it to
+   `find` return `Optional[*T]` — a writable view of the *element* (never a
+   copy: a copy would only be legal for Copy `T`, note 4, and would pay a
+   full element copy for zero aliasing gain). `remove` takes a node, so the
+   node-level query is `findNode` → `Optional[*Node[T]]`. The checker does no
+   alias analysis, so `remove` must panic on a node that is not a member of
+   this list's chain — a foreign node or an already-removed one is a bug, and
+   a silent unlink corrupts the chain. Keep the sentinel guard; extend it to
    the membership check.
 
-10. **Copy-only storage is what keeps the list sound under `dispose`.**
-    `value T` parameters/returns and `popFront`'s copy require `T` to be
-    Copy (note 4), and `dispose` makes a type non-Copy (`## Resources
-    (dispose)` in README) — so a resource-owning element can never be stored
-    by value in the list, and no double-close is possible through it. For
-    resource elements, store `*T` views (pointers are Copy) and let the real
-    owner dispose; arena bulk-free covers every node.
+10. **Sharing vs owning resources in a list.** `dispose` makes a type
+    non-Copy (`## Resources` in README), so a resource-owning element cannot
+    be *copied*, but it *can* be moved in (`pushBack` moves by value). The
+    list then owns the payloads and must discharge them —
+    `Head[T]`/`Node[T]` become disposable and the synthesized dispose walks
+    the live nodes (`OWNERSHIP_DRAFT.md`, missing rules — linked list #4).
+    For resources with external owners the simpler shape stays `*T` views
+    (pointers are Copy) and the real owner disposes; arena bulk-free covers
+    every node.
+
+11. **Heap elements work through moves and `take`.** `pushBack(v)` stores `v`
+    by *move* into the node, so heap element types need no Copy. Reading and
+    mutating work through views (`const *T` / `&T`) as before. Extraction is
+    where the Copy-only sketch stops (`Some(first.value)` is a copy), and
+    that is what `take` replaces:
+
+    ```c
+    take func [T] (n *Node[T]) T    // relocates the payload out, consumes n
+
+    popFront func [T] (l *Head[T]) Optional[T] = {
+      if l.length == 0 then
+        return None
+      first *Node[T] = l.sentinel.next
+      l.sentinel.next = first.next
+      first.next.prev = &l.sentinel
+      l.length -= 1
+      Some(first.take())            // `first` is dead afterwards
+    }
+    ```
+
+    `take` relocates the payload's backing into the caller's (current) arena
+    — the same machinery as a channel receive — and *consumes the node*: it
+    must be unlinked first, and any later read of `first` is
+    use-after-consume. The sentinel is never taken.

@@ -21,7 +21,7 @@ Generic functions deduce type arguments from call arguments.
 Only explicit casts allowed.
 For unused variables use '_'.
 Channels and coroutines, like in Go language.
-Any value crosses a thread boundary unless its shape contains a view; `Atomic[T]`/`Mutex[T]` are the only shared mutable state.
+Any value crosses a thread boundary unless its shape contains a view; `Atomic[T]`/`Mutex[T]`/`chan[T]` are the only shared mutable state.
 Operators can be overloaded.
 No exceptions but stacktraces.
 Panic is not recoverable, it destroys the whole application (with stack rollback).
@@ -128,8 +128,10 @@ assertTrue(s.type.isVariable)
 assertTrue(&s.type.isPointer)
 
 // the `==` for strings (values) could look like this:
-// (intrinsic sketch, `#compiler.inline()`; a user-defined operator takes `const *T` operands — see "Copyable types")
-infix_operator== func (a const string, b const string) #compiler.inline()
+// (intrinsic sketch, `#compiler.inline()`. User-defined operators take
+// `const *T` operands — auto-borrowed, non-owning — so the signature below
+// is the shape you would spell; see "Copyable types")
+infix_operator== func (a const *string, b const *string) #compiler.inline()
 do
   if a.length != b.length then
     return false
@@ -262,16 +264,18 @@ loop in in arr {
 
 ## `loop` with `in` 
 
-Operator `in` requires functions to be in scope:
+Operator `in` requires functions to be in scope; containers are iterated by
+**view** — `begin`/`end` take `*T`, and `loop e in ar` auto-addresses the
+container (`begin(&ar)`), exactly as method sugar auto-addresses a receiver:
 
 ```c
-begin func [T](c T) Iterator[T]
-end func [T](c T) Iterator[T]
+begin func [T](c *T) Iterator[T]
+end func [T](c *T) Iterator[T]
 next func [T](it Iterator[T]) Iterator[T]
 current func [T](it Iterator[T]) &T
 
 Iterator struct [T struct] = {
-  data T
+  data *T
   index int
 }
 // intrinsic array definition
@@ -281,13 +285,13 @@ array struct [T] = {
 }
 begin func [array[E]] (a *array[E]) Iterator[E] do
   Iterator {
-    data = &array
+    data = a
     index = 0
   }
 
 end func [array[E]] (a *array[E]) Iterator[E] do
   Iterator {
-    data = &a
+    data = a
     index = a.length
   }
 next func [array[E]] (it Iterator[array]) Iterator[E] do
@@ -300,7 +304,7 @@ current func [T] (it Iterator[T]) &T do
 
 // so user can do
 ar []int = {1, 2, 3, 4}
-loop it := begin(ar); it != end(ar); it = next(ar) do
+loop it := begin(&ar); it != end(&ar); it = next(it) do
   out.println(current(it))
 // by this
 loop e in ar do
@@ -502,9 +506,18 @@ Memory is owned, moved, or borrowed — never shared-mutable.
 
 ### Where memory lives
 
-- Every code block is an arena. Runtime allocations (string/[]T buffers,
-  `&`-created objects) go to the current arena, which frees them at block exit.
-  Cycles are harmless — they are freed en masse, so no GC and no leaks.
+- Every `{ … }` statement block is an arena. Runtime allocations (string/[]T
+  buffers, `&`-created objects) go to the arena of the nearest enclosing
+  statement block, which frees them at that block's exit. Cycles are harmless —
+  they are freed en masse, so no GC and no leaks.
+- **A function body is not an arena.** A call opens no arena of its own: the
+  callee's `&`-creations and owned buffers land in the nearest enclosing
+  *statement-block* arena — the caller's. So a function may return an
+  `&`-created object (`newList()` → `*Head[T]`) or wrap one in an owned return
+  (`toJson` → `Ok(json)`), and it survives the call, dying with the caller's
+  block. Owned *locals* still die at the end of the function body — each gets
+  its per-variable deallocation there (R1) — even though the underlying buffer
+  lives in the outer arena.
 
 ```c
 { // code block is a lifetime space
@@ -541,23 +554,36 @@ A type is Copy iff all of its fields are Copy: scalars (int, float, char,
 byte, bool), pointers, and structs/enums built from Copyable fields only.
 Everything else (string, []T, structs holding them) is a heap type:
 
+- `T` (value)          — pass by value: Copyable types copy in; non-Copyable
+                         types *move* in (the caller's binding is consumed) —
+                         Rust-style, no copy ever happens (see below)
 - `*T`                 — pass by writable view (modifications visible to the caller)
 - `const *T`           — pass by read-only view
-- `const T`            — pass by read-only shared value (cheap, no ownership)
+- `const T`            — pass by read-only shared value (cheap, no ownership;
+                         Copyable types only — heap types share via
+                         `const string` / `const []T` or views)
 - `&T` in a parameter  — move-in: the caller's binding is consumed, callee owns it
 - `*T` / `&T` in a return — non-owning view of caller or global memory
 
 `&` position rule: before a type in a parameter = move-in; before an
-expression = address-of; in a return type = non-owning view.
+expression = address-of; in a return type = non-owning view; in argument
+position, `&expr` = address-of (a view) — *except* against a `&T`
+parameter, where it is the move-in itself: `spawn echo(&conn)` moves a
+`Connection` into the coroutine, while `serve(&l)` only lends `Listener` a
+view.
 
 ```c
 point Point = {1, 2}          // Point has only scalars: it is Copy
 q := point                     // copy; point is still usable
 s := "Hello"
+sc := s                        // ERROR: copying a heap value — string is not
+                               // Copy; only moves and const sharing exist
 view   *string = &s         // writable view of s
-viewRO const *string = &s   // read-only view
-foo(s)                        // ERROR: string is a heap type, cannot pass by value
-foo(&s)                       // OK — move-in, s is consumed afterwards
+viewRO const *string = &s   // read-only view of s
+foo(s)                        // foo func (x string): s is heap, so this is a
+                              // move — s is consumed afterwards (foo func
+                              // (x &string) is the explicit reference form of
+                              // the same move-in)
 ```
 
 **Values auto-borrow into `const *T`.** A value argument binds to a `const *T`
@@ -569,10 +595,18 @@ take `const *T`: never `&T` (that moves in) and never `const T` (Copyable-only;
 a compile error for heap types). A *mutable* view still requires an explicit
 `&`.
 
+A mutable view has a *syntactic* lifetime: it may be passed only to *called*
+functions — bodies textually enclosed in the caller's scope. Passing a
+mutable view to a spawned coroutine, returning one out of a local, or
+storing it beyond the owner's scope is a compile error; a coroutine boundary
+accepts ownership, Copy values, frozen values, and the refcounted sync
+handles only (see `### Thread boundary`). No lifetime inference.
+
 ### The checker (static, move-only)
 
-Compile errors for: use-after-consume, consume-twice, passing a heap value by
-value, returning a view of a local, writing through a `const` view,
+Compile errors for: use-after-consume, consume-twice, copying a heap value by
+value, partial consumption (consuming a struct field consumes the whole
+struct), returning a view of a local, writing through a `const` view,
 re-borrowing a consumed binding, and moving a value out of a view binding —
 a view has no ownership to give away. No lifetime inference, no alias
 analysis.
@@ -611,17 +645,22 @@ leave shared state in half. Disposable owned values cross by move too — the
 dispose obligation rides along, exactly one `dispose()` on the receiving
 thread. The only shared mutable state across threads lives behind an
 explicit builtin sync tool: `Atomic[T]` (T a scalar: `int`, `uint`, `float`,
-`bool`, `char`, `byte` — checked per instantiation), `Mutex[T]`. See
+`bool`, `char`, `byte` — checked per instantiation), `Mutex[T]`, and
+`chan[T]`. See
 `## Threads and synchronization` below.
 
 ## Threads and synchronization
 
-`Atomic[T]` and `Mutex[T]` are the only shared mutable state (see
-`### Thread boundary` above). They are intrinsics: const handles to
-runtime-managed cells, like a channel handle. The handle crosses a thread
-boundary by sharing; the cell lives in runtime memory, never in an arena, so
-it can never dangle. The cell stays mutable behind the `const` handle,
-exactly as `ch <- v` mutates a channel behind its handle.
+`Atomic[T]`, `Mutex[T]`, and `chan[T]` are the only shared mutable state (see
+`### Thread boundary` above). They are intrinsics: **refcounted handles** to
+runtime-managed cells — each handle is conceptually a *mutable view of the
+cell*, implemented with synchronization under the hood of the language. A
+handle crosses a thread boundary by sharing; the cell lives in runtime
+memory, never in an arena, so it can never dangle. The cell stays mutable
+behind the `const` handle, exactly as `ch <- v` mutates a channel behind its
+handle. The deallocation machinery is embedded at the end of the lifetime in
+which each handle appeared: a scope-exit decrements the reference count, and
+at zero the cell is freed and its payload destroyed.
 
 ### Atomics
 
@@ -666,15 +705,23 @@ holding a lock.
 
 ### Channels
 
-`chan[T]` is a handle to a runtime-managed cell, like the atomic and mutex
-cells. `chan[T].new(n)` creates a channel: `n` slots of buffer;
-`chan[T].new(0)` is unbuffered, a rendezvous — send and receive pair up and
-transfer the value directly. The handle is an owned box like `Fd` — the
-binding that creates it must `dispose()` it, the *close*, exactly once
-(`## Resources`). Widening to `const chan[T]` shares the cell: a const
-channel handle is a copyable word that crosses thread boundaries by sharing
-and carries no close obligation, so only the owner closes. The owner may
-also cross by move instead — then the receiving coroutine owns the close.
+`chan[T]` is a handle to a runtime-managed cell, in the same family as the
+atomic and mutex cells. `chan[T].new(n)` creates a channel: `n` slots of
+buffer; `chan[T].new(0)` is unbuffered, a rendezvous — send and receive pair
+up and transfer the value directly. The handle is a **refcounted pointer**
+(see `## Threads and synchronization`): every coroutine holding it co-owns a
+*mutable view of the cell*, implemented with synchronization under the hood
+of the language. The cell's memory is managed by the reference count — its
+deallocation machinery is embedded at the end of the lifetime in which each
+handle appeared, and at zero the cell is freed with its payload.
+
+Closing is a runtime operation on the shared cell, not an owner-exclusive
+one: **any coroutine holding a handle may close** it with `ch.dispose()`.
+The call consumes the calling coroutine's own binding, and a close on an
+already-closed channel aborts (double-close). Channel handles are therefore
+excused from the static exactly-once gate of `## Resources` — like mutex
+handles, unlike `Fd`. A closed-but-referenced cell keeps draining until the
+last handle dies; sends to a closed channel abort.
 
 ```c
 pong func (ch const chan[string]) = {
@@ -689,17 +736,18 @@ pong func (ch const chan[string]) = {
 ch chan[string] = chan[string].new(0)  // new(n): n slots; 0 = unbuffered rendezvous
 
 spawn pong(ch)                    // owned handle widens to const: the cell is shared
-ch <- "hello, world"              // a value moves into the cell, then to the receiver
+ch <- "hello, world"              // frozen literal — the pool buffer is shared into the cell
 ch.dispose()                      // close: no more sends; pong drains, then sees None
 ```
 
 The operators are Go's, spelled on ownership. `ch <- v` *moves* `v` into the
-cell — the value relocates to the receiving coroutine's arena — while
-Copyable values (`int`, `bool`, const handles, `string`, ...) are copied in,
-exactly like argument passing. A value whose shape contains a view never
-crosses: the `### Thread boundary` rule, so no view can reach another
-coroutine through a channel. Sending and receiving take the const handle;
-only closing needs the owner.
+cell — the value relocates to the receiving coroutine's arena. Copyable
+values (`int`, `bool`, ...) are copied in, const handles share the cell, and
+frozen values (`const string`, pool literals) share their buffer — exactly
+like argument passing. A value whose shape contains a view never crosses:
+the `### Thread boundary` rule, so no view can reach another coroutine
+through a channel. Sending and receiving take the const handle; closing is
+allowed from any holder.
 
 `v = <-ch` yields `Optional[T]` — the language never fabricates a zero value
 where Go's `v, ok := <-ch` would: `Some(x)` is a value, `None` means closed
@@ -811,7 +859,7 @@ A guarded scope is the tail of a block:
   of statements — the error handler.
 
 ```c
-readFile func (path string) = {
+readFile func (path const string) = {
   status int = 200
 
   try file := open(path)              // Result[File, Error]
@@ -865,18 +913,18 @@ locally. These propagate them outward instead:
   works in any function, `main` included, and inside guarded scopes.
 
 ```c
-truncateRead : func (f File, n int) Result[string, error] = {
+truncateRead : func (f *File, n int) Result[string, error] = {
   buffer bytes = {}
-  s := f.readLine(buffer)!        // Err propagates out of this function
+  s := f.readLine(&buffer)!       // writable view of the caller's scratch buffer
   return Ok(string.from(s[:n]))   // successes return explicitly, wrapped
 }
 
-getUserAuthorities func (login string) Optional[[]string] = {
+getUserAuthorities func (login const string) Optional[[]string] = {
   aths := repository.selectAuthoritiesForUser(login)?
   return Some(aths.filter(s != ""))
 }
 
-greet func (login string) string = {
+greet func (login const string) string = {
   name := repository.nickname(login) ?? login   // None: keep going with login
   return "hello, " + name
 }
@@ -935,8 +983,8 @@ MyStruct struct [E Iterable] = {
 
 // T is a container, its first generic is the element type
 Iterable interface [T[E, _]] = {
-  begin   func(c T) Iterator[E]
-  end     func(c T) Iterator[E]
+  begin   func(c *T) Iterator[E]
+  end     func(c *T) Iterator[E]
   next    func(it Iterator[E]) Iterator[E]
   current func(it Iterator[E]) &E
 }
@@ -1095,7 +1143,7 @@ Connection struct = {
 }
 
 // -- bind + listen
-newListener func (address string, port uint) Result[Listener] = {
+newListener func (address const string, port uint) Result[Listener] = {
   fdResult := socket.listen(address, port)   // intrinsic from clib("c"), returns Result[Fd]
   return match fdResult {
     Error(e) => Error("cannot listen on %s{address}:%d{port}: %s{e}")
@@ -1107,7 +1155,9 @@ newListener func (address string, port uint) Result[Listener] = {
 accept func (listener *Listener) Result[Connection] = {
   return match socket.accept(listener.fd) {  // fd through a view: *Fd
     Error(e) => Error("accept: %s{e}")
-    Ok(fd)   => Ok(Connection { fd = fd, peer = socket.peerName(fd) })
+    Ok(fd)   =>
+      peer := socket.peerName(fd)     // read fd first — then move it into the field
+      Ok(Connection { fd = fd, peer = peer })
   }
 }
 
@@ -1252,7 +1302,7 @@ sendRequest func (conn *Connection, req Request) Result[uint] = {
   socket.send(conn.fd, frame)
 }
 
-readRequest func (conn &Connection) Result[Request] = {
+readRequest func (conn *Connection) Result[Request] = {
   hdr  := socket.recvExact(conn.fd, 4)!
   n    := hdr.asU32()
   body := socket.recvExact(conn.fd, n)!

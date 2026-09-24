@@ -123,13 +123,18 @@ loop v in f do
 
 ## Notes
 
-1. **Elements must be Copy.** `swap` copies through `t T`, so strings and
-   other heap types cannot be sorted in place today. The root cause is a spec
-   gap: **moving a value out of an array slot is not defined** (a slot cannot
-   hold "nothing" — there are no nulls). Until move-out exists, heap elements
-   need a permutation-based sort (sort `[]uint` of indices, then reorder).
-   `const *T` comparators already make *comparing* heap elements cheap (shared
-   views, auto-borrowed — no copies) — only the swap is missing.
+1. **Elements must be Copy for the sketch as written.** `swap` copies
+   through `t T`, so strings and other heap types cannot be sorted by this
+   body. The spec gap behind that — *moving a value out of an array slot is
+   not defined* (a slot cannot hold "nothing", there are no nulls) — is now
+   partly answered by **`take`**: `take(a[i])` relocates the slot's payload
+   into the caller's (current) arena and consumes the slot, which is exactly
+   what list extraction needs (`LINKED_LIST.md`, note 11). In-place *swap*
+   additionally needs a rule for re-populating a consumed slot by move-in —
+   an open edge; until then, heap elements sort via a permutation-based path
+   (sort `[]uint` of indices, then reorder). `const *T` comparators already
+   make *comparing* heap elements cheap (shared views, auto-borrowed — no
+   copies) — only the swap is missing.
 
 2. **The ordering is scope-based.** `quickSort` resolves `infix_operator<` for
    `T` where it is used (intrinsic for `int`/`float`, user-defined for
