@@ -136,10 +136,13 @@ findNode func [T] (list *Head[T], v T) *Node[T]? = {
   return          // not found — absence
 }
 
-// Passing the sentinel here is an invariant violation, a bug — panic stays.
-remove func [T] (list *Head[T], node *Node[T]) T = {
+NotInListError error = { message string }
+
+// Removing the sentinel is an invariant violation — reported, not panicked
+// (the full membership check, note 9, is the documented extension).
+remove func [T] (list *Head[T], node *Node[T]) T! = {
   if node == &list.sentinel then
-    panic("cannot remove the sentinel")
+    return NotInListError { message = "node is not a member of this list" }
   node.prev.next = node.next
   node.next.prev = node.prev
   list.length -= 1
@@ -223,11 +226,15 @@ else
 out.println(label)            // "99 is not in the list"
 
 // absence is data, not a failure — popValue returns T?; a bare return is
-// absence, return v auto-wraps the success:
+// absence, and remove's failure (unreachable here: findNode never yields
+// the sentinel) maps to absence through the catch:
 popValue func [T] (l *Head[T], target T) T? = {
-  if n := l.findNode(target)? then
-    return l.remove(n)        // auto-wrap: success
-  return                      // not found — no match, no panic
+  if n := l.findNode(target)? then {
+    try return l.remove(n)      // the guard unwraps the `T!`
+    catch _                     //   failure — mapped to absence
+    return
+  } else
+    return                      // not found — no match, no panic
 }
 
 popped int = l.popValue(10) ?? 0   // 10 removed from l; l is now: 5, 20
@@ -282,13 +289,18 @@ combinators (note 1), so the block desugars to a checked-if chain. Sketch —
 the keyword is undecided (`do` already means one-line function/loop bodies):
 
 ```c
-// PROPOSAL — desugars to a checked-if chain; tail lifting is the auto-wrap
+// PROPOSAL — desugars to a checked-if chain; the guard reads the `T!`
 maybe {                              // or: opt { }, chain { } ...
   node <- l.findNode(20)             // unwrap; absence short-circuits the block to absence
-  l.remove(node)                     // last bare value lifts into the `T?`
-}
+  l.remove(node)                     // last bare value lifts into the `T?` — the `T!`
+}                                    //   result is read by the guard; failure maps to absence
 // == inside a T? function:
-//    if n := l.findNode(20)? then return l.remove(n) else return
+//    if n := l.findNode(20)? then {
+//      try return l.remove(n)        // unwrap the `T!`; failure lands in the handler
+//      catch _
+//      return                        //   and maps to absence
+//    } else
+//      return                        // not found — absence
 ```
 
 ## Notes
@@ -312,12 +324,13 @@ maybe {                              // or: opt { }, chain { } ...
    `find` / `findNode` hand out `*T` / `*Node[T]` payloads — pointers are
    Copy, so the checked head binds the view and the box is gone.
 
-3. **Two failure categories.** Data-dependent absence (empty list, index out
-   of range, not found) is `T?` — the caller picks the checked form, `??`,
-   or the presence tests. Invariant violations (removing the sentinel,
-   invalid arguments) panic — they are bugs, not data. `getAt`, `find`,
-   `popFront`, `popBack`, and consequently all user code above carry no
-   match and no panic.
+3. **Failure and absence categories.** Data-dependent absence (empty list,
+   index out of range, not found) is `T?` — the caller picks the checked
+   form, `??`, or the presence tests. Invariant violations (removing the
+   sentinel, invalid arguments) are bugs, not data: an author may report
+   them as declared `T!` failures with an error kind (`remove` returns
+   `NotInListError`) or panic. `getAt`, `find`, `popFront`, `popBack`, and
+   consequently all user code above carry no match and no panic.
 
 4. **`value T` parameters and returns move.** A `T` value parameter copies in
    Copyable types and *moves in* heap types (README, "Copyable types"), so
@@ -360,10 +373,11 @@ maybe {                              // or: opt { }, chain { } ...
    copy would only be legal for Copy `T`, note 4, and would pay a full
    element copy for zero aliasing gain). `remove` takes a node, so the
    node-level query is `findNode` → `*Node[T]?`. The checker does no alias
-   analysis, so `remove` must panic on a node that is not a member of this
-   list's chain — a foreign node or an already-removed one is a bug, and a
-   silent unlink corrupts the chain. Keep the sentinel guard; extend it to
-   the membership check.
+   analysis, so `remove` reports a node that is not a removable element —
+   the sentinel, a foreign node, or an already-removed one is a bug, and a
+   silent unlink would corrupt the chain. The code guards the sentinel
+   (`NotInListError`); extending the guard to a full membership walk is the
+   documented direction.
 
 10. **Sharing vs owning resources in a list.** `dispose` makes a type
     non-Copy (`## Resources` in README), so a resource-owning element cannot

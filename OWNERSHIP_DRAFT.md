@@ -603,7 +603,11 @@ made false by value-params-move) and README's iterator *call sites*
     `try { loop { ch := socket.recv(conn.fd)! … } }` readLine, and
     `portFromEnv … uint?` with bare `return` absence (its `?? 8080` call
     site predates the round and stays). GMP: C16/C17 sketch rows and the C12
-    toJson row re-spelled to the postfix shapes. — follow-up to C19.
+    toJson row re-spelled to the postfix shapes. Same round, post-review:
+    LINKED_LIST `remove` → `T!` (sentinel removal is `NotInListError`, read
+    through `try … catch _` in `popValue` and the `maybe` desugar — failure
+    maps to absence; notes 3/9 re-spelled), LISTEN `write` unwraps
+    `socket.send` with `!`. — follow-up to C19.
 
 ---
 

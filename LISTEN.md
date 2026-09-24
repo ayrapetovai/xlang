@@ -85,7 +85,7 @@ readLine func (conn *Connection) string! = {
 }
 
 write func (conn *Connection, data const string) uint! = {
-  socket.send(conn.fd, data)           // uint! — tail return passes through
+  socket.send(conn.fd, data)!          // uint! — unwrap-or-return; success auto-wraps
 }
 
 // -- one coroutine per connection; `&` moves ownership in
