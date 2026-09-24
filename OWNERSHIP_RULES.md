@@ -139,6 +139,16 @@ runtime mapping is in `GO_RUNTIME_MAPPING.md`.
   reinitialization never applies).
 - **`swap(a, i, i)` is identity** (C13): the checker elides the move trio —
   it never vacates a slot to move a value back into itself.
+- **Declaration defaults are real values** — `x int` is `0`, a declared
+  `[]T` is empty; "uninitialized" names only the post-take state. A
+  long-lived table encodes absence with a real value (`None`), never with a
+  vacated slot (`HASH_MAP.md`).
+- **Assignment drops the previous occupant in place** — replacing an owned
+  value (`slot.entry = Some(v)`, `m.buckets = nb`) deallocates the old one
+  with compiler-generated machinery, never a built `dispose` (take-first
+  stays the idiom for disposable types). A **dropped container may hold
+  vacated slots**: repair-before-escape governs containers that leave the
+  function, not ones that die in place.
 - Copying a heap value by value is a compile error; reading an uninitialized
   slot is a compile error; the checker tracks slots linearly
   (initialized → taken → reinitialized), morphologically, no inference.
@@ -161,6 +171,10 @@ runtime mapping is in `GO_RUNTIME_MAPPING.md`.
   a compile error).
 - `Result[T]` (single type argument) is the fallible-return shape;
   `Optional[T]` is the maybe-value shape.
+- A failure is constructed **`Error(kind { … })`** — one spelling (the C18
+  sweep unified the earlier bare-kind returns): the `Error` combinator wraps
+  a kind-tagged error value, `Ok(v)` the success. `main`'s failure path is
+  a `panic` instead (§1).
 - `try <statement>` guards one statement; a single flat `catch e` binds the
   intrinsic error. Bare `!` (force `Result[_]`) and bare `?` (force
   `Optional[_]`) are compile errors **inside a guarded scope**; `?? default`
@@ -203,6 +217,13 @@ runtime mapping is in `GO_RUNTIME_MAPPING.md`.
   the C11 machinery.
 - Enum arms serialize as `"%q{e.name}"` — no type qualifier. Field metadata
   (`#json.…`) adjusts shape at compile time.
+- The binary codec is the same shape (`BINARY_CODEC.md`, C17):
+  `toBytes(obj const *O, n := 0) Result[bytes]` /
+  `fromBytes[O] (b const bytes) Result[*O]`; failures
+  `BinaryWriteError { message, cause }` /
+  `BinaryParseError { message, offset, cause }`; the wire is pinned
+  `Endian.big`. A coded parser **bounds-checks before every intrinsic
+  read** — the `as*` past-the-end panic must stay unreachable from data.
 
 ## 11 — Ordering and operators (C13)
 
@@ -223,6 +244,10 @@ runtime mapping is in `GO_RUNTIME_MAPPING.md`.
 - A different order is a **different type**: wrap the element and give the
   wrapper its own operators (`Desc`) — one sort, one place the ordering
   lives.
+- Hashing is the same per-instantiation mechanism (C16): `hash func (k
+  const *K) uint`, built-ins for the primitive keys, user key types bring
+  their own into scope — one unprovable contract: **keys equal under the
+  in-scope `==` must hash equal** (`HASH_MAP.md`).
 
 ## 12 — Language mechanics (checked)
 

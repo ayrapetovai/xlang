@@ -493,6 +493,64 @@ made false by value-params-move) and README's iterator *call sites*
     `Point` sorts with `<` only. README `## Array declaration` gains the
     move-append spelling; QUICK_SORT note 8 repointed (the stable sort is
     now MERGE_SORT.md); GMP gains the append-mapping row. — decision C15.
+23. Hash map + binary search (ruling C16): new sketch `HASH_MAP.md` — a
+    generic open-addressed map over `Slot { entry Optional[Entry[K, V]] }`:
+    an empty bucket is the real value `None`, never a null pointer and never
+    a *vacated* slot (a vacated slot is an unreadable tracked non-value, the
+    wrong storage for a long-lived table). **New mechanism — in-scope
+    `hash`**: `hash func (k const *K) uint`, resolved per instantiation like
+    the ordering operators (user ruled this over a Hashable marker), with
+    built-ins for the primitive keys. One unprovable contract: **keys equal
+    under the in-scope `==` must hash equal** (congruence). `put` moves the
+    key/val in; `get` returns `Optional[const *V]` (views invalidated by
+    growth — the single sanctioned invalidation point); delete is
+    backward-shift with the shift test `dh == 0 or dh > dr` (dist-based,
+    uint-safe); grow rebuilds by moves into `nb []Slot[K, V]` and assigns
+    `m.buckets = nb` — the old table dies in place. Round rulings:
+    **assignment drops the previous occupant in place** (compiler-generated
+    dealloc, never a built `dispose`), and **a dropped container may hold
+    vacated slots** (repair-before-escape governs escaping containers only)
+    — both now normative bullets in OWNERSHIP_RULES.md §6. Query keys
+    auto-borrow into `const *K`; `probe` inspects with `match &slot.entry`,
+    the shift takes by owned-slot consumption. Companion sketch
+    `BINARY_SEARCH.md`: `search` / `lowerBound` on `a const *[]T`, `<`-only
+    (equality = "less in neither direction"), half-open `[lo, hi)` uint-safe
+    bounds, `Optional[uint]` absence as data, read-only. — decision C16.
+24. Binary codec (ruling C17): the reopened `bytes.from(v)` option becomes a
+    sketch `BINARY_CODEC.md` — reflection-driven whole-object `toBytes` /
+    `fromBytes` under the C12 shape (scalars, string, enum, array, struct;
+    no reachable `*T` / `any` / disposable): one shape, two encodings.
+    `toBytes func [O] (obj const *O, n := 0) Result[bytes]` — the `toJson`
+    const-view walk, output an arena `bytes` buffer; `BinaryWriteError
+    { message, cause }` for a non-finite float or the depth cap.
+    `fromBytes func [O] (b const bytes) Result[*O]` — success &-creates the
+    graph in the caller's statement-block arena (C7), failure
+    `BinaryParseError { message, offset, cause }` carrying the parser
+    cursor. Wire pinned `Endian.big`; enum arms are length-prefixed *names*
+    (not ordinals); struct fields positional, append-only evolution. The
+    sketch's one new normative principle, adopted into OWNERSHIP_RULES.md
+    §10: **a coded parser bounds-checks before every intrinsic read** — the
+    `as*` past-the-end panic (a programmer-bug defense in general) must stay
+    unreachable from hostile input; a truncated frame is data,
+    `BinaryParseError`. README `## Bytes` de-scope note repointed to the
+    sketch. — decision C17.
+25. Conformance sweep (C18): README failure construction unified on
+    `Error(kind { … })` — the C12-combinator spelling wins over the earlier
+    bare-kind returns (NumberError, SocketError ×3, plus the `is`-section
+    prose wrapper) — now a normative line in OWNERSHIP_RULES.md §8. Fixes:
+    `truncateRead : func` → `truncateRead func`; the Bytes section's "stays
+    an option" note rewritten to cite `BINARY_CODEC.md`. Rules clarifiers:
+    OWNERSHIP_RULES §6 gains the declaration-defaults /
+    assignment-drops-occupant / dropped-container-may-hold-vacated bullets
+    (from the hash-map round), §11 gains the in-scope `hash` + congruence
+    contract, §10 gains the binary codec line. GMP: vocabulary rows +
+    C16–C18 sections; the stale C13 row "a stable sort is 'to be written'"
+    repointed to MERGE_SORT.md (C15). Observations, not changed: the legacy
+    `s.fields(e1)` / `e.enumerators(e1)` reflection spellings coexist with
+    C12's `s.fields` + `f.value(obj)` (the Metaprogramming section stays
+    authoritative); sized-array declaration `a [10]int` remains the one
+    unrulled area (move-append is the sanctioned growth, C15). —
+    decision C18.
 
 ---
 
@@ -626,3 +684,32 @@ made false by value-params-move) and README's iterator *call sites*
     tail write would be a chain of self-moves elided by the C13 identity
     rule; the code omits them. Answers (user): go for it — move-append
     scratch (C15).
+
+16. **C16 hash map + in-scope hashing (user-ruled, Sep 25)**: the map's
+    hasher is `hash func (k const *K) uint`, resolved **per instantiation**
+    exactly like the ordering operators — the user chose this over a
+    Hashable interface marker and named it `hash`, not `hashOf`; built-ins
+    exist for the primitive keys. Congruence: keys equal under the in-scope
+    `infix_operator==` must hash equal. The map: open addressing over
+    `Slot { entry Optional[Entry[K,V]] }` — an empty bucket is the real
+    value `None`, never nil, never a vacated slot; queries via `const *K`
+    (auto-borrow); `put` move-in; `get` → `Optional[const *V]` (invalidated
+    by growth — the single sanctioned invalidation point); backward-shift
+    deletion `dh == 0 or dh > dr`; grow rebuilds by moves, the old table
+    dropped in place. Round rulings: assignment drops the previous occupant
+    in place; a dropped container may hold vacated slots
+    (repair-before-escape governs escaping containers only). Answers (user):
+    go — hash in scope (C16).
+17. **C17 binary codec (Sep 25)**: the user reopened `bytes.from(v)` as a
+    real deliverable after it was de-scoped ("an option, not a
+    requirement"). Defined under C12's shape: same O-constraint, same
+    value-failure vocabulary, same const-view walk; `BinaryWriteError` /
+    `BinaryParseError { message, offset, cause }`; `Endian.big` pinned;
+    length-prefixed strings/names/counts; the bounds-check-before-read rule
+    keeps malformed input from ever reaching the `as*` panic. Answers
+    (user): define it under the C12 shape (C17).
+18. **C18 README conformance sweep (Sep 25)**: user-picked sweep thread:
+    unify failure construction on `Error(kind { … })`; repair the
+    `truncateRead` typo; rewrite the Bytes de-scope note; carry the round's
+    rulings into OWNERSHIP_RULES §6/§8/§10/§11; sync GO_RUNTIME_MAPPING.
+    Answers (user): sweep the README (C18).

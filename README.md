@@ -506,7 +506,7 @@ from func (int, s const string) Result[int] = {
     else if c == '-' then
        r = -1 * r
     else
-      return NumberError { message = "string value is not an integer number" }
+      return Error(NumberError { message = "string value is not an integer number" })
   return Ok(r)
 }
 // user can define func like this, it allows to do that:
@@ -1010,7 +1010,7 @@ loadUser func (path const string) = {
   chain: payload fields print, never move — `return io` is a compile error
   (a nested value cannot be moved out of its wrapper, R4). An error chain
   is therefore **append-only**: the only transform is wrapping the top —
-  `return SocketError { message = "accept: %s{e}", cause = e }` — and a
+  `return Error(SocketError { message = "accept: %s{e}", cause = e })` — and a
   found member can never be re-contextualized into a new wrapper.
 - **Aggregates are opaque.** A kind may carry `causes []error` — legal
   payload (errors are non-disposable, so the slice is too) — but the deep
@@ -1044,7 +1044,7 @@ locally. These propagate them outward instead:
   works in any function, `main` included, and inside guarded scopes.
 
 ```c
-truncateRead : func (f *File, n int) Result[string] = {
+truncateRead func (f *File, n int) Result[string] = {
   buffer bytes = {}
   s := f.readLine(&buffer)!       // writable view of the caller's scratch buffer
   return Ok(string.from(s[:n]))   // successes return explicitly, wrapped
@@ -1311,7 +1311,7 @@ SocketError error = {
 newListener func (address const string, port uint) Result[Listener] = {
   fdResult := socket.listen(address, port)   // intrinsic from clib("c"), returns Result[Fd]
   return match fdResult {
-    Error(e) => SocketError { message = "cannot listen on %s{address}:%d{port}: %s{e}", cause = e }
+    Error(e) => Error(SocketError { message = "cannot listen on %s{address}:%d{port}: %s{e}", cause = e })
     Ok(fd)   => Ok(Listener { fd = fd })
   }
 }
@@ -1319,7 +1319,7 @@ newListener func (address const string, port uint) Result[Listener] = {
 // -- accept one connection; failures here are transient, the caller keeps serving
 accept func (listener *Listener) Result[Connection] = {
   return match socket.accept(listener.fd) {  // fd through a view: *Fd
-    Error(e) => SocketError { message = "accept: %s{e}", cause = e }
+    Error(e) => Error(SocketError { message = "accept: %s{e}", cause = e })
     Ok(fd)   =>
       peer := socket.peerName(fd)     // read fd first — then move it into the field
       Ok(Connection { fd = fd, peer = peer })
@@ -1338,7 +1338,7 @@ readLine func (conn *Connection) Result[string] = {
       Error(e) =>
         if buf.length > 0 then
           return Ok(buf)               // EOF with data: deliver what we have
-        return SocketError { message = "connection closed: %s{e}", cause = e }
+        return Error(SocketError { message = "connection closed: %s{e}", cause = e })
     }
   }
 }

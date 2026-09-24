@@ -36,6 +36,9 @@ since 1.14; contiguous copy-growing stacks since 1.3).
 | error kinds (declared) | `error` interface + dynamic type | the same dispatch, spelled in the type system |
 | JSON-shaped constraint | struct tags (`json:"-"`) | serializability fixed at compile vs by decoder convention |
 | element move-append (`buf += a[i]`) | `append(buf, a[i])` | Go copies into the backing; the spec moves the value in (growth = the sanctioned invalidation, MERGE_SORT.md) |
+| open-addressed hash map | `map[K]V` | `hmap` + bucket cells (`runtime/map.go`): Go picks the key's hasher from its type — the same "the type knows how to hash itself", spelled as an in-scope `hash` here (HASH_MAP.md) |
+| in-scope `hash func (k const *K) uint` | comparable-key internal hasher | resolved per instantiation like the operators (C16); congruence (equal ⇒ same hash) is the contract Go *enforces* on comparable keys and the spec *delegates* to the author |
+| binary codec (`toBytes` / `fromBytes`) | `encoding/binary` + `encoding/json` reflection | fixed-width writes ↔ `binary.Write`; shape-derived parse ↔ `json.Decoder`'s arm-by-arm construction; offset-bearing failure ↔ `*json.SyntaxError.Offset` |
 
 ---
 
@@ -175,10 +178,37 @@ since 1.14; contiguous copy-growing stacks since 1.3).
 |---|---|---|
 | Ordering = the element type's `<` and `==` in scope, resolved per instantiation; machinery comparator-free | `sort.Slice` takes a comparator closure per call | The philosophical fork: Go trusts the caller's closure; the spec trusts the type's operators |
 | Three-way (Dijkstra) partition, median-of-three | pdqsort (1.19+): insertion + quicksort + heapsort hybrid | both degenerate-proof, via different mechanisms |
-| Not stable; a stable sort is "to be written" | `sort.Slice` unstable; `sort.SliceStable` O(n log n) via auxiliary buffer | the same tradeoff Go offers by API choice |
+| Not stable by default; the stable sort is now MERGE_SORT.md (C15) | `sort.Slice` unstable; `sort.SliceStable` O(n log n) via auxiliary buffer | the same tradeoff Go offers by API choice — the spec spells both as sketches |
 | Pivot view-pinned (`const *T` into `a[hi]`); heap elements sort by moves | element values copied freely; swap is copy | Go can copy because it has no uninitialized-slot concept — exactly the gap the spec's pivot avoids |
 | `swap(a, i, i)` is identity — checker elides the move trio | `i == j` swap is a harmless no-op copy | the spec's elision is a linear-logic carve-out (§6) |
 | Adversarial orderings = wrapper types (`Desc`) with their own operators | wrapper types *or* functional comparators | the spec has one ordering source per type |
+
+### C16 — hash map, hashing, binary search
+
+| Spec rule | Go counterpart | Note |
+|---|---|---|
+| Open addressing over `Slot { entry Optional[Entry] }` — an empty bucket is `None`, never nil, never a vacated slot | `map[K]V` buckets; missing-key reads return the zero value | Go's map has no "empty slot" concept — absence reads as zero; the spec makes absence a first-class value |
+| In-scope `hash func (k const *K) uint`, resolved per instantiation | hasher chosen from the key type (`runtime/type.go`); `maphash` for strings | same "the type hashes itself"; Go *enforces* equal ⇒ same hash, the spec delegates it to the author as a contract (congruence) |
+| `put` moves key/val in; `get` → `Optional[const *V]`, invalidated by growth | `m[k] = v`, `v, ok := m[k]` (copies) | Go copies values in and out; the spec moves in and views out — the map is a container like any other, not a special shape |
+| Backward-shift deletion (`dh == 0 or dh > dr`), no tombstones | `mapdelete` marks slots empty (`emptyOne`) with periodic rehash | Go leaves tombstones; the spec shifts to close the gap — no tombstone state to encode when a slot is only `Some`/`None` |
+| Grow = rebuild by moves; old table dropped in place (assignment drops the occupant) | `growWork` rehashes into a new bucket array, keeps old buckets during the increment | Go keeps dead buckets alive across the increment; the spec's arena frees the whole old table at once |
+| Binary search: reads only, `<`-only, half-open `[lo, hi)`, `Optional[uint]` | `sort.Search` with a caller predicate | Go's `sort.Search` needs a closure; the spec's `search`/`lowerBound` are one ordering, resolved like the sorts (BINARY_SEARCH.md) |
+
+### C17 — binary codec
+
+| Spec rule | Go counterpart | Note |
+|---|---|---|
+| `toBytes` — const-view reflection walk, wire pinned `Endian.big` | `encoding/binary.Write` with `binary.BigEndian`; `encoding/json.Marshal` | Go's `binary.Write` is manual the way the README's manual codecs are; the spec's `toBytes` is the reflection version with a fixed wire |
+| `fromBytes` — bounds-check before every intrinsic read; a short frame = `BinaryParseError { offset }`, never a panic | `encoding/binary.Read` propagates `io.EOF` (data, no panic); `json.Decoder` surfaces `*json.SyntaxError.Offset` | the spec's `as*` panic on short reads by design (programmer-bug defense) — the coded parser must convert data to `BinaryParseError` first |
+| Success &-creates the `O` graph in the caller's statement-block arena (C7) | heap allocations; decoder scratch | the parsed graph is arena memory with the caller's lifetime, not GC |
+| Length-prefixed frames (u32) for strings, names, counts | explicit lengths / binary varints / protobuf | length prefixes make a *derived* parse checkable in both |
+
+### C18 — conformance sweep (construction spelling)
+
+| Spec rule | Go counterpart | Note |
+|---|---|---|
+| A `Result[T]` failure is always constructed `Error(kind { … })` — one spelling | `errors.New` / `fmt.Errorf` return `error` values | both languages settle on one construction idiom; the sweep removed the spec's earlier bare-kind returns |
+| Error payloads non-disposable; unbound-`e` payload reads are compile errors | `error` may carry anything; `errors.As` needs a typed target | — |
 
 ---
 
