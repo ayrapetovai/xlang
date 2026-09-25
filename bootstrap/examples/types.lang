@@ -11,6 +11,13 @@ txt string = "text"
 err error
 data bytes = {0x00, 0x0A, 0xFF}
 
+// numeral lexing (decision C23) — `_` separators and exponent floats
+n1 := 1_000            // int with separator
+n2 := 0xAB_CD          // hex with separator
+n3 := 0b1010_1010      // bin with separator
+f1 := 1e3              // exponent float
+f2 := 1.5e-3           // fraction + exponent
+
 // array types
 a [10]int
 b [size]int

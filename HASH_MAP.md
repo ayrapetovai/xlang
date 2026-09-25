@@ -64,7 +64,8 @@ infix_operator== func (a const *Point, b const *Point) bool = {
 }
 
 hash func (k const *Point) uint = {
-  uint(k.x) * 31 + uint(k.y)
+  // `from` is fallible; int→uint is total, so these `?? 0` are dead defaults
+  (uint.from(k.x) ?? 0) * 31 + (uint.from(k.y) ?? 0)
 }
 ```
 
@@ -249,7 +250,7 @@ else
 total uint = 0
 loop i := 0; i < m.buckets.length {      // const iteration — the documented form
   if kv := (&m.buckets[i].entry)? then   // view inspection — nothing moves
-    total += uint(kv.val)
+    total += (uint.from(kv.val) ?? 0)   // `from` is fallible; int→uint is total
   i += 1
 }
 out.println("total %d{total}")  // 0 — both keys were removed

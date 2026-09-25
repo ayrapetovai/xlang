@@ -641,6 +641,36 @@ made false by value-params-move) and README's iterator *call sites*
     private/output bullets; the C20 backstop lists in README, §12, and GMP
     gain `out.*`'s write failure; the `runtime("basic")` comment lists
     `runtime.log`; GMP gains the C22 section. — decision C22.
+30. Casting, the descending range, and the §9 sweep (decision C23 round,
+    user-ruled, Sep 26): GRAMMAR.md §9's open items resolved — (1) **no
+    cast operator**: casting is the `from` family — `X.from(y)`, first
+    parameter the target type (a type value), source an immutable read-only
+    view `const *Y` (never consumed, never modified, no copy), result
+    always fallible `X!`; predefined for the scalar types
+    (`byte char int uint float bool`) plus the `string`/`bytes` textual
+    conversions; `from` is an ordinary name — user-defined `from`s allowed
+    ("Only explicit casts allowed" now means "casts only via `X.from(y)`").
+    (2) **Descending range**: `>..=` and `>..<` are the adjacent token pair
+    `>` + `..=`/`..<`, bound as one **left-associative** range operator —
+    `s.length>..=0`; `>` alone keeps its relational role. (3) **Compound
+    assignment family** accepted throughout. (4) **`->` ignored** — no
+    production; diagnostic token only, like `++`/`--`. (5) **Numeral
+    lexing**: digit separators `_` and exponent floats in (dec `1_000`,
+    `1e3`, `1.5e-3`, hex `0xAB_CD`), grammar §2.3 and the bootstrap lexer
+    updated. (6) **`interface` bodies are `= { … }` only** — the `do` arm is
+    dropped (§4.5). Still open: precedence stays conventional
+    (non-normative), format specifiers stay open and out of the bootstrap
+    scope, string bare-`%` and the escape set remain open. README gains the
+    `from` cast documentation (Abstract + Special Functions) and the
+    fallible reshaped witnesses (`string.from(1)!`, `int.from("1234")!`,
+    `bytes.from("Hello")!`, `buf += string.from(ch)!`, `r = … int.from(c)!`),
+    with the Special Functions `from` source parameter re-spelled
+    `const *string`; HASH_MAP's `uint(k.x)` / `uint(kv.val)` type-name
+    calls reshape to `uint.from(…)` with `?? 0` settlements (int→uint is
+    total — the defaults are unreachable);
+    GRAMMAR §9 pruned to three genuinely-open items (precedence, formats,
+    lexical details); OWNERSHIP_RULES §12 gains the cast bullet. —
+    decision C23.
 
 ---
 

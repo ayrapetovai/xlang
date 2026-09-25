@@ -18,8 +18,9 @@
  *    two-star closer).
  *  - names and keywords (2.2): `type field value pointer any` are NOT
  *    keywords - they stay T_ID and the parser disambiguates them.
- *  - literals (2.3): no-sign integers (dec/hex/bin), floats
- *    `Digit{Digit} "." Digit{Digit}`, chars and strings with escapes.
+ *  - literals (2.3): no-sign integers (dec/hex/bin) with `_` digit
+ *    separators, floats incl. exponents (`1.0`, `1e3`, `1.5e-3`), chars and
+ *    strings with escapes (decision C23).
  *  - operators (2.4): longest match first, including the `:=` of 4.1;
  *    `++` and `--` are single diagnostic tokens ("no ++/--", README).
  */
@@ -169,23 +170,52 @@ static void skip_block_comment(Lexer *l) {
 /* ---------------- literals (§2.3) ---------------- */
 
 /* dist: 0 = int, 1 = float (dec only; hex/bin are ints by construction) */
+
+/* Consume a run of digits, allowing `_` as a separator between digits only
+   (decision C23): `1_000`, `0xAB_CD`, `0b1010_1010`. A trailing or doubled
+   `_` is not consumed (`1_` leaves the `_` to lex as an identifier, `1__0`
+   cuts at the first `_`). */
+static void scan_digit_run(Lexer *l, int (*pred)(int)) {
+  for (;;) {
+    if (pred((unsigned char)*l->cur)) {
+      bump(l, l->cur + 1);
+      continue;
+    }
+    if (*l->cur == '_' && pred((unsigned char)l->cur[1])) {
+      bump(l, l->cur + 2); /* separator plus the next digit */
+      continue;
+    }
+    break;
+  }
+}
+static int is_bin_digit(int c) { return c == '0' || c == '1'; }
+
 static TokKind scan_number(Lexer *l) {
   if (l->cur[0] == '0' && (l->cur[1] == 'x' || l->cur[1] == 'X')) {
     bump(l, l->cur + 2);
-    while (isxdigit((unsigned char)*l->cur)) bump(l, l->cur + 1);
+    scan_digit_run(l, isxdigit);
     return T_NUM;
   }
   if (l->cur[0] == '0' && (l->cur[1] == 'b' || l->cur[1] == 'B')) {
     bump(l, l->cur + 2);
-    while (*l->cur == '0' || *l->cur == '1') bump(l, l->cur + 1);
+    scan_digit_run(l, is_bin_digit);
     return T_NUM;
   }
-  while (isdigit((unsigned char)*l->cur)) bump(l, l->cur + 1);
-  /* FloatLiteral = Digit{Digit} "." Digit{Digit} — so `1.` and `a..<b`
-     keep the '.' (int + range operator), while `1.0` is one float. */
+  scan_digit_run(l, isdigit);
+  /* FloatLiteral = Digits "." Digits [Exp] | Digits Exp — so `1.` and
+     `a..<b` keep the '.' (int + range operator), while `1.0`, `1e3` and
+     `1.5e-3` are one float (decision C23: exponent floats). */
   if (*l->cur == '.' && isdigit((unsigned char)l->cur[1])) {
     bump(l, l->cur + 1);
-    while (isdigit((unsigned char)*l->cur)) bump(l, l->cur + 1);
+    scan_digit_run(l, isdigit);
+  }
+  if (*l->cur == 'e' || *l->cur == 'E') {
+    const char *m = l->cur + 1; /* 'e', then optional sign, then a digit */
+    if (*m == '+' || *m == '-') m++;
+    if (isdigit((unsigned char)*m)) {
+      bump(l, m); /* cut `e` [sign]; the exponent digits scan below */
+      scan_digit_run(l, isdigit);
+    }
   }
   return T_NUM;
 }

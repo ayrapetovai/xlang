@@ -306,3 +306,8 @@ runtime mapping is in `GO_RUNTIME_MAPPING.md`.
   view-unwrap (`&x?`) binds a const view of the payload.
 - The checker is **morphological**: no lifetime inference, no alias
   analysis; generic functions are checked per instantiation.
+- **Casts are `X.from(y)`** (C23) — no cast operator. `from`'s first
+  parameter is the target type (a type value); the source is an immutable
+  read-only view `const *Y` — never consumed, never modified — and the
+  result is always fallible `X!`. Predefined for the scalar types and the
+  `string`/`bytes` conversions; user-defined `from`s are allowed.

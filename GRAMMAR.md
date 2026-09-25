@@ -8,7 +8,7 @@ form appears only once or is not spelled out at all, the rule is marked as
 an **open item** instead of being invented.
 
 Conformance status: the enumerations and comments reference the
-`OWNERSHIP_RULES.md` / `OWNERSHIP_DRAFT.md` decisions (C11–C22) and
+`OWNERSHIP_RULES.md` / `OWNERSHIP_DRAFT.md` decisions (C11–C23) and
 `README.md` sections (`## …`).
 
 ---
@@ -125,11 +125,15 @@ Literal
 
 IntegerLiteral
   = DecLit | HexLit | BinLit
-DecLit   = Digit { Digit }
-HexLit   = "0x" HexDigit { HexDigit }        -- 0x0A, 0xFF   (## Bytes)
-BinLit   = "0b" { "0" | "1" }                --               (## Bytes)
+DecLit   = Digit { [ "_" ] Digit }        -- 1, 42, 1_000 — `_` only between digits
+HexLit   = "0x" HexDigit { [ "_" ] HexDigit }   -- 0x0A, 0xFF, 0xAB_CD (## Bytes)
+BinLit   = "0b" ( "0" | "1" ) { [ "_" ] ( "0" | "1" ) }   -- (## Bytes)
 
-FloatLiteral = Digit { Digit } "." Digit { Digit }   -- 3.14, 1.0
+FloatLiteral = Digits "." Digits [ Exp ]
+             | Digits Exp                 -- 3.14, 1.0, 1e3, 1.5e-3 — exponent floats;
+                                          -- `1.` stays int + `.` (no digit follows)
+Digits = Digit { [ "_" ] Digit }
+Exp    = ( "e" | "E" ) [ "+" | "-" ] Digits
 
 CharLiteral = "'" CharLiteralBody "'"        -- '0', '9', '-', '\n', '\'' ?
 CharLiteralBody = Char | Escape
@@ -144,8 +148,11 @@ FormatSpec    = "%" FormatLetter "{" Expr "}" -- %s{e} %d{i} %q{s} %n{i}
 ```
 
 - `int` literals have no sign; `-1` is unary minus (`## Operators`).
+- Digit separators `_` and exponent floats are lexed: dec `1_000`, `1e3`,
+  `1.5e-3`, hex `0xAB_CD`, bin `0b1010_1010` (user ruling, decision C23).
 - The format-letter set witnessed is `s d n q f b`; the complete set and
-  width/precision forms are **open items**.
+  width/precision forms are **open items** (out of the bootstrap compiler's
+  scope).
 - A bare `%` inside a string (escaping / literal percent) is an **open
   item** — no use is witnessed.
 
@@ -162,7 +169,10 @@ FormatSpec    = "%" FormatLetter "{" Expr "}" -- %s{e} %d{i} %q{s} %n{i}
 -  envelope            `(` `)`  `[` `]`  `{` `}`  `.` `,` `;` `:`
 -  assignment          `=` and the compound family (see below)
 -  channel             `<-`
--  ranges / slices     `..<`  `..=`        (descending `>..=` seen once, §9)
+-  ranges / slices     `..<`  `..=`  `>..=`  `>..<`   (descending forms are the
+                       adjacent token pair `>` + `..=`/`..<`, bound as one
+                       left-associative range operator — §7; `>` keeps its
+                       relational role when an operand follows)
 -  match / select arm  `=>`
 -  match/select ops    `in`  `is`  `default`
 -  parameter default   `name = value`      (named literal fields / args)
@@ -321,7 +331,7 @@ Witnessed `IOError error = {…}`, `NumberError error = { message string }`,
 ### 4.5 InterfaceDecl
 
 ```
-InterfaceDecl = Name "interface" [ TypeParams ] ( "=" InterfaceBody | "do" Statement )
+InterfaceDecl = Name "interface" [ TypeParams ] "=" InterfaceBody
 InterfaceBody = "{" { MethodSig } "}"
 MethodSig     = Name "func" [ TypeParams ] "(" [ ParameterList ] ")" [ Type ] [ Directive ]
 ```
@@ -680,7 +690,7 @@ Precedence, loosest to tightest:
  06  &                        bitwise and
  07  ==  !=                   equality (also string ==, error == is a CE)
  08  <  >  <=  >=             relational  (also string ordering)
- 09  ..<  ..=                 ranges (see below)
+ 09  ..<  ..=  >..=  >..<     ranges (see below)
  10  <<  >>  >>>  <<~  >>~    shifts
  11  +  -                     additive (+ also string concat)
  12  *  /  %                  multiplicative (* also string duplication)
@@ -705,7 +715,15 @@ BitXorExpr   = BitAndExpr { "^" BitAndExpr }
 BitAndExpr   = EqualityExpr { "&" EqualityExpr }
 EqualityExpr = RelationalExpr { ("==" | "!=") RelationalExpr }
 RelationalExpr = RangeExpr { ("<" | ">" | "<=" | ">=") RangeExpr }
-RangeExpr    = ShiftExpr { ( "..<" | "..=" ) ShiftExpr }
+RangeExpr    = ShiftExpr { RangeOp ShiftExpr }
+RangeOp      = "..<" | "..="                       -- ascending
+             | ">" "..<" | ">" "..="               -- descending: the token pair
+                                                   -- `>` `..<` / `>` `..=`,
+                                                   -- adjacent in the stream,
+                                                   -- bound as one operator;
+                                                   -- left-associative
+                                                   -- (`loop c in s.length>..=0`,
+                                                   -- `1 >..< 0`)
 ShiftExpr    = AdditiveExpr { ("<<" | ">>" | ">>>" | "<<~" | ">>~") AdditiveExpr }
 AdditiveExpr = MultiplicativeExpr { ("+" | "-") MultiplicativeExpr }
 MultiplicativeExpr = UnaryExpr { ("*" | "/" | "%") UnaryExpr }
@@ -850,33 +868,40 @@ expected: `if e is IOError io then …`).
 - **Module visibility** is across a direct import edge only (C22).
 - **Reserved names.** `struct`/`enum`/`func`/`interface` are reserved
   (§2.2); everything else byte-level is checker territory.
+- **Casts are `X.from(y)`** (decision C23) — there is **no cast operator**.
+  `from`'s first parameter is the target type (a type value); the source
+  parameter is an immutable read-only view `const *Y` — **never consumed,
+  never modified, no copy** — and the result is always fallible `X!`.
+  Predefined for the scalar types (`byte char int uint float bool`) and the
+  `string`/`bytes` textual conversions; `from` is an ordinary name —
+  user-defined `from`s are allowed (`README ## Special Functions`).
 
 ---
 
 ## 9. Open items (not invented here)
 
-The grammar records — but does not resolve — the following sparsely
-witnessed or unwitnessed points:
+The grammar records — but does not resolve — the following points:
 
-1. **The cast operator.** `README` states "Only explicit casts allowed"
-   and `a float = foo() // error, no explicit cast`, but never spells a
-   cast syntax. Conversions in examples go through `int.from(s)`,
-   `uint.from(-1)`, `string.from(s[:n])`, `bytes.from("Hello")`, and the
-   HASH_MAP witness `uint(kv.val)` (a type-name call). A dedicated cast
-   production is not defined.
-2. **The descending range.** `int.from` iterates `s.length>..=0`
-   (`loop c in s.length>..=0 do`); no other occurrence and no prose
-   confirms the spelling `>..=` as a descending range operator. The
-   grammar lists only `..<` and `..=`.
-3. **Operator precedence** is conventional ( §7), not normative.
-4. **Format specifiers** — the letter set (`s d n q f b`) and width/
-   precision forms are witnessed-by-example only.
-5. **`->`** appears only in the abstract's continuation list; no other role
-   is evidenced.
-6. **Compound assignment family** beyond `+=` `-=` `*=` is inferred from
-   the `+=`-family note, not witnessed.
-7. **Numeral lexing details** — digit separators, underscores in literals,
-   exponent floats, and the full escape set are unspecified.
-8. **`interface` bodies via `do`** are allowed by the shared
-   `= { … } | do …` body rule (README #### Abstract) but only `= { … }`
-   bodies are witnessed.
+1. **Operator precedence** is conventional by user ruling (decision C23) —
+   §7's ladder stays **non-normative**. The parser still needs a fixed
+   order and takes the ladder as written.
+2. **Format specifiers** — the letter set (`s d n q f b`) and width/
+   precision forms are witnessed-by-example only, and are **out of scope
+   for the bootstrap compiler**: formatting is a runtime concern and string
+   literals are opaque to the lexer/parser.
+3. **Remaining lexical details** — a bare `%` in a string (literal percent)
+   and the full escape set (`\n \t \\ \" \0 \'` …) are unspecified.
+
+Resolved by user ruling (decision C23, Sep 26): the **cast operator does
+not exist** — casting is the `from` family (`X.from(y)`: first parameter
+the target type, source an immutable `const *Y` view, result `X!`; §8) —
+so the old `uint(kv.val)` type-name-call witness is rewritten in
+`HASH_MAP.md` to `uint.from(kv.val) ?? 0` (the int→uint conversion is
+total — the `?? 0` defaults are unreachable); the **descending range** is the
+left-associative token pair `>` `..=` / `>` `..<` (§7 — `s.length>..=0`,
+and down-to-exclusive `>..<` as ruled); **`->` is ignored** (no production;
+lexed as a diagnostic token only, like `++`/`--`); the **compound
+assignment family** (`/= %= <<= >>= &= |= ^=`) is accepted; **numeral
+lexing** gains digit separators and exponent floats (`1_000`, `1e3`,
+`0xAB_CD`); **`interface` bodies are `= { … }` only** — the shared
+`= { … } | do …` body rule does not extend to interfaces (§4.5).

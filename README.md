@@ -19,7 +19,7 @@ Meta types: `type`, `func`, `field`, `pointer`, `value`, `any`.
 Function's return type counts for signature.
 Function's return type participates in overload resolution.
 Generic functions deduce type arguments from call arguments.
-Only explicit casts allowed.
+Only explicit casts allowed — casting is `X.from(y)` (there is no cast operator).
 For unused variables use '_'.
 Channels and coroutines, like in Go language.
 Any value crosses a thread boundary unless its shape contains a view; `Atomic[T]`/`Mutex[T]`/`chan[T]` are the only shared mutable state.
@@ -93,8 +93,8 @@ s string // default value s == ""
 s := "abc"
 s string = "Hello, World!"
 
-s string = string.from(1) // s have type string and is "1"
-unsignedVar := uint.from(-1) // unsignedVar is 1
+s string = string.from(1)! // s has type string and is "1" — `from` is fallible
+unsignedVar := uint.from(-1)! // unsignedVar is 1
 ```
 
 ## Array declaration
@@ -533,13 +533,19 @@ declares them inline (`func (a int, b int) int { … }`).
 ```c
 NumberError error = { message string }
 
-// first argument is type, we have nothing to do with it
-// intrinsic function, defined in 'basic' package
-from func (int, s const string) int! = {
+// `from` is the cast family: there is no cast operator. To cast a Y to an
+// X, call `X.from(y)`. The first argument is the target type (a type
+// value — see Metaprogramming); the source is taken as an immutable
+// read-only view `const *Y` — never consumed, never modified, no copy.
+// The result is always fallible `X!`. Predefined for the scalar types
+// (`byte char int uint float bool`) and the `string`/`bytes` textual
+// conversions; `from` is not reserved — users define their own `from`s.
+// Intrinsic `from`s are defined in the 'basic' package.
+from func (int, s const *string) int! = {
   r := 0
   loop c in s.length>..=0 do
     if '0' <= c && c <= '9' then
-      r = r * 10 + int.from(c) - int.from('0')
+      r = r * 10 + int.from(c)! - int.from('0')!
     else if c == '-' then
        r = -1 * r
     else
@@ -1188,7 +1194,7 @@ l *Head[int] = newList()   // T = int, deduced from the expected type
 l.pushBack(10)            // T = int, deduced from the receiver
 
 x int
-x = int.from("1234")       // `int` is an ordinary argument (a type value), not instantiation
+x = int.from("1234")!   // `int` is an ordinary argument (a type value), not instantiation
 ```
 
 ```c
@@ -1442,7 +1448,7 @@ readLine func (conn *Connection) string! = {
     ch := socket.recv(conn.fd)!       // view: conn is *Connection; fails to the catch
     if ch == '\n' then
       return buf                      // auto-wrap: success
-    buf += string.from(ch)
+    buf += string.from(ch)!
   }
   catch e
   if buf.length > 0 then
@@ -1512,7 +1518,7 @@ b bytes                      // empty, ready
 b bytes = {1, 2, 3, 4}       // cursor at 0
 b += more                    // append at the end, like string +
 s := b.string()              // utf-8 copy of the contents (binary-safe)
-b2 := bytes.from("Hello")    // buffer from a string
+b2 := bytes.from("Hello")!  // buffer from a string — `from` is fallible
 ```
 
 Reads consume from the cursor; writes *append* at the end and never clobber
