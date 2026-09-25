@@ -227,8 +227,18 @@ since 1.14; contiguous copy-growing stacks since 1.3).
 
 | Spec rule | Go counterpart | Note |
 |---|---|---|
-| User code never calls `panic(...)` — a compile error; failure is always spelled `T?` / `T!` | `panic()` / `log.Fatal` / `os.Exit` are user-callable | Go hands programmers an explicit abort; the spec routes every failure through the shapes — the only aborts are the runtime's own (`main`'s unwrap failure, `as*`/`peek`/`writeAt` past-end, close failure) |
+| User code never calls `panic(...)` — a compile error; failure is always spelled `T?` / `T!` | `panic()` / `log.Fatal` / `os.Exit` are user-callable | Go hands programmers an explicit abort; the spec routes every failure through the shapes — the only aborts are the runtime's own (`main`'s unwrap failure, `as*`/`peek`/`writeAt` past-end, close failure, and `out.*`'s write failure) |
 | `main`'s unwrap failure aborts; the runtime reports the intrinsic error | unhandled error with `os.Exit(1)` | main is exempt from forced returns — "cannot continue" is spelled by *not catching* (`newListener(...)!` in a server main) |
+
+### C22 — modules, linking, and output (C22)
+
+| Spec rule | Go counterpart | Note |
+|---|---|---|
+| `module name` prefix declaration, several per file; top-level definitions are global | one `package` per directory, one `package` clause per file | a module sections a file's top level, not a directory tree |
+| Top-level executable statements pack into a synthesized `module_initializer`, run from main's initializer section in module-definition order (earlier-included imports first) | `init()` functions run before `main`, ordered by the import graph | both boot dependencies before dependents; the spec's order is textual definition order |
+| A global is visible only across a direct import edge — no reverse, no transitivity | exported names (capitalization) plus `internal/` enforcement | the import edge is the whole visibility story; nothing ambient |
+| `#compiler.private` removes a name from the link-visible set | lowercase (unexported) identifiers | private is per-name, independent of the import edge |
+| `out.println`/`out.print`/`out.error` abort on write failure (runtime backstop, C20); the non-panicking surface is `log.*` with the same names — `uint!` | `fmt.Print*` returns `(n int, err error)`; `log.Fatal` exits | the spec splits by module: `out` aborts, `log` reports — one family of names, two surfaces |
 
 ---
 

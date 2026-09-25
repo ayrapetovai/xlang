@@ -702,7 +702,7 @@ without an explicit unwrap (`?` / `??` / the checked if-form for `T?`;
 shapes `T??` / `T!!` / `T!?` (and `T!` whose `T` is an error kind), and
 calling `panic(...)` — user code never spells an abort: only the runtime
 aborts (`main`'s unwrap failure, `as*` / `peek` / `writeAt` past the end,
-close failure).
+close failure, and `out.*`'s write failure).
 `swap(a, i, i)`
 is identity — the checker elides the self-swap move trio instead of
 vacating the slot. No
@@ -1338,7 +1338,7 @@ field struct = {
 
 ```javascript
 #import {
-  runtime("basic") // implicitly imported, gives: runtime.out, runtime.process, memory allocator, regexp parser... compile-time.
+  runtime("basic") // implicitly imported, gives: runtime.out, runtime.log, runtime.process, memory allocator, regexp parser... compile-time.
   lib("fmt", "sync") // regular library, standard or custom, compile-time
   git("git:github.io/username/reponame.git") // pull from the git repository
   source("./libs/source-file.lang") // the language source file, compile-time
@@ -1346,6 +1346,34 @@ field struct = {
   virt("./") // virtual source when ran as embedded, compile-time
 }
 ```
+
+## Modules and globals
+
+- A file may declare several modules with a **prefix declaration** — `module
+  name` — and every following top-level definition belongs to it until the
+  next `module`.
+- Names and code defined outside any function are **global** (module-wide).
+  Executable top-level statements are packed into a synthesized
+  `module_initializer` per module; at assembly the compiler collects every
+  module initializer and calls them from the **initializer section** of the
+  main module — the very first thing a binary runs. They execute in
+  **module definition order**, so an imported module's initializer that was
+  included earlier runs first (dependencies before dependents).
+- A global is visible **only across a direct import edge**: module `B`'s
+  globals are visible in `A` exactly when `A` imports `B` — never
+  reversed, never transitively.
+- `#compiler.private` on a declaration removes the name from the
+  **link-visible set**: an importing module cannot reference it (a compile
+  error). `#compiler.inline()` is the other declaration directive.
+
+### Output: `out` aborts, `log` reports
+
+The convenience print family — `out.println`, `out.print`, `out.error` —
+**aborts on write failure** (a runtime abort — one more backstop in the
+C20 list; user code never spells a panic). Code that must survive an output
+failure uses the same names from `runtime.log`: `log.println(data const
+string) uint!` (likewise `log.print`, `log.error`) — `T!`, read through
+`!` or `try`.
 
 ## Socket server
 

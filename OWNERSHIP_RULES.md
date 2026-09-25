@@ -283,10 +283,23 @@ runtime mapping is in `GO_RUNTIME_MAPPING.md`.
 - **Calling `panic(...)` is a compile error** (C20) — panic is intrinsic
   (§1): user code never spells an abort; failure is always `T?` / `T!`, and
   only the runtime aborts (`main`'s unwrap failure, `as*` / `peek` /
-  `writeAt` past the end, close failure).
+  `writeAt` past the end, close failure, and `out.*`'s write failure).
 - `try` may be applied only to a **statement or an expression**, never to a
   block (C21); the guarded scope's `catch` is the block's single flat one
   (§8).
+- **Modules (C22).** `module name` is a **prefix declaration**: following
+  top-level definitions belong to it until the next `module`, and a file
+  may declare several. Top-level definitions are **global**; executable
+  top-level statements are packed into the module's synthesized
+  `module_initializer`, called from the main module's initializer section
+  in module-definition order — earlier-included imports first. A global is
+  visible only across a **direct import edge**: no reverse visibility, no
+  transitivity.
+- `#compiler.private` removes the name from the link-visible set;
+  referencing it from an importing module is a compile error.
+- Output (C22): `out.println` / `out.print` / `out.error` **abort on write
+  failure** (a runtime backstop, C20); the non-panicking surface is
+  `runtime.log` with the same names — `uint!`, read through `!` / `try`.
 - `T?`/`T!` reads are **obligated-unwrap** (§8): payload use without `?` /
   `??` / the checked `if/loop …?` form (for `T?`) or `!` / `try` (for
   `T!`) is a compile error; unwrap of an owned payload is a consume, a

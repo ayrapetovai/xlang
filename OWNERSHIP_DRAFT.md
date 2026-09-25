@@ -627,6 +627,20 @@ made false by value-params-move) and README's iterator *call sites*
     — main is exempt, failure aborts, "cannot continue" is *not catching*;
     the checker list and OWNERSHIP_RULES §1/§8 gain the compile-error rule;
     LISTEN.md's prose follows. GMP gains the C20 section. — decision C20.
+29. Modules, linking, and output fallibility (decision C22 round): README
+    gains `## Modules and globals` — `module name` prefix declarations
+    (several per file), top-level definitions global with executable
+    statements packed into a synthesized `module_initializer` (run from the
+    main module's initializer section in module-definition order,
+    earlier-included imports first), visibility across a direct import edge
+    only, and the `#compiler.private` link directive — plus "Output: `out`
+    aborts, `log` reports": the print family `out.println`/`out.print`/
+    `out.error` aborts on write failure (a C20 backstop), while the
+    non-panicking surface lives in `runtime.log` with the same names
+    (`uint!`, read via `!`/`try`). OWNERSHIP_RULES §12 gains the module/
+    private/output bullets; the C20 backstop lists in README, §12, and GMP
+    gain `out.*`'s write failure; the `runtime("basic")` comment lists
+    `runtime.log`; GMP gains the C22 section. — decision C22.
 
 ---
 
@@ -842,3 +856,21 @@ made false by value-params-move) and README's iterator *call sites*
     the README reshape; GMP's C19 row reworded. **§12 also pinned (C20):
     calling `panic(...)` is a compile error** — panic is intrinsic, failure
     is always `T?`/`T!`, and only the runtime aborts.
+22. **C22 modules, linking, and output fallibility (user-ruled, Sep 25)**,
+    from the TODO list: (1) `module name` is a **prefix declaration** —
+    several modules per file, top-level definitions until the next
+    `module`; (2) names and code outside any function are **global**;
+    executable top-level statements are packed into a synthesized
+    `module_initializer` per module and called from the initializer section
+    of the main module — the first thing a binary runs — in **module
+    definition order**, earlier-included imports first; (3) visibility is
+    the **direct import edge only** — module `B`'s globals are visible in
+    `A` exactly when `A` imports `B`, never reversed, never transitive;
+    (4) `#compiler.private` on a declaration removes the name from the
+    link-visible set (cross-module reference is a compile error); (5)
+    output: `out.println`/`out.print`/`out.error` **abort on write
+    failure** — a runtime backstop extending C20 — while the non-panicking
+    variants live in `runtime.log` with **the same names** (`log.println`,
+    `log.print`, `log.error`), typed `uint!` and read through `!`/`try`.
+    Answers (user): direct import edge; prefix declaration; `log` module
+    with shared names; module-initializer model.
