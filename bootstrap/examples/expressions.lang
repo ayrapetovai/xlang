@@ -1,0 +1,75 @@
+// expressions.lang — the full operator set (§2.4) and line continuation
+
+module expressions
+
+main func () int = {
+  i := 1
+  list := a.map(toString)
+    .join(", ")
+  sum := 1
+        + 2
+  acc
+    = { owner = generate() }
+
+  // arithmetic, logic, bitwise
+  x := 3.14 * 2 - 5
+  y := a % 2
+  flags := a & b | c ^ d
+  neg := -1 * r
+  not := !done
+  combined := a && b || !c
+  cmp := a < b && b <= c && c > 0 && d >= 1
+
+  // shifts and cyclic shifts
+  shl := n << 2
+  shr := n >> 1
+  ushr := n >>> 3
+  cl := n <<~ 4
+  cr := n >>~ 4
+
+  // strings
+  word := "a" + "b"
+  dup := "ab" * 3
+  same := p == &s
+  ordered := a < b
+
+  // compound-assignment family
+  i += 1
+  i -= 1
+  w *= 2
+  w /= 2
+  w %= 2
+  w <<= 1
+  w >>= 1
+  f &= m
+  f |= m
+  f ^= m
+
+  // swap
+  left int = 1
+  right int = 2
+  left <> right
+
+  // ranges and slices
+  rng := 0..=10
+  rng2 := 0..<10
+  slice := text[1:2]
+
+  // channels: send, receive, spawn
+  done := <-cancel
+  out <- item
+  spawn worker(inputs)
+
+  // unwrap and fallback (## T? and T!)
+  val := q ?? 0
+  head := list.head!
+  name := lookup(key)?
+  check := e is IOError
+
+  // an intrinsic operator declaration (README ## Operators)
+  infix_operator== func (a const *string, b const *string) #compiler.inline()
+  do
+    if a.length != b.length then
+      return false
+    true
+}

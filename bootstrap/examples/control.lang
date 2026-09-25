@@ -1,0 +1,79 @@
+// control.lang — statements (§6): if, loop, match, select, try/catch
+
+module control
+
+Status enum = { Accepted Rejected }
+
+parse2x func (s const string) int! = {
+  x := int.from(s)!
+  x * 2
+}
+
+main func () int = {
+  // if / then / else
+  b := check()
+
+  if b then
+    stepOne()
+
+  if b then
+    stepOne()
+  else
+    stepTwo()
+
+  if b {
+    firstCall()
+    secondCall()
+  } else {
+    firstCall()
+    secondCall()
+  }
+
+  // loop forms (§6.4)
+  loop i in 0..<10 do
+    out.println(i)
+
+  loop i, x in ar do
+    out.println(x)
+
+  loop _, v in pairs do
+    out.println(v)
+
+  loop c in s.length>..=0 do
+    out.println(c)
+
+  loop x := 0; x < 10 { }
+
+  loop s := <-ch? do
+    out.println(s)
+
+  counter := 0
+  loop { counter += 1 } until counter >= 10
+
+  // match — strictly exhaustive (§6.5)
+  status := Accepted
+  text := match status {
+    Accepted => "ok"
+    Rejected(reason) => reason
+    1, 2, 3 => "small"
+    _ => "other"
+  }
+
+  // select (§6.7)
+  select {
+    <-cancel
+    job := <-jobs
+    results <- j * 2
+    default
+  }
+
+  // try / catch — the guarded region (C21, §6.8)
+  try x := parse2x("42")
+  try y := lookup(key)
+  defer cleanup()
+  out.println("%s{x}")
+  catch err
+    out.println("failed: %s{err.message}")
+
+  return 0
+}

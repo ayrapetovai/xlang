@@ -1,0 +1,35 @@
+// hello.lang — the lexer's hello world
+// run:  make && ./bootstrap examples/hello.lang
+
+module hello
+
+#import {
+  runtime("basic")
+  lib("fmt")
+}
+
+/* multi-line comment
+   the closing literal complements by amount of stars */
+/** a two-star opener needs a two-star closer **/
+
+User struct = {
+  id int
+  name const string
+}
+
+Color enum = {
+  RED GREEN BLUE
+}
+
+SocketError error = { message string cause error }
+
+greet func (who const string) string = {
+  "hello, %s{who}!"
+}
+
+main func () int = {
+  user User = { id = 1, name = "artem" }
+  c Color = RED
+  print := greet(user.name)
+  out.println(print)
+}

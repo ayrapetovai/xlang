@@ -1,0 +1,63 @@
+// types.lang — every type form (GRAMMAR.md §5) and literal (§2.3)
+
+module types
+
+// fundamental types, const, shapes
+x int
+y const float = 3.14
+ch char = '0'
+ok bool = true
+txt string = "text"
+err error
+data bytes = {0x00, 0x0A, 0xFF}
+
+// array types
+a [10]int
+b [size]int
+c []int
+d []string = {"alice", "bob"}
+e []int = {
+  1
+  2
+  3
+}
+r []int = 0..=5
+buf []T = {}
+
+// view types
+s string = "Hello"
+p := &s                  // p *string
+q *string = &s           // writable view
+view const *string = &s  // read-only view
+
+// shape suffixes — T? and T!
+maybe int?
+fallible uint!
+raw []byte!
+slot &T?
+
+// named and generic types
+head *Head[T]
+counter Atomic[uint]
+chMut Mutex[Counter]
+queue chan[string]
+iter Iterable[T]
+arrT array[E]
+locked Locked[T]
+gen func [T] ()
+
+// function types carry no parameter names
+less func (const T, const T) bool
+
+// meta-type words are ordinary names in declaration position (§2.2 note)
+type enum = { VALUE TInt FLOAT STRING }
+field struct = { name type value }
+field type type
+
+// directives (§3.2)
+Credentials struct = {
+  token string #json.ignored()
+  login string #json.name("username")
+}
+
+helper func (x int) int #compiler.private = { x }
