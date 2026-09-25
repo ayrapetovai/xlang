@@ -195,10 +195,11 @@ runtime mapping is in `GO_RUNTIME_MAPPING.md`.
   (unwrap-propagate), `?? default`, the checked `if/loop …?` form, or the
   absence tests `==`/`!= {}`; a `T!` payload only through `!` or `try`. A
   bare read as `T` is a compile error (§12).
-- `try <statement>` guards one statement (a `{ … }` block counts as one); a
-  single flat `catch e` binds the intrinsic error. **Inside a guarded scope
-  a bare `!` is not an early return — it fails the region to its own
-  `catch`;** a bare `?` is a compile error there (absence has no handler).
+- `try` may be applied only to a **statement or an expression**, never to a
+  block (C21); a single flat `catch e` binds the intrinsic error. **Inside a
+  guarded scope a bare `!` is not an early return — it fails the region to
+  its own `catch`;** a bare `?` is a compile error there (absence has no
+  handler).
   `?? default` is legal everywhere; `main` is exempt; `!` and `?` are
   mutually exclusive.
 - Handlers are **checkable but not exhaustive** (Go-style): an unhandled
@@ -279,6 +280,13 @@ runtime mapping is in `GO_RUNTIME_MAPPING.md`.
 - `match` is **exhaustive**; bindings move out when consuming. `match`
   never covers `T?`/`T!` (compile error — absence/failure are handled by
   form, §8).
+- **Calling `panic(...)` is a compile error** (C20) — panic is intrinsic
+  (§1): user code never spells an abort; failure is always `T?` / `T!`, and
+  only the runtime aborts (`main`'s unwrap failure, `as*` / `peek` /
+  `writeAt` past the end, close failure).
+- `try` may be applied only to a **statement or an expression**, never to a
+  block (C21); the guarded scope's `catch` is the block's single flat one
+  (§8).
 - `T?`/`T!` reads are **obligated-unwrap** (§8): payload use without `?` /
   `??` / the checked `if/loop …?` form (for `T?`) or `!` / `try` (for
   `T!`) is a compile error; unwrap of an owned payload is a consume, a

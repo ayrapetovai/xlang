@@ -70,13 +70,11 @@ accept func (listener *Listener) Connection! = {
 // -- slurp one line (until \n, or EOF with data)
 readLine func (conn *Connection) string! = {
   buf string
-  try {
-    loop {
-      ch := socket.recv(conn.fd)!      // view: conn is *Connection; fails to the catch
-      if ch == '\n' then
-        return buf                     // auto-wrap: success
-      buf += string.from(ch)
-    }
+  try loop {
+    ch := socket.recv(conn.fd)!      // view: conn is *Connection; fails to the catch
+    if ch == '\n' then
+      return buf                     // auto-wrap: success
+    buf += string.from(ch)
   }
   catch e
   if buf.length > 0 then

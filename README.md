@@ -951,8 +951,8 @@ lifetime, like a code block `{ statements }`.
 
 A guarded scope is the tail of a block:
 
-- the fallible operations stack as `try <statement>` — one statement each (a
-  `{ … }` block counts as one), all at the top level of the region;
+- the fallible operations stack as `try <statement>` — one statement or
+  expression each, never a block, all at the top level of the region;
 - the region ends with exactly one `catch <name>` — a **label with a
   parameter**. Every statement after it, to the end of the enclosing block, is
   the handler region: flat, no braces, no extra indent;

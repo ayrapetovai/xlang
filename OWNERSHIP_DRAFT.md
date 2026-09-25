@@ -830,3 +830,15 @@ made false by value-params-move) and README's iterator *call sites*
     the usage statements). The proposed `unreachable` marker was rejected:
     **no user abort verb exists in the language**; only the runtime aborts.
     Answers (user): Option (b) — the pure endgame.
+21. **C21 `try` guards a statement or an expression, never a block
+    (user-ruled, Sep 25)**: the blocked form (`try { … }`, "a `{ … }` block
+    counts as one" per C19) is removed. `try` may be applied only to a
+    statement or an expression; the README socket sketch reshapes its
+    readLine to `try loop { … }` (a loop is one statement) and echo to two
+    flat `try` statements sharing the region's single `catch` — `!` on the
+    reads drops because each try unwraps its own `T!`. Aligned in the same
+    round: OWNERSHIP_RULES §8 drops the block clause and §12 gains the
+    statement/expression-only form (checked); LISTEN.md's readLine mirrors
+    the README reshape; GMP's C19 row reworded. **§12 also pinned (C20):
+    calling `panic(...)` is a compile error** — panic is intrinsic, failure
+    is always `T?`/`T!`, and only the runtime aborts.

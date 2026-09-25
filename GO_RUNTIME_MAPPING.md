@@ -221,7 +221,7 @@ since 1.14; contiguous copy-growing stacks since 1.3).
 | `return v` auto-wraps by the declared return type (payload → success, error-kind → failure, bare `return` → absence) | explicit `return v, nil` / `return nil, err` | the wrap is type-directed and checker-verified; Go spells the pair at every return |
 | `if x := e? then … else …`, `if x?` (smart-cast), `loop x := e? do` | `if v, ok := m[k]; ok { … }` | the checked form is the only branch on existence; owned payloads move, view-unwrap (`&x?`) binds a const view |
 | `{}` is the `T?` default — `x = {}` clears, `x == {}` tests absence | `nil` / `, ok` tests | no fabricated zero for the shape; emptiness is a real default state (spec §6) |
-| bare `!` inside a guarded scope fails the region's own `catch` | layered `if err != nil` with explicit defer | a `try { … }` block loops over fallible reads; `?` stays banned there (absence has no handler) |
+| bare `!` inside a guarded scope fails the region's own `catch` | layered `if err != nil` with explicit defer | `try` guards one statement or expression — never a block — and a guarded loop settles in-region; `?` stays banned there (absence has no handler) |
 
 ### C20 — user code never calls `panic` (C20)
 
