@@ -1,6 +1,6 @@
 # Abstract
 
-Must be written in C language to embeddable and to interoperate with native code.
+Compiled to a native binary, with a C ABI for native interop.
 Commas ',' are separators as '\n' and ';'. A statement continues on a following line when that line starts with an operator (`.`, `+`, `&&`, `==`, `->`, ...).
 Pointer decay.
 Pattern matching.
@@ -1343,7 +1343,6 @@ field struct = {
   git("git:github.io/username/reponame.git") // pull from the git repository
   source("./libs/source-file.lang") // the language source file, compile-time
   clib("m") // library compiled from C language, compile-time
-  virt("./") // virtual source when ran as embedded, compile-time
 }
 ```
 
