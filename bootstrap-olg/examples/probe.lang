@@ -1,0 +1,22 @@
+
+
+MyStruct struct = {
+    name string
+    value int
+  }
+
+s := MyStruct{ value = 42, name = "ololo" }
+
+consume func (s const &MyStruct) = {
+  out.println("struct consumed")
+  s.value = 0
+}
+
+consume(s)
+
+s.name = "abc"
+
+out.println("%s{s}")
+
+
+
