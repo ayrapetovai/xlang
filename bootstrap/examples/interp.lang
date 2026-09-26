@@ -1,0 +1,84 @@
+// interp.lang — string interpolation witness (decision C26)
+// run:  ./bootstrap run examples/interp.lang
+//
+// Exercises GRAMMAR §2.3 StringBody:
+//   Escape     = "\" EscapeChar          (\n \t \" \\ \xNN … — minimal set)
+//   FormatSpec = "%" FormatLetter "{" Expr "}"
+// with the letters in scope: %s (plain), %q (quoted), %d / %n (decimal
+// integer), %f (float), %b (bool).
+
+module interp
+
+User struct = {
+  id int
+  name string
+}
+
+// interpolation inside a function body, called from a format spec below
+id2 func (k int) string = {
+  "%d{k}"
+}
+
+pi func () float = { 6.5 }
+
+main func () int = {
+  name := "artem"
+  n := 42
+  neg := -7
+  f := 6.25
+  on := true
+  letter := 'A'
+
+  // %s on strings, ints, floats, bools, chars
+  out.println("hello, %s{name}!")          // hello, artem!
+  out.println("ints  %s{n}  %s{neg}")      // ints  42  -7
+  out.println("float %s{f}  bool %s{on}")  // float 6.25  bool true
+  out.println("char  %s{letter}")          // char  A
+
+  // %d / %n — decimal; full expressions inside the braces
+  out.println("%d{n}  %d{neg}  %d{n + 1}x%d{n * 2}")  // 42  -7  43x84
+  out.println("%n{n}  %n{neg}")                       // 42  -7
+
+  // %f and %b
+  out.println("%f{f}  %f{pi()}  %b{on}  %b{n < 100}") // 6.25  6.5  true  true
+
+  // %q — quoted (JSON-ish): wrappers and escaping
+  q := "say \"hi\""
+  out.println("%q{name}")   // "artem"
+  out.println("%q{q}")      // "say \"hi\""
+
+  // escapes in the literal text surrounding specs
+  out.println("tab\t%d{n}\nnext")           // tab<tab>42<newline>next
+
+  // \xNN hex escape
+  out.println("hex \x41\x42\x43")           // hex ABC
+
+  // a bare % is a literal (the letter set is open)
+  out.println("100%  %s{n}%")               // 100%  42%
+
+  // interpolation nested through a VALUE: %s{f(x)} where f's body formats
+  t := id2(n)
+  out.println("nested: %s{t}")              // nested: 42
+  out.println("nest2: %s{id2(7)}")          // nest2: 7
+
+  // member access, records, arrays
+  u User = { id = 7, name = "artem" }
+  xs [3]int = { 10, 20, 30 }
+  out.println("rec %s{u}")                  // rec {id=7, name=artem}
+  out.println("arr %s{xs}")                 // arr [10, 20, 30]
+  out.println("mem %s{u.name}")             // mem artem
+
+  // %s/%q on a caught error value: renders the message
+  try
+    z := int.from("nope")!
+    out.println(z)
+  catch e
+    out.println("caught %s{e}")             // caught value is not a valid integer
+    out.println("qcat  %q{e}")              // qcat  "value is not a valid integer"
+
+  // format specs re-parse per iteration (arena-reparse cost, see C26)
+  loop i in 0..<5 do
+    out.println("i=%d{i}")                  // i=0 … i=4
+
+  0
+}

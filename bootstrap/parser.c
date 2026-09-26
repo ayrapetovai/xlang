@@ -64,7 +64,7 @@ void arena_free(Arena *a) {
 /* ---------------- node helpers ---------------- */
 
 static Node *pnode(Parser *p, NodeKind k, Token t) {
-  Node *n = arena_alloc(&p->ar, sizeof *n);
+  Node *n = arena_alloc(p->ar, sizeof *n);
   if (!n) return NULL;
   n->k = k;
   n->tok = t;
@@ -83,7 +83,7 @@ static void ppush(Parser *p, Node *list, Node *c) {
   if (!c) return;
   if (list->n == list->cap) {
     int nc = list->cap ? list->cap * 2 : 8;
-    Node **nch = arena_alloc(&p->ar, (size_t)nc * sizeof(Node *));
+    Node **nch = arena_alloc(p->ar, (size_t)nc * sizeof(Node *));
     if (!nch) return;
     if (list->ch) memcpy(nch, list->ch, (size_t)list->n * sizeof(Node *));
     list->ch = nch;
@@ -98,7 +98,7 @@ static void ppush(Parser *p, Node *list, Node *c) {
 static void ppushx(Parser *p, Node *list, Node *c) {
   if (list->n == list->cap) {
     int nc = list->cap ? list->cap * 2 : 8;
-    Node **nch = arena_alloc(&p->ar, (size_t)nc * sizeof(Node *));
+    Node **nch = arena_alloc(p->ar, (size_t)nc * sizeof(Node *));
     if (!nch) return;
     if (list->ch) memcpy(nch, list->ch, (size_t)list->n * sizeof(Node *));
     list->ch = nch;
@@ -2487,11 +2487,37 @@ static int fill_tokens(Parser *p, const char *src) {
 
 int parser_run(Parser *p, const char *src, Node **out) {
   memset(p, 0, sizeof *p);
+  p->ar = calloc(1, sizeof *p->ar);
+  if (!p->ar) {
+    snprintf(p->msg, sizeof p->msg, "out of memory");
+    return -1;
+  }
   if (fill_tokens(p, src) != 0) return -1;
   Node *file = parse_file(p);
   if (p->failed) return -1;
   *out = file;
   return 0;
+}
+
+Node *parser_expr_from_text(const char *text, Arena *arena,
+                            char *err, size_t errn) {
+  Parser p;
+  memset(&p, 0, sizeof p);
+  p.ar = arena;
+  if (fill_tokens(&p, text) != 0) {
+    snprintf(err, errn, "%s", p.msg);
+    free(p.toks);
+    return NULL;
+  }
+  Node *r = parse_expr(&p);
+  if (!r || p.failed) {
+    snprintf(err, errn, "%s", p.msg[0] ? p.msg
+             : "cannot parse the expression in a format spec");
+    free(p.toks);
+    return NULL;
+  }
+  free(p.toks);
+  return r;
 }
 
 /* ---------------- dump ---------------- */

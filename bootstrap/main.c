@@ -63,13 +63,13 @@ static int run_ast(const char *path) {
   Node *root = NULL;
   if (parser_run(&p, src, &root) != 0) {
     fprintf(stderr, "bootstrap: %s\n", p.msg);
-    arena_free(&p.ar);
+    if (p.ar) { arena_free(p.ar); free(p.ar); }
     free(p.toks);
     free(src);
     return 1;
   }
   node_dump(root, 0, stdout);
-  arena_free(&p.ar);
+  if (p.ar) { arena_free(p.ar); free(p.ar); }
   free(p.toks);
   free(src);
   return 0;
@@ -89,7 +89,7 @@ static int run_run(const char *path) {
   Node *root = NULL;
   if (parser_run(&p, src, &root) != 0) {
     fprintf(stderr, "bootstrap: %s\n", p.msg);
-    arena_free(&p.ar);
+    if (p.ar) { arena_free(p.ar); free(p.ar); }
     free(p.toks);
     free(src);
     return 1;
@@ -99,7 +99,7 @@ static int run_run(const char *path) {
   int code = exec_run(src, root, msg, sizeof msg, &line, &col);
   if (code < 0)
     fprintf(stderr, "bootstrap: %s:%d:%d: %s\n", path, line, col, msg);
-  arena_free(&p.ar);
+  if (p.ar) { arena_free(p.ar); free(p.ar); }
   free(p.toks);
   free(src);
   return code;

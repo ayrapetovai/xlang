@@ -142,7 +142,9 @@ typedef struct Parser {
   Token *toks;       /* whole-file token stream                             */
   size_t n, cap;     /* token count / capacity                              */
   size_t cur;        /* read cursor                                         */
-  Arena ar;
+  Arena *ar;         /* heap-backed arena, owned by the caller (main.c for  */
+                     /* whole-file parses, the executor for format-spec     */
+                     /* slices); never NULL while parsing                  */
   int failed;        /* sticky: first error wins                            */
   int quiet;         /* backtrack attempts suppress error recording         */
   int no_q;          /* suppress postfix `?` (checked heads)                */
@@ -152,8 +154,18 @@ typedef struct Parser {
 } Parser;
 
 /* Runs the whole pipeline up to the AST. Returns 0 and sets *out on
- * success; returns -1 with p->msg set otherwise (lexer errors included). */
+ * success; returns -1 with p->msg set otherwise (lexer errors included).
+ * The parser arena is heap-allocated here and owned by the caller, which
+ * must `arena_free(p->ar)` and `free(p->ar)` on every return path. */
 int parser_run(Parser *p, const char *src, Node **out);
+
+/* Parse a lone expression out of a NUL-terminated source slice (used for
+ * the `%L{expr}` format specs of string literals, GRAMMAR §2.3).  The AST
+ * is allocated in `arena` — owned by the caller (the exec arena) — so the
+ * node lives exactly as long as that arena; the token array is transient
+ * and freed here.  Returns the expression node, or NULL with `err` filled. */
+Node *parser_expr_from_text(const char *text, Arena *arena,
+                            char *err, size_t errn);
 
 const char *node_kind_name(NodeKind k);
 void node_dump(const Node *n, int depth, FILE *out);

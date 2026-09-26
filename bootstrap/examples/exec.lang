@@ -15,7 +15,8 @@ Color enum = {
 }
 
 greet func (who string) string = {
-  // format specifiers are out of bootstrap scope — literals stay opaque
+  // interpolation works now (decision C26), but this witness deliberately
+  // keeps a literal string: its output stays a stable regression baseline
   "greetings"
 }
 
@@ -73,7 +74,7 @@ main func () int = {
   // structs, records, function values
   u User = { id = 7, name = "artem" }
   out.println(u.name)  // artem
-  out.println(greet(u.name))  // hello, artem
+  out.println(greet(u.name))  // greetings
 
   // enums and match
   c Color = RED

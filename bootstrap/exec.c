@@ -5,6 +5,7 @@
 #include <string.h>
 #include <errno.h>
 #include <math.h>
+#include <ctype.h>
 
 #include "exec.h"
 
@@ -381,6 +382,152 @@ static int has_prefix(const char *s, size_t n, const char *pfx) {
   return n >= pl && memcmp(s, pfx, pl) == 0;
 }
 
+/* ================= string interpolation ================= */
+
+/* "…%L{expr}…" — GRAMMAR §2.3 (decision C26).  The lexer keeps the whole
+ * literal as one raw T_STR token (backslashes preserved), so the
+ * interpreter splits it at eval time: backslash escapes use the minimal
+ * escape set (decision C23, shared with char literals), and each format
+ * spec's expression is re-parsed by the same parser into the exec arena
+ * (`parser_expr_from_text`) and evaluated immediately.  Format letters in
+ * scope: `s` plain, `q` quoted (JSON-ish), `d`/`n` decimal integer,
+ * `f` float, `b` bool.  Unknown letters and a bare `%` stay literal (the
+ * letter set is open in GRAMMAR §2.3; no escaping use is witnessed). */
+
+static void eval(Exec *e, Node *n, Value *out);   /* forward: guard wrapper */
+
+/* Growable byte buffer backed by the exec arena.  Re-growth copies into a
+ * fresh block and leaves the old one as arena garbage — consistent with
+ * the arena's free-nothing-until-the-end model. */
+typedef struct Sb {
+  char *s;
+  size_t n, cap;
+} Sb;
+
+static void sb_put(Exec *e, Sb *b, const char *s, size_t n) {
+  if (b->n + n > b->cap) {
+    size_t nc = b->cap ? b->cap * 2 : 64;
+    while (nc < b->n + n) nc *= 2;
+    char *nb = xalloc(e, nc);
+    if (b->n) memcpy(nb, b->s, b->n);
+    b->s = nb;
+    b->cap = nc;
+  }
+  memcpy(b->s + b->n, s, n);
+  b->n += n;
+}
+
+static void sb_putc(Exec *e, Sb *b, char c) { sb_put(e, b, &c, 1); }
+
+/* Render a value as text exactly the way `string.from`/`val_print` do, so
+ * `%s{}` agrees with `println`.  A record/array recurses with val_print's
+ * shapes; an error value renders its message (how README's `%s{e}`
+ * usages read — the debug `error name: msg` form stays in val_print). */
+static void fmt_str(Exec *e, Sb *b, Value x) {
+  char buf[64];
+  switch (x.k) {
+  case V_VOID: return;
+  case V_PTR: if (x.cell) fmt_str(e, b, *x.cell); return;
+  case V_STR: sb_put(e, b, x.str.s, x.str.n); return;
+  case V_INT: snprintf(buf, sizeof buf, "%lld", (long long)x.i); break;
+  case V_UINT: snprintf(buf, sizeof buf, "%llu", (unsigned long long)x.u); break;
+  case V_FLOAT: snprintf(buf, sizeof buf, "%g", x.f); break;
+  case V_BOOL: sb_put(e, b, x.b ? "true" : "false", x.b ? 4 : 5); return;
+  case V_CHAR: sb_putc(e, b, (char)(x.c32 < 0x80 ? x.c32 : '?')); return;
+  case V_BYTE: snprintf(buf, sizeof buf, "%u", (unsigned)x.by); break;
+  case V_ERR: sb_put(e, b, x.err.msg.s, x.err.msg.n); return;
+  case V_ENUM: sb_put(e, b, x.en.name, strlen(x.en.name)); return;
+  case V_TYPE: {
+    const char *w = x.ty == TY_ERROR ? "error" : x.ty == TY_STRING ? "string" :
+                    x.ty == TY_BYTES ? "bytes" : x.ty == TY_INT ? "int" :
+                    x.ty == TY_UINT ? "uint" : x.ty == TY_FLOAT ? "float" :
+                    x.ty == TY_BOOL ? "bool" : x.ty == TY_CHAR ? "char" : "byte";
+    sb_put(e, b, w, strlen(w));
+    return;
+  }
+  case V_RANGE: {
+    const char *o = x.rng.desc ? (x.rng.lo == x.rng.hi ? ">..=" : ">..<")
+                               : (x.rng.lo == x.rng.hi ? "..=" : "..<");
+    snprintf(buf, sizeof buf, "%lld%s%lld", (long long)x.rng.lo, o,
+             (long long)x.rng.hi);
+    break;
+  }
+  case V_FUNC:
+    sb_put(e, b, "func ", 5);
+    sb_put(e, b, x.fn.nm, strlen(x.fn.nm));
+    return;
+  case V_ARR:
+    sb_putc(e, b, '[');
+    for (size_t j = 0; j < x.arr.n; j++) {
+      if (j) sb_put(e, b, ", ", 2);
+      fmt_str(e, b, x.arr.els[j]);
+    }
+    sb_putc(e, b, ']');
+    return;
+  case V_REC:
+    sb_putc(e, b, '{');
+    for (size_t j = 0; j < x.rec.n; j++) {
+      if (j) sb_put(e, b, ", ", 2);
+      sb_put(e, b, x.rec.fs[j].nm, strlen(x.rec.fs[j].nm));
+      sb_putc(e, b, '=');
+      fmt_str(e, b, x.rec.fs[j].v);
+    }
+    sb_putc(e, b, '}');
+    return;
+  }
+  sb_put(e, b, buf, strlen(buf));
+}
+
+/* `%L{expr}` — format `x` for the format letter `verb`. */
+static void fmt_val(Exec *e, const Node *at, Sb *b, int verb, Value x) {
+  char buf[32];
+  switch (verb) {
+  case 's': fmt_str(e, b, x); return;
+  case 'q': {   /* quoted: wrapper quotes + escapes `"` `\` \n \t \r \0 */
+    Sb t = {0};
+    fmt_str(e, &t, x);
+    sb_putc(e, b, '"');
+    for (size_t i = 0; i < t.n; i++) {
+      switch (t.s[i]) {
+      case '"': sb_put(e, b, "\\\"", 2); break;
+      case '\\': sb_put(e, b, "\\\\", 2); break;
+      case '\n': sb_put(e, b, "\\n", 2); break;
+      case '\t': sb_put(e, b, "\\t", 2); break;
+      case '\r': sb_put(e, b, "\\r", 2); break;
+      case '\0': sb_put(e, b, "\\0", 2); break;
+      default: sb_putc(e, b, t.s[i]);
+      }
+    }
+    sb_putc(e, b, '"');
+    return;
+  }
+  case 'd':
+  case 'n':
+    switch (x.k) {
+    case V_INT: snprintf(buf, sizeof buf, "%lld", (long long)x.i); break;
+    case V_UINT: snprintf(buf, sizeof buf, "%llu", (unsigned long long)x.u); break;
+    case V_BYTE: snprintf(buf, sizeof buf, "%u", (unsigned)x.by); break;
+    case V_CHAR: snprintf(buf, sizeof buf, "%u", (unsigned)x.c32); break;
+    default:
+      vfail(e, at, "cannot format %s with `%%%c` - use %%s",
+            kind_name(x.k), verb);
+    }
+    sb_put(e, b, buf, strlen(buf));
+    return;
+  case 'f':
+    if (x.k != V_FLOAT)
+      vfail(e, at, "cannot format %s with `%%f` - use %%s", kind_name(x.k));
+    snprintf(buf, sizeof buf, "%g", x.f);
+    sb_put(e, b, buf, strlen(buf));
+    return;
+  case 'b':
+    if (x.k != V_BOOL)
+      vfail(e, at, "cannot format %s with `%%b`", kind_name(x.k));
+    sb_put(e, b, x.b ? "true" : "false", x.b ? 4 : 5);
+    return;
+  }
+}
+
 static Value lit_value(Exec *e, const Node *n) {
   Value v;
   memset(&v, 0, sizeof v);
@@ -447,12 +594,109 @@ static Value lit_value(Exec *e, const Node *n) {
     return v;
   }
   case T_STR: {
-    /* strings are opaque to the parser/exec (§9 open: escapes, formats) */
-    const char *s = n->tok.start;
+    /* escapes + format specs are processed here (GRAMMAR §2.3, decision
+     * C26): the lexer keeps the whole literal as one raw token, so the
+     * interpreter splits it at eval time. */
+    const char *s = n->tok.start + 1;
     size_t inner = L >= 2 ? L - 2 : 0;
+    /* fast path: plain text keeps the exact source slice (byte-identical) */
+    if (!memchr(s, '\\', inner) && !memchr(s, '%', inner)) {
+      v.k = V_STR; v.str.s = s; v.str.n = inner; return v;
+    }
+    Sb b = {0};
+    size_t i = 0;
+    while (i < inner) {
+      char c = s[i];
+      if (c == '\\') {
+        if (i + 1 >= inner)
+          vfail(e, n, "truncated escape in string literal");
+        char esc = s[i + 1];
+        unsigned char val;
+        size_t adv = 2;
+        switch (esc) {
+        case 'n': val = '\n'; break;
+        case 't': val = '\t'; break;
+        case 'r': val = '\r'; break;
+        case '0': val = 0; break;
+        case '\\': val = '\\'; break;
+        case '"': val = '"'; break;
+        case '\'': val = '\''; break;
+        case 'x': {
+          size_t k = i + 2, hv = 0, nd = 0;
+          while (k < inner && nd < 2 &&
+                 isxdigit((unsigned char)s[k])) {
+            unsigned char h = (unsigned char)tolower((unsigned char)s[k]);
+            hv = hv * 16u + (isdigit(h) ? (unsigned)(h - '0')
+                                        : (unsigned)(h - 'a' + 10));
+            k++;
+            nd++;
+          }
+          if (!nd) vfail(e, n, "`\\x` escape needs hex digits");
+          val = (unsigned char)hv;
+          adv = k - i;
+          break;
+        }
+        default:
+          vfail(e, n, "unsupported escape `\\%c` in string literal", esc);
+        }
+        sb_putc(e, &b, (char)val);
+        i += adv;
+      } else if (c == '%') {
+        if (i + 2 < inner && strchr("sdnqfb", s[i + 1]) && s[i + 2] == '{') {
+          int verb = (unsigned char)s[i + 1];
+          /* find the matching `}` — brace-counted, skipping '…' char
+           * literals so a `}` inside one does not close the spec (a "…"
+           * string cannot occur here: a raw `"` would terminate the outer
+           * literal at lex time, and `\"` leaves a `\` the sub-lexer
+           * rejects — a lexer-design open item, see decision C26). */
+          size_t k = i + 3, depth = 1;
+          for (;;) {
+            if (k >= inner)
+              vfail(e, n, "unterminated format spec in string literal");
+            char d = s[k];
+            if (d == '"' || d == '\'') {
+              size_t q = k + 1;
+              while (q < inner && s[q] != d) {
+                if (s[q] == '\\') q++;
+                q++;
+              }
+              if (q >= inner)
+                vfail(e, n, "unterminated string in format spec");
+              k = q + 1;
+              continue;
+            }
+            if (d == '{') depth++;
+            else if (d == '}' && --depth == 0) break;
+            k++;
+          }
+          size_t elen = k - (i + 3);
+          /* copy the expression source into the exec arena: the lexer
+           * needs a NUL terminator, and the parsed AST's token slices
+           * point into this buffer, so it must outlive the eval below —
+           * arena lifetime, never freed individually. */
+          char *text = xalloc(e, elen + 1);
+          memcpy(text, s + i + 3, elen);
+          text[elen] = '\0';
+          char ferr[512];
+          Node *expr = parser_expr_from_text(text, e->ar, ferr, sizeof ferr);
+          if (!expr)
+            vfail(e, n, "bad format expression: %s", ferr);
+          Value x;
+          eval(e, expr, &x);
+          fmt_val(e, n, &b, verb, x);
+          i = k + 1;
+        } else {
+          sb_putc(e, &b, '%');   /* bare/unknown `%` stays literal (open) */
+          i++;
+        }
+      } else {
+        sb_putc(e, &b, c);
+        i++;
+      }
+    }
     v.k = V_STR;
-    v.str.s = s + 1;
-    v.str.n = inner;
+    v.str.s = b.s ? b.s : s;   /* empty build: still points inside src */
+    v.str.n = b.n;
     return v;
   }
   default:

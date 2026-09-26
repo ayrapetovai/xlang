@@ -1059,3 +1059,63 @@ made false by value-params-move) and README's iterator *call sites*
     forms the witnesses use; noted for the self-hosted compiler.  The
     pass lands as the HEAD commit of this session (subject `bootstrap
     memory audit pass 1`), code and documentation together.
+26. **C26 bootstrap string interpolation (user-ruled, Sep 26)**: the
+    `StringBody = Char | Escape | FormatSpec` grammar of GRAMMAR.md §2.3,
+    with `FormatSpec = "%" FormatLetter "{" Expr "}"`, lands in the exec
+    pass.  The lexer keeps the whole literal as **one raw `T_STR` token**
+    (backslashes and `%` text preserved), so the token stream, parser
+    grammar, and audited lookahead invariants are untouched; the
+    interpreter splits the inner text at eval time:
+    - *escapes* — the minimal escape set shared with char literals
+      (decision C23): `\n \t \r \0 \\ \" \' \xNN` (`\x` takes up to two
+      hex digits); an unknown escape is a clean "unsupported escape"
+      diagnostic, truncation guarded as defense-in-depth.
+    - *format letters in scope* — `s` plain text, `q` quoted (wraps in
+      quotes and escapes `" \ \n \t \r \0`), `d`/`n` decimal integer
+      (int/uint/byte/char), `f` `%g` float (strictly `V_FLOAT`), `b`
+      true/false (strictly `V_BOOL`).  `%s` mirrors `string.from` and
+      `val_print` bit-for-bit (floats `%g`, bytes decimal, char as byte or
+      `?`, arrays `[a, b]`, records `{k=v, …}`, ranges, enum/type/function
+      words), and an error value renders its message (how README's `%s{e}`
+      usages read; `val_print` keeps the debug `error name: msg` form).
+      Wrong-type verbs and unknown letters are clean diagnostics; a bare
+      `%` stays literal (the letter set is open in §2.3).
+    - *fast path* — a literal containing neither `\` nor `%` returns the
+      exact source slice, so `examples/exec.lang` stays byte-identical
+      (regression gate re-diffed against the pre-change binary).
+    - *format expressions* — each `Expr` is re-parsed with the real parser
+      through a new public `parser_expr_from_text(text, arena, err, errn)`
+      and evaluated immediately: names, member chains, calls, arithmetic,
+      comparisons, unwraps, record literals — the full expression grammar.
+      This required `Parser.ar` to become a heap `Arena *` (parser_run
+      allocates it; the helper parses into the **exec arena**), so the
+      sub-AST and its NUL-terminated source copy have exactly the exec
+      arena's lifetime: no leak and no dangling on ANY path, including a
+      raise caught out of a spec's eval (the helper's token array is the
+      only dynamic storage and is always freed).  Nested spec evaluation
+      crosses the same `depth` recursion guard (limit 1024) as ordinary
+      evaluation.  Costs recorded: per-eval reparse and arena garbage
+      growth in loops — consistent with the arena's documented
+      free-nothing-until-the-end model (100k-iteration corpus: clean under
+      ASan, ~2.6 s).
+    - *open item for the self-hosted compiler*: a raw `"` cannot appear
+      inside a format expression (it terminates the outer literal at lex
+      time, and `\"` leaves a `\` the sub-lexer rejects), so an expression
+      cannot embed a string literal directly.  README's nesting shape —
+      `%s{f(x)}` where `f`'s body returns an interpolated literal
+      (`toJson(e, n+1)!`, `customMessage`, the `%d{k}` witness helper) — is
+      fully supported; the brace matcher is quote-aware and brace-counted,
+      so a `}` inside a `'…'` char literal or a `{…}` record literal inside
+      a spec does not close it early.
+    Verified: ASan+UBSan clean over the fixtures, the audit corpora, and
+    new corpora; exact diagnostics for every fatal path (`%d{1.5}`,
+    `%f{1}`, `%b{1}`, bad format expression, unterminated spec,
+    unsupported escape, `\x` without hex digits, recursion through a
+    spec); valgrind **0 bytes in use / 0 errors** on success, caught-raise,
+    panic, and parse-error paths; `-O0/-O1/-O2` output parity;
+    `examples/hello.lang` now prints `hello, artem!` (the intended change);
+    new witness `examples/interp.lang` (all format letters, escapes,
+    `\xNN`, literal `%`, nested-via-value interpolation, records/arrays,
+    caught errors, per-iteration loop specs).  Lands as the HEAD commit of
+    this session, subject `bootstrap: string interpolation (%s{} format
+    specs) + escapes (decision C26)`, code and documentation together.
