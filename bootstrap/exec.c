@@ -88,10 +88,11 @@ typedef struct Catch {
   Env *saved_cur;            /* e->cur at the try */
   Node *regs, *catch_name, *handlers;
   size_t saved_nd;           /* defer-list length at the try */
+  int saved_depth;           /* recursion counter at the try */
 } Catch;
 
 struct Exec {
-  Arena ar;
+  Arena *ar;               /* heap-allocated: see the struct comment on errb */
   Env *global, *cur, *fnframe;
   Flow flow;
   const char *label;         /* label of a pending break/continue */
@@ -108,9 +109,16 @@ struct Exec {
   size_t nsty, capsty;
   struct Etyp { const char *name; Node *members; } *etyp;
   size_t nety, capety;
-  /* fatal diagnostic + abort frame */
-  char msg[512];
-  int line, col;
+  /* Fatal diagnostic + abort frame.  msg/line/col live in a separate
+   * arena block whose pointer (`errb`) is assigned once *before* the
+   * setjmp and never reassigned: after `longjmp(e->abort, …)` the
+   * automatic locals of exec_run — the function containing the setjmp —
+   * are indeterminate (C11 §7.13.2.1), so the recovery path may only
+   * read fields that never changed since setjmp.  Writing through `e`
+   * from a deeper frame (vfail) would corrupt that guarantee, hence the
+   * heap block. */
+  int depth, depth_max;   /* recursion guard: eval/exec_stmt crossings */
+  struct { char msg[512]; int line, col; } *errb;
   jmp_buf abort;
   const char *src;         /* source buffer (for token context lookups) */
 };
@@ -118,7 +126,7 @@ struct Exec {
 /* ---------------- tiny helpers ---------------- */
 
 static void *xalloc(Exec *e, size_t n) {
-  return arena_alloc(&e->ar, n);
+  return arena_alloc(e->ar, n);
 }
 
 static const char *ttext(const Node *n) {
@@ -141,10 +149,10 @@ static void vfail(Exec *e, const Node *n, const char *fmt, ...)
 static void vfail(Exec *e, const Node *n, const char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
-  vsnprintf(e->msg, sizeof e->msg, fmt, ap);
+  vsnprintf(e->errb->msg, sizeof e->errb->msg, fmt, ap);
   va_end(ap);
-  e->line = n ? n->line : 0;
-  e->col = n ? n->col : 0;
+  e->errb->line = n ? n->line : 0;
+  e->errb->col = n ? n->col : 0;
   longjmp(e->abort, 1);
 }
 
@@ -200,8 +208,9 @@ static void unwrap_soft(Exec *e, Value *v) {
 
 static Env *env_new(Exec *e, Env *parent) {
   Env *env = xalloc(e, sizeof *env);
+  memset(env, 0, sizeof *env);          /* b/n/cap must start zeroed */
   env->parent = parent;
-  env->ar = &e->ar;
+  env->ar = e->ar;
   return env;
 }
 
@@ -238,7 +247,7 @@ static int val_truth(Exec *e, const Node *at, Value v) {
   case V_CHAR: return v.c32 != 0;
   case V_BYTE: return v.by != 0;
   case V_STR: return v.str.n != 0;
-  case V_PTR: return val_truth(e, at, *v.cell);
+  case V_PTR: return v.cell ? val_truth(e, at, *v.cell) : 0;
   case V_ERR: return 0;
   default:
     vfail(e, at, "a %s value is not usable as a condition", kind_name(v.k));
@@ -320,7 +329,7 @@ static void val_print(FILE *f, Value v) {
             (int)v.err.msg.n, v.err.msg.s);
     return;
   case V_FUNC: fprintf(f, "func %s", v.fn.nm); return;
-  case V_PTR: val_print(f, *v.cell); return;
+  case V_PTR: if (v.cell) val_print(f, *v.cell); return;
   }
 }
 
@@ -453,9 +462,10 @@ static Value lit_value(Exec *e, const Node *n) {
 
 /* ================= type-based zero values ================= */
 
-static int fund_type_of(const Node *ty) {
+static int fund_type_of(Exec *e, const Node *ty) {
   if (ty->k != N_TFUND) return -1;
-  const char *t = ttext(ty);
+  /* ttext is NOT NUL-terminated: compare a savestr'd copy, not the slice */
+  const char *t = savestr(e, ttext(ty), ty->tok.len);
   if (strcmp(t, "int") == 0 || strcmp(t, "uint") == 0) return TY_INT;
   if (strcmp(t, "float") == 0) return TY_FLOAT;
   if (strcmp(t, "bool") == 0) return TY_BOOL;
@@ -474,7 +484,7 @@ static Value zero_value(Exec *e, const Node *n) {
   if (n) {
     if (n->k == N_TSHAPE || n->k == N_TCONST || n->k == N_TVIEW)
       return zero_value(e, n->ch[0]);     /* shoot through shape/const/view */
-    ty = fund_type_of(n);
+    ty = fund_type_of(e, n);
   }
   switch (ty) {
   case TY_FLOAT: v.k = V_FLOAT; v.f = 0.0; return v;
@@ -501,8 +511,13 @@ static const char *reg_struct(Exec *e, const Node *d) {
     e->capsty = nc;
   }
   e->styp[e->nsty].name = nm;
-  /* body is the last child: typeparams are skipped when absent */
-  e->styp[e->nsty].fields = d->n >= 2 ? d->ch[d->n - 1] : NULL;
+  /* body = the last N_LIST child: children are [name, typeparams?,
+   * body, directives?], and a trailing directive must not be mistaken
+   * for the field list (typeparams are N_TYPEPARAMS, never N_LIST). */
+  Node *fields = NULL;
+  for (int i = 0; i < d->n; i++)
+    if (d->ch[i]->k == N_LIST) fields = d->ch[i];
+  e->styp[e->nsty].fields = fields;
   e->nsty++;
   return nm;
 }
@@ -536,6 +551,10 @@ static void eval(Exec *e, Node *n, Value *out);
 static Value exec_stmt(Exec *e, Node *n);
 static Value exec_block(Exec *e, Node *blk);
 static Value invoke_user(Exec *e, Func f, Value *args, int narg, const Node *at);
+
+/* internal bodies behind the recursion-guard wrappers below */
+static void eval_inner(Exec *e, Node *n, Value *out);
+static Value exec_stmt_inner(Exec *e, Node *n);
 
 /* ================= builtins ================= */
 
@@ -593,7 +612,19 @@ static void bi_from(Exec *e, Value *a, int n, Value *out, int tag) {
       if (x.u > (uint64_t)INT64_MAX) goto intfail;
       iv = (int64_t)x.u;
       break;
-    case V_FLOAT: iv = (int64_t)x.f; break;
+    case V_FLOAT:
+      if (tag == TY_UINT) {
+        /* cast well-defined only while the value fits [0, 2^64) */
+        if (x.f < 0 || x.f >= 18446744073709551616.0) goto intfail;
+        out->k = V_UINT;
+        out->u = (uint64_t)x.f;
+        return;
+      }
+      if (isnan(x.f) || x.f >= 9223372036854775808.0 ||
+          x.f < -9223372036854775808.0)
+        goto intfail;
+      iv = (int64_t)x.f;
+      break;
     case V_BOOL: iv = x.b; break;
     case V_CHAR: iv = x.c32; break;
     case V_BYTE: iv = x.by; break;
@@ -769,7 +800,7 @@ static Value init_value(Exec *e, Node *init) {
       v.rec.fs = xalloc(e, v.rec.n * sizeof *v.rec.fs);
       for (int j = 0; j < init->n; j++) {
         Node *it = init->ch[j];
-        v.rec.fs[j].nm = ttext(it->ch[0]);
+        v.rec.fs[j].nm = savestr(e, ttext(it->ch[0]), it->ch[0]->tok.len);
         eval(e, it->ch[1], &v.rec.fs[j].v);
       }
       return v;
@@ -803,7 +834,7 @@ static Value bin_bitsh(Exec *e, const Node *at, Value a, Value b, TokKind k) {
   case T_OP_USHR: r = (int64_t)((uint64_t)x >> sh); break;
   case T_OP_SHL_CY:
     r = x == 0 ? 0 : (int64_t)((uint64_t)x << sh) |
-        (x < 0 ? (int64_t)((uint64_t)x >> (uint64_t)(64 - sh)) : 0);
+        (sh == 0 ? 0 : (x < 0 ? (int64_t)((uint64_t)x >> (uint64_t)(64 - sh)) : 0));
     break;
   case T_OP_SHR_CY:
     r = x == 0 ? 0 : x < 0
@@ -880,11 +911,15 @@ static Value num_add(Exec *e, const Node *at, Value a, Value b, int op) {
   }
   case 3:
     if (y == 0) vfail(e, at, "division by zero");
+    if (v.k == V_INT && x == INT64_MIN && y == -1)
+      vfail(e, at, "integer division overflow");
     if (v.k == V_UINT) v.u = (uint64_t)x / (uint64_t)y;
     else v.i = x / y;
     return v;
   case 4:
     if (y == 0) vfail(e, at, "division by zero");
+    if (v.k == V_INT && x == INT64_MIN && y == -1)
+      vfail(e, at, "integer modulo overflow");
     if (v.k == V_UINT) v.u = (uint64_t)x % (uint64_t)y;
     else v.i = x % y;
     return v;
@@ -951,7 +986,17 @@ static Value type_value(Exec *e, const Node *n) {
 
 static Value func_value(Exec *e, Func f);
 
+/* Recursion guard: every crossing of eval/exec_stmt bumps `depth`; past
+ * `depth_max` the interpreter dies with a clean diagnostic instead of
+ * overflowing the C stack.  A lang call alternates both, so `depth_max`
+ * counts crossings, not language recursion levels. */
 static void eval(Exec *e, Node *n, Value *out) {
+  if (++e->depth > e->depth_max) vfail(e, n, "recursion limit exceeded");
+  eval_inner(e, n, out);
+  e->depth--;
+}
+
+static void eval_inner(Exec *e, Node *n, Value *out) {
   if (e->flow != FL_NONE) { out->k = V_VOID; return; }  /* flow shields */
   Value v;
   memset(&v, 0, sizeof v);
@@ -1210,7 +1255,7 @@ static void eval(Exec *e, Node *n, Value *out) {
   case N_IS: {
     Value x;
     eval(e, n->ch[0], &x);
-    const char *kind = ttext(n->ch[1]);
+    const char *kind = savestr(e, ttext(n->ch[1]), n->ch[1]->tok.len);
     int yes = x.k == V_ERR && strcmp(x.err.name, kind) == 0;
     if (n->n >= 3 && n->ch[2] && yes) {
       env_bind(e, e->cur,
@@ -1399,6 +1444,7 @@ static void exec_region(Exec *e, Node *n) {
   cf->prev = e->catch_;
   cf->saved_cur = e->cur;
   cf->saved_nd = e->nd;
+  cf->saved_depth = e->depth;
   cf->regs = n->ch[0];
   cf->catch_name = n->ch[1];
   cf->handlers = n->ch[2];
@@ -1417,6 +1463,7 @@ static void exec_region(Exec *e, Node *n) {
     e->catch_ = cf->prev;
     e->cur = cf->saved_cur;
     e->nd = cf->saved_nd;               /* drop the aborted region's defers */
+    e->depth = cf->saved_depth;         /* the unwound frames didn't return */
     e->flow = FL_NONE;
     if (cf->catch_name && cf->catch_name->k == N_NAME) {
       const char *nm = savestr(e, ttext(cf->catch_name), cf->catch_name->tok.len);
@@ -1431,6 +1478,13 @@ static void exec_region(Exec *e, Node *n) {
 /* ---------------- statements ---------------- */
 
 static Value exec_stmt(Exec *e, Node *n) {
+  if (++e->depth > e->depth_max) vfail(e, n, "recursion limit exceeded");
+  Value last = exec_stmt_inner(e, n);
+  e->depth--;
+  return last;
+}
+
+static Value exec_stmt_inner(Exec *e, Node *n) {
   Value last = void_value();
   if (e->flow != FL_NONE) return last;
   switch (n->k) {
@@ -1819,10 +1873,26 @@ int exec_run(const char *src, Node *root, char *msg, size_t msgn,
   Exec e;
   memset(&e, 0, sizeof e);
   e.src = src;
+  e.depth_max = 1024;
+  /* The arena struct and the diagnostic block must live in the heap
+   * *before* the setjmp: arena_alloc mutates *e.ar and vfail writes
+   * *e.errb (both heap), while the autoc locals of exec_run — the
+   * function containing the setjmp — are indeterminate after a longjmp
+   * (C11 §7.13.2.1).  `e.ar` and `e.errb` are assigned exactly once,
+   * before the setjmp, and never reassigned, so both are safe to read
+   * (and, for the arena, to free) on the recovery path. */
+  e.ar = malloc(sizeof *e.ar);
+  if (!e.ar) return -1;
+  memset(e.ar, 0, sizeof *e.ar);
+  e.errb = xalloc(&e, sizeof *e.errb);
   if (setjmp(e.abort) != 0) {
-    if (msg && msgn) snprintf(msg, msgn, "%s", e.msg);
-    if (line) *line = e.line;
-    if (col) *col = e.col;
+    /* Panic = abort: no destructors run, but the arena is well-formed
+     * heap state (see above), so it is released rather than abandoned. */
+    if (msg && msgn) snprintf(msg, msgn, "%s", e.errb->msg);
+    if (line) *line = e.errb->line;
+    if (col) *col = e.errb->col;
+    arena_free(e.ar);
+    free(e.ar);
     return -1;
   }
   e.global = env_new(&e, NULL);
@@ -1855,5 +1925,7 @@ int exec_run(const char *src, Node *root, char *msg, size_t msgn,
     Value ret = invoke_user(&e, mv.fn.f, NULL, 0, NULL);
     if (ret.k == V_INT) code = (int)ret.i;
   }
+  arena_free(e.ar);
+  free(e.ar);
   return code;
 }

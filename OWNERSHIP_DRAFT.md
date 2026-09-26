@@ -954,8 +954,8 @@ made false by value-params-move) and README's iterator *call sites*
     is still a genuine compiler; the interpreter just runs it during the
     bootstrap phase. Commit `7033558`.
 
-    *Exec-pass AST agreements (commit pending, Sep 26)* — conventions the
-    interpreter relies on that the parser guarantees:
+    *Exec-pass AST agreements (committed `b9dcd10`, Sep 26)* — conventions
+    the interpreter relies on that the parser guarantees:
     - `N_CHECK_IF` always has four children `[name?, cond, then?, else?]`;
       the name-less form keeps a NULL first child (parser `ppushx`).
     - An `N_VAR` in the define form carries the `:=` token as its node token
@@ -968,3 +968,94 @@ made false by value-params-move) and README's iterator *call sites*
       level per §6.8).
     - Named call arguments are `N_INITITEM` nodes in the arg list (not
       `N_ASSIGN`s); the exec pass evaluates their value part.
+
+25. **C25 bootstrap memory-safety & ownership audit (performed, Sep 26)**: with
+    self-hosting deferred, the C bootstrap was audited "must follow all
+    memory-safety and all ownership rules" first — pass 1.  Normative
+    sources: `OWNERSHIP_RULES.md`, README §Memory Ownership, GRAMMAR §7.
+    Method: static rule-by-code mapping **plus** a sanitizer/valgrind
+    harness (every finding below was reproduced or is covered by a
+    purpose-built corpus under `-fsanitize=address,undefined`; valgrind
+    reports **0 bytes in use at exit / 0 errors** on the success, panic,
+    and parse-error paths; outputs are byte-identical across `-O0`, `-O1`,
+    `-O2`).  Findings and fixes, all in this pass:
+
+    - **F1 (ASan-confirmed) `lexer.c` block-comment stack**: the star-count
+      stack `sstack[16]` overruns past 16-deep nesting — `sp` saturates
+      while `depth` keeps counting, so the unwinding closer read
+      `sstack[sp-1]` with `sp == 0` (stack-buffer-underflow).  Fix: when
+      `sp == 0` any star-run closes the overshot level; `sp` never reads
+      or drops below 0.  Degraded star-count matching past 16 levels is
+      documented in the code (mixed-run exactness is still §9-open).
+    - **F2/F3 `exec.c` V_PTR guards**: `val_truth`/`val_print` dereferenced
+      `v.cell` unconditionally on `V_PTR` (a latent NULL-deref; `unwrap_hard`
+      already guarded).  Now `v.cell ? deref : falsy/nothing`, matching the
+      `unwrap_hard` contract.
+    - **F4 `fund_type_of` NUL-termination**: compared a non-NUL-terminated
+      token slice (`ttext`) with `strcmp`, reading into the following source
+      — so a *typed uninitialized* decl (`q float`, `s string`) silently
+      zeroed as `int`.  Fix: `savestr` first (the `zero_value` family now
+      honors the declared fundamental type).
+    - **F4b `N_IS` kind match**: same class of bug — the `is` name was
+      compared as a raw slice; now `savestr`'d.  (Verbatim `N_LABEL`
+      re-check: already `savestr` — no change.)
+    - **F4d `init_value` record fields**: an untyped record initializer
+      stored raw token slices as field names, violating the interpreter's
+      "all runtime strings are arena-owned NUL-terminated" invariant
+      (prints ran past the token).  Now `savestr`'d.
+    - **F5 exec arena lifetime**: the exec arena was never freed (only the
+      OS reclaimed it at exit).  Fix: the `Arena` struct itself lives in
+      the heap (`Exec.ar` is now a pointer) and `exec_run` releases it on
+      **both** the success and the panic path — verified leak-free by
+      valgrind.  Note the interplay with the README panic rule: the
+      language's "panic = abort, memory abandoned" contract still holds
+      for a real runtime; the bootstrap's fatal error is a *diagnostic
+      return*, so it can and does release the arena.
+    - **F6 fallible float→int casts (UB removed)**: `int.from`/`uint.from`
+      of a NaN/Inf/out-of-range float cast `double→int64` directly (UB).
+      Now range-checked: `[0, 2^64)` for `uint`, `[-2^63, 2^63)` for
+      `int`, NaN/Inf rejected — a fallible `error` value, never UB.
+    - **F7 rotate-by-0 shift**: `T_OP_SHL_CY` computed `64 - sh` with
+      `sh == 0` → shift by 64 (UB).  Guarded.
+    - **F8 `INT64_MIN / -1` and `INT64_MIN % -1`**: both are UB division
+      overflow; now a clean "integer division/modulo overflow" diagnostic
+      (consistent with the divide-by-zero backstop).
+    - **F9 recursion guard**: eval/exec_stmt now alternate-count `depth`
+      (limit 1024); runaway recursion is a clean "recursion limit
+      exceeded" diagnostic instead of a C-stack overflow.  A raise that
+      lands mid-recursion restores the counter from the arena `Catch`
+      frame (`saved_depth`), so a later deep call is not falsely limited —
+      verified with a raise-at-depth corpus.
+    - **F10 setjmp/longjmp automatic-local hazard (C11 §7.13.2.1)**: the
+      abort diagnostic previously lived in `Exec` locals of `exec_run` — the
+      function containing the `setjmp` — which are *indeterminate* after the
+      longjmp.  The diagnostic block now lives in an arena block (`errb`,
+      assigned once before `setjmp`, never reassigned) and the exec arena is
+      heap-backed, so the panic path reads and frees only well-defined heap
+      state.  The catch frames were already arena-resident and sound.
+    - **F11 `reg_struct` field list**: the struct body was "the last
+      child", which a trailing `#directive` would misread as the field
+      list; now the **last `N_LIST` child**.
+    - **F12 (ASan-confirmed) `env_new` uninitialized fields**: the fresh
+      `Env` had garbage `b/n/cap` — the first `env_bind` computed
+      `cap * 2` from garbage (a giant allocation under ASan; masked at
+      `-O0` by zeroed fresh pages).  `Env` is now `memset`-zeroed.
+    - **`main.c` parse-error path**: `run_ast`/`run_run` freed `src` but not
+      the parser arena/token array on a parsing failure; all three are now
+      freed in both functions.
+
+    *Conformance mapping (ownership rules → interpreter):* every statement
+    block is a lifetime — a fresh frame (`exec_block`), defers drain at
+    block exit (`e->nd` windows); a function body is *not* an arena — its
+    allocations land in the caller's arena, and owned locals die at return
+    (`invoke_user`'s defer window); temporaries are value-semantics in the
+    arena; `panic = abort` is `vfail`/longjmp and the arena is released;
+    failed parser backtracks can leak into the parser arena (parser.h
+    doc) — intentional; slot moves / views / `&` are not yet executable in
+    the bootstrap phase (diagnosed), so their rules are carried by the
+    parser only.  Known non-memory limitation recorded: a bare-expression
+    function body (`func () T = expr`) is not `N_EXPR_STMT`-wrapped and is
+    diagnosed as "not an executable statement" — closed with the body
+    forms the witnesses use; noted for the self-hosted compiler.  The
+    pass lands as the HEAD commit of this session (subject `bootstrap
+    memory audit pass 1`), code and documentation together.

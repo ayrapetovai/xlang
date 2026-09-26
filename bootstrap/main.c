@@ -63,6 +63,8 @@ static int run_ast(const char *path) {
   Node *root = NULL;
   if (parser_run(&p, src, &root) != 0) {
     fprintf(stderr, "bootstrap: %s\n", p.msg);
+    arena_free(&p.ar);
+    free(p.toks);
     free(src);
     return 1;
   }
@@ -87,6 +89,8 @@ static int run_run(const char *path) {
   Node *root = NULL;
   if (parser_run(&p, src, &root) != 0) {
     fprintf(stderr, "bootstrap: %s\n", p.msg);
+    arena_free(&p.ar);
+    free(p.toks);
     free(src);
     return 1;
   }

@@ -154,9 +154,15 @@ static void skip_block_comment(Lexer *l) {
     if (p[0] == '*') {
       const char *q = p;
       while (*q == '*') q++;
-      if (*q == '/' && (int)(q - p) >= sstack[sp - 1]) {
+      /* `sp == 0` means the nesting exceeded the bookkeeping stack
+       * (sstack can never hold more than 16 star-counts): the expectation
+       * for those overshot levels was lost, so any star-run closes one
+       * level.  Reading sstack[sp - 1] with sp already 0 would be an
+       * out-of-bounds read, so the count is never indexed at sp == 0 and
+       * sp itself never drops below 0. */
+      if (*q == '/' && (sp == 0 || (int)(q - p) >= sstack[sp - 1])) {
         p = q + 1;                             /* closer */
-        sp--;
+        if (sp > 0) sp--;
         depth--;
         continue;
       }
