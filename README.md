@@ -1,7 +1,7 @@
 # Abstract
 
 Compiled to a native binary, with a C ABI for native interop.
-The language is first compiled with a C compiler to get a bootstrap compiler (no coroutines, no compile-time code execution); after that, the bootstrap compiler must compile the target compiler binary from the source code written in the language itself.
+The bootstrap is a C program that parses and interprets the language (no coroutines, no compile-time code execution); it runs the self-hosted target compiler — written in the language itself — which compiles the language's source, including its own compiler, to native binaries.
 Commas ',' are separators as '\n' and ';'. A statement continues on a following line when that line starts with an operator (`.`, `+`, `&&`, `==`, `->`, ...).
 Pointer decay.
 Pattern matching.

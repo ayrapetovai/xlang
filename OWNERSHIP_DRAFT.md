@@ -698,6 +698,15 @@ made false by value-params-move) and README's iterator *call sites*
     `infix_operator==` sit at top level per their dispatches. `>>>=`
     completes CompoundAssignOp (token kind, lexer entry — longest-first —
     and token-name dump). Commit `7495305`.
+32. Bootstrap backend is a tree-walking interpreter (decision C24 round,
+    user-ruled, Sep 26): the C bootstrap parses and then *executes* the
+    AST — it never generates code. The README abstract rewords its
+    bootstrap sentence accordingly ("the bootstrap is a C program that
+    parses and interprets … it runs the self-hosted target compiler …
+    which compiles the language's source … to native binaries"); the
+    post-parser backend increment is the exec pass. The self-hosted
+    compiler remains a genuine compiler — the interpreter merely runs it
+    during the bootstrap phase. — decision C24.
 
 ---
 
@@ -931,3 +940,16 @@ made false by value-params-move) and README's iterator *call sites*
     `log.print`, `log.error`), typed `uint!` and read through `!`/`try`.
     Answers (user): direct import edge; prefix declaration; `log` module
     with shared names; module-initializer model.
+24. **C24 bootstrap execution model (user-ruled, Sep 26)**: the C bootstrap
+    is a **parser + tree-walking interpreter**, not a compiler. It parses
+    the language's source into the uniform AST and executes it by walking
+    it; no coroutines and no compile-time code execution remain in force,
+    and the interpreter only ever runs one program — the self-hosted
+    target compiler's compile of its own source (and, for verification,
+    the example witnesses). The post-parser backend increment therefore
+    becomes an *exec* pass, not a *codegen* pass; README's abstract
+    rewords the bootstrap sentence: the C program parses and interprets,
+    and the self-hosted compiler — written in the language — is what
+    compiles the language's source to native binaries. The final compiler
+    is still a genuine compiler; the interpreter just runs it during the
+    bootstrap phase. Commit `7033558`.
