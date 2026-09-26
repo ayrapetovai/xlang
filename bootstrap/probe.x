@@ -1,5 +1,4 @@
-abcdefg
-hijklmnop
+if import
 qrstuvw
 xyz
 .

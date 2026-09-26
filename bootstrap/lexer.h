@@ -16,6 +16,7 @@ typedef enum LexState {
   LEX_EOF,
   LEX_OK,
   LEX_ERROR,
+  LEX_UNDEF,
   LEX_PRG_ERROR,
 } LexState;
 

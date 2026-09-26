@@ -31,13 +31,13 @@ int run_lex(char *filename) {
     enum LexState state = next_token(lexer, &t);
     if (state == LEX_EOF) break;
     else if (state == LEX_PRG_ERROR) {
-      printf("program error in lexe\n");
+      printf("program error in lexer\n");
       break;
     } else if (state == LEX_ERROR) {
       printf("error %s\n", lexer->error);
       break;
     }
-    //print_token(&t);
+    print_token(&t);
   }
 
   close_lexer(lexer);
