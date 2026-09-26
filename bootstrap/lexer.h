@@ -2,17 +2,28 @@
 #define LEXER_H
 
 #include "tokens.h"
+#include "reader.h"
 
 typedef struct Lexer {
-  char *base;
+  Reader* reader;
   char *current;
   int line;
   int col;
+  char error[128];
 } Lexer;
 
-struct Lexer* new_lexer();
+typedef enum LexState {
+  LEX_EOF,
+  LEX_OK,
+  LEX_ERROR,
+  LEX_PRG_ERROR,
+} LexState;
 
-struct Token* next_token(Lexer*);
+struct Lexer* new_lexer(struct Reader*);
+
+enum LexState next_token(struct Lexer*, struct Token*);
+
+void close_lexer(struct Lexer*);
 
 #endif
 

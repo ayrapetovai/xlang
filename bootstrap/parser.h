@@ -4,7 +4,7 @@
 #include "tokens.h"
 #include "lexer.h"
 
-void parse(Lexer*);
+void parse(struct Lexer*);
 
 #endif
 
