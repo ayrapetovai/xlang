@@ -671,6 +671,33 @@ made false by value-params-move) and README's iterator *call sites*
     GRAMMAR §9 pruned to three genuinely-open items (precedence, formats,
     lexical details); OWNERSHIP_RULES §12 gains the cast bullet. —
     decision C23.
+31. Bootstrap parser increment (Sep 26): the C bootstrap's parser now
+    pre-lexes the whole file into a token array (unbounded lookahead,
+    save/restore cursor, quiet backtrack attempts) and builds a uniform
+    `Node {k, line, col, tok, ch[]}` AST on an arena bump allocator. All
+    four conformance fixtures (`hello`, `types`, `expressions`,
+    `control`) parse in `./bootstrap ast` — §1–§7 in full: imports,
+    module decl, struct/enum/error/interface decls (interface `= { }`
+    only), generic func decls `tmpl func [T] …`, variable decls with the
+    `param_state_at` FuncDecl-vs-FunctionType dispatch, every §6 statement
+    (all if forms, all loop forms incl. C-for `loop x := 0; …`, checked
+    `loop s := <-ch?`, ranges `>..=`, labeled loops, match with pattern
+    lists `1, 2, 3 =>`, select arms `Head => Body`, the try/catch guarded
+    region with `defer`, break/continue/yield, spawn, return), and the
+    full §7 precedence ladder incl. `>>>`, `<<~`. Parser disambiguation:
+    checked heads (if/loop conds, match subject, C-for cond) suppress
+    `Name {…}` struct literals so `if b { … }` stays a block; `x * 2` vs
+    `x *T`, `x & y` vs `slot &T?` resolved by "a literal can never start a
+    type"; `else`/`until` lookaheads save/restore the cursor so the block
+    loop still sees the statement separator; unbraced match/select arm
+    bodies end where the next arm head starts on a following line (an arm
+    head stays on one source line; multi-pattern heads scan all patterns).
+    Fixtures realigned to the normative grammar: select arms gain `=>`
+    (§6.7 SelectArm = SelectHead `=>` ArmBody), enum members and error
+    body fields follow the universal-separator rule, `tmpl func [T]` and
+    `infix_operator==` sit at top level per their dispatches. `>>>=`
+    completes CompoundAssignOp (token kind, lexer entry — longest-first —
+    and token-name dump). Commit `7495305`.
 
 ---
 
