@@ -92,6 +92,21 @@ static void ppush(Parser *p, Node *list, Node *c) {
   list->ch[list->n++] = c;
 }
 
+/* Push a child that may be NULL: used where an optional slot must keep a
+ * fixed position in the child array (the checked-if name slot, which is
+ * absent for the name-less `if expr ? then …` form). */
+static void ppushx(Parser *p, Node *list, Node *c) {
+  if (list->n == list->cap) {
+    int nc = list->cap ? list->cap * 2 : 8;
+    Node **nch = arena_alloc(&p->ar, (size_t)nc * sizeof(Node *));
+    if (!nch) return;
+    if (list->ch) memcpy(nch, list->ch, (size_t)list->n * sizeof(Node *));
+    list->ch = nch;
+    list->cap = nc;
+  }
+  list->ch[list->n++] = c;
+}
+
 /* A unary node: one child (or an explicit null slot for optional children). */
 static Node *punary(Parser *p, NodeKind k, Token t, Node *a) {
   Node *n = pnode(p, k, t);
@@ -1568,12 +1583,17 @@ static Node *parse_select(Parser *p) {
 
 static Node *parse_var_decl(Parser *p) {
   /* VariableDecl = Name [const] Type [= Initializer] [Directive]
-   *              | Name ":=" Initializer [Directive] */
+   *              | Name ":=" Initializer [Directive]
+   * The node carries the `:=` token for the define form (the exec pass
+   * dispatches on `n->tok.kind == T_OP_DEFINE`) and the name token for the
+   * typed form. */
   Token t = curtok(p);
   Node *name = piname(p);
   if (!name) return NULL;
   Node *type = NULL, *init = NULL, *dir = NULL;
+  Token itok = t;
   if (at(p, T_OP_DEFINE)) {
+    itok = curtok(p);
     adv(p);
     init = parse_expr(p);
     if (!init) return NULL;
@@ -1591,7 +1611,7 @@ static Node *parse_var_decl(Parser *p) {
     dir = parse_directive(p);
     if (!dir) return NULL;
   }
-  Node *n = pnode(p, N_VAR, t);
+  Node *n = pnode(p, N_VAR, itok);
   ppush(p, n, name);
   ppush(p, n, type);
   ppush(p, n, init);
@@ -1813,7 +1833,7 @@ static Node *parse_if(Parser *p) {
       }
     }
     Node *n = pnode(p, N_CHECK_IF, qt);
-    ppush(p, n, name);
+    ppushx(p, n, name);
     ppush(p, n, cond);
     ppush(p, n, then);
     ppush(p, n, els);
@@ -1845,7 +1865,7 @@ static Node *parse_if(Parser *p) {
       }
     }
     Node *n = pnode(p, N_CHECK_IF, qt);
-    ppush(p, n, NULL);
+    ppushx(p, n, NULL);
     ppush(p, n, cond);
     ppush(p, n, then);
     ppush(p, n, els);
@@ -1984,6 +2004,7 @@ static Node *parse_statement(Parser *p) {
   case T_KW_TRY: {
     Token t = curtok(p);
     adv(p);
+    skip_sep(p);                          /* `try` may end the line */
     Node *s = parse_statement(p);
     if (!s) return NULL;
     return punary(p, N_TRY, t, s);
@@ -2059,18 +2080,9 @@ static Node *parse_statement(Parser *p) {
   /* VariableDecl: `x := …`, `x int …`, `x const float …`, `x [10]int …` */
   if (at_id(p)) {
     if (tk(p, 1) == T_OP_DEFINE) return parse_var_decl(p);
-    if (type_start_kind(tk(p, 1)) || tk(p, 1) == T_KW_CONST) {
-      /* `x * T` / `x & T` double as pointer/slot decls or as a plain
-       * multiplication / bitand statement (`x * 2`). A literal can never
-       * start a type, so that case is an expression statement. */
-      if ((tk(p, 1) == T_OP_STAR || tk(p, 1) == T_OP_AMP) &&
-          (tk(p, 2) == T_NUM || tk(p, 2) == T_CHAR || tk(p, 2) == T_STR))
-        return parse_expr_stmt(p);
-      return parse_var_decl(p);
-    }
     if (tk(p, 1) == T_LBRACKET) {
       /* `buf []T` vs `a[i] = …`: an array-typed decl only if a type follows
-       * the closing bracket. */
+       * the closing bracket; otherwise it's an index-assignment. */
       size_t save;
       save_cur(p, &save);
       p->quiet++;
@@ -2082,6 +2094,16 @@ static Node *parse_statement(Parser *p) {
         return parse_var_decl(p);
       }
       restore_cur(p, save);
+      return parse_expr_stmt(p);
+    }
+    if (type_start_kind(tk(p, 1)) || tk(p, 1) == T_KW_CONST) {
+      /* `x * T` / `x & T` double as pointer/slot decls or as a plain
+       * multiplication / bitand statement (`x * 2`). A literal can never
+       * start a type, so that case is an expression statement. */
+      if ((tk(p, 1) == T_OP_STAR || tk(p, 1) == T_OP_AMP) &&
+          (tk(p, 2) == T_NUM || tk(p, 2) == T_CHAR || tk(p, 2) == T_STR))
+        return parse_expr_stmt(p);
+      return parse_var_decl(p);
     }
   }
   return parse_expr_stmt(p);

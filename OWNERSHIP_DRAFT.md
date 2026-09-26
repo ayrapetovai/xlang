@@ -953,3 +953,18 @@ made false by value-params-move) and README's iterator *call sites*
     compiles the language's source to native binaries. The final compiler
     is still a genuine compiler; the interpreter just runs it during the
     bootstrap phase. Commit `7033558`.
+
+    *Exec-pass AST agreements (commit pending, Sep 26)* — conventions the
+    interpreter relies on that the parser guarantees:
+    - `N_CHECK_IF` always has four children `[name?, cond, then?, else?]`;
+      the name-less form keeps a NULL first child (parser `ppushx`).
+    - An `N_VAR` in the define form carries the `:=` token as its node token
+      (`n->tok.kind == T_OP_DEFINE`); the typed form carries the name token.
+    - Statement dispatch probes `x[int] …` as an array-typed decl only when
+      a type parses after the closing bracket, else it is an index-assign
+      (the probe now precedes the generic type-start check).
+    - `try` may end its line: the keyword is followed by a separator skip
+      before the guarded statement (regions group statements at the block
+      level per §6.8).
+    - Named call arguments are `N_INITITEM` nodes in the arg list (not
+      `N_ASSIGN`s); the exec pass evaluates their value part.

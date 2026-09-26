@@ -4,6 +4,7 @@
 
 #include "lexer.h"
 #include "parser.h"
+#include "exec.h"
 
 static char *read_file(const char *path) {
   FILE *f = fopen(path, "rb");
@@ -72,6 +73,34 @@ static int run_ast(const char *path) {
   return 0;
 }
 
+/* `bootstrap run <file>` — parse and execute the program (exec pass, C24).
+ * The exec pass runs while the parser arena is still alive: AST nodes live
+ * there. */
+static int run_run(const char *path) {
+  char *src = read_file(path);
+  if (!src) {
+    fprintf(stderr, "bootstrap: cannot read '%s'\n", path);
+    return 2;
+  }
+
+  Parser p;
+  Node *root = NULL;
+  if (parser_run(&p, src, &root) != 0) {
+    fprintf(stderr, "bootstrap: %s\n", p.msg);
+    free(src);
+    return 1;
+  }
+  char msg[512] = {0};
+  int line = 0, col = 0;
+  int code = exec_run(src, root, msg, sizeof msg, &line, &col);
+  if (code < 0)
+    fprintf(stderr, "bootstrap: %s:%d:%d: %s\n", path, line, col, msg);
+  arena_free(&p.ar);
+  free(p.toks);
+  free(src);
+  return code;
+}
+
 int main(int argc, char **argv) {
   const char *mode = "lex";
   const char *file = NULL;
@@ -81,13 +110,17 @@ int main(int argc, char **argv) {
   } else if (argc == 3 && strcmp(argv[1], "ast") == 0) {
     mode = "ast";
     file = argv[2];
+  } else if (argc == 3 && strcmp(argv[1], "run") == 0) {
+    mode = "run";
+    file = argv[2];
   } else if (argc == 2) {
     mode = "lex";
     file = argv[1];
   } else {
-    fprintf(stderr, "usage: bootstrap [lex|ast] <file>\n");
+    fprintf(stderr, "usage: bootstrap [lex|ast|run] <file>\n");
     return 2;
   }
   if (strcmp(mode, "ast") == 0) return run_ast(file);
+  if (strcmp(mode, "run") == 0) return run_run(file);
   return run_lex(file);
 }
