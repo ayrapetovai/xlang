@@ -25,6 +25,7 @@ int run_exec(char *filename) {
 int run_lex(char *filename) {
   struct Reader* reader = new_reader(filename);
   struct Lexer* lexer = new_lexer(reader);
+  int error_code = 0;
 
   while (true) {
     struct Token t = {};
@@ -32,16 +33,18 @@ int run_lex(char *filename) {
     if (state == LEX_EOF) break;
     else if (state == LEX_PRG_ERROR) {
       printf("program error in lexer\n");
+      error_code = 1;
       break;
     } else if (state == LEX_ERROR) {
       printf("error %s\n", lexer->error);
+      error_code = 2;
       break;
     }
     print_token(&t);
   }
 
   close_lexer(lexer);
-  return 0;
+  return error_code;
 }
 
 int run_ast(char *filename) {

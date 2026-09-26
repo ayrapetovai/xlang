@@ -14,6 +14,8 @@ struct Lexer* new_lexer(struct Reader* reader) {
   if (lexer == NULL)
     return NULL;
   lexer->reader = reader;
+  lexer->line = 1;
+  lexer->col = 1;
   memset(lexer->error, 0, sizeof lexer->error);
   return lexer;
 }
@@ -25,6 +27,9 @@ enum LexState next_token(struct Lexer* lexer, struct Token* tok) {
   char buf[64] = {0};
   size_t buf_idx = 0;
 
+  tok->line = lexer->line;
+  tok->col = lexer->col;
+
   while (true) {
     char c;
     bool read = reader_getch(lexer->reader, &c);
@@ -35,6 +40,7 @@ enum LexState next_token(struct Lexer* lexer, struct Token* tok) {
       }
       return LEX_EOF;
     }
+    lexer->col += 1;
 
     if (buf_idx >= sizeof buf) {
       sprintf(lexer->error, "too long identifier");
@@ -43,15 +49,19 @@ enum LexState next_token(struct Lexer* lexer, struct Token* tok) {
 
     if (!isalnum(c)) {
       if (buf_idx > 0) {
+        lexer->col -= 1;
+        reader_ungetch(lexer->reader, c);
         tok->kind = TOK_ID;
         strcpy(tok->value, buf);
       } else {
-        tok->kind = TOK_SEP;
         if (c == '\n') {
-          strcpy(tok->value, "'\\n'");
+          lexer->line += 1;
+          lexer->col = 1;
+          tok->kind = TOK_NL;
         } else if (c == ' ') {
-          strcpy(tok->value, "' '");
+          tok->kind = TOK_SPACE;
         } else {
+          tok->kind = TOK_UNDEF;
           sprintf(tok->value, "'%c'", c);
         }
       }
@@ -63,6 +73,7 @@ enum LexState next_token(struct Lexer* lexer, struct Token* tok) {
     int found_word_idx = -1;
     bool matching_is_finished = false;
     for (size_t i = 0; i < TOKEN_KEYWORDS_COUNT; i++) {
+      if (strlen(TOKEN_KEYWORDS[i].letters) < buf_idx) break;
       char keyword_char = TOKEN_KEYWORDS[i].letters[buf_idx];
       char keyword_next_char = TOKEN_KEYWORDS[i].letters[buf_idx + 1];
       bool keyword_is_over = (keyword_next_char == '\0');
@@ -74,9 +85,7 @@ enum LexState next_token(struct Lexer* lexer, struct Token* tok) {
         }
         break;
       }
-      if (letters_are_equal) {
-        break;
-      }
+      if (letters_are_equal) break;
     }
 
     buf_idx += 1;

@@ -9,7 +9,10 @@ typedef enum TokenKind {
   TOK_ID,
   TOK_IF,
   TOK_IMPORT,
+  TOK_NL,
+  TOK_SPACE,
   TOK_FUNC,
+  TOK_DOT,
 } TokenKind;
 
 typedef struct {
