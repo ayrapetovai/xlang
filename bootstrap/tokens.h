@@ -52,7 +52,7 @@ typedef enum {
   T_OP_ARROW, T_OP_FATARROW,                  /* `->` (§9 open)  `=>`         */
   T_OP_RECV,             /* `<-`                                               */
   T_OP_ADD_ASSIGN, T_OP_SUB_ASSIGN, T_OP_MUL_ASSIGN, T_OP_DIV_ASSIGN,
-  T_OP_MOD_ASSIGN, T_OP_SHL_ASSIGN, T_OP_SHR_ASSIGN,
+  T_OP_MOD_ASSIGN, T_OP_SHL_ASSIGN, T_OP_SHR_ASSIGN, T_OP_USHR_ASSIGN,
   T_OP_AND_ASSIGN, T_OP_OR_ASSIGN, T_OP_XOR_ASSIGN,  /* `&=` `|=` `^=`       */
 
   /* --- diagnostic tokens, NOT grammar terminals --------------------------- */

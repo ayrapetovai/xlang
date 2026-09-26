@@ -18,10 +18,12 @@ User struct = {
 }
 
 Color enum = {
-  RED GREEN BLUE
+  RED
+  GREEN
+  BLUE
 }
 
-SocketError error = { message string cause error }
+SocketError error = { message string, cause error }
 
 greet func (who const string) string = {
   "hello, %s{who}!"

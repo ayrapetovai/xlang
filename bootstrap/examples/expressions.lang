@@ -65,11 +65,9 @@ main func () int = {
   head := list.head!
   name := lookup(key)?
   check := e is IOError
-
-  // an intrinsic operator declaration (README ## Operators)
-  infix_operator== func (a const *string, b const *string) #compiler.inline()
-  do
-    if a.length != b.length then
-      return false
-    true
 }
+
+// an intrinsic operator declaration (README ## Operators) — top-level only
+infix_operator== func (a const *string, b const *string) bool #compiler.inline()
+do
+  a.length == b.length

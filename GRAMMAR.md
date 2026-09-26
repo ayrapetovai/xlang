@@ -324,7 +324,7 @@ ErrorBody = "{" { FieldDecl } "}"               -- error kinds are struct-shaped
                                                 -- (non-disposable, §12)
 ```
 Witnessed `IOError error = {…}`, `NumberError error = { message string }`,
-`SocketError error = { message string cause error }`,
+`SocketError error = { message string, cause error }`,
 `JsonWriteError error = { message string; cause error }`,
 `NotFound error = {}`, `Error { message string, code int }` (builtin).
 

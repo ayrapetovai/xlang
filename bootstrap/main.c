@@ -1,7 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "lexer.h"
+#include "parser.h"
 
 static char *read_file(const char *path) {
   FILE *f = fopen(path, "rb");
@@ -22,14 +24,11 @@ static char *read_file(const char *path) {
   return buf;
 }
 
-int main(int argc, char **argv) {
-  if (argc != 2) {
-    fprintf(stderr, "usage: bootstrap <file>\n");
-    return 2;
-  }
-  char *src = read_file(argv[1]);
+/* `bootstrap lex <file>` — token dump (default). */
+static int run_lex(const char *path) {
+  char *src = read_file(path);
   if (!src) {
-    fprintf(stderr, "bootstrap: cannot read '%s'\n", argv[1]);
+    fprintf(stderr, "bootstrap: cannot read '%s'\n", path);
     return 2;
   }
 
@@ -49,4 +48,46 @@ int main(int argc, char **argv) {
   }
   free(src);
   return 0;
+}
+
+/* `bootstrap ast <file>` — lex the whole file, parse to an AST, dump it. */
+static int run_ast(const char *path) {
+  char *src = read_file(path);
+  if (!src) {
+    fprintf(stderr, "bootstrap: cannot read '%s'\n", path);
+    return 2;
+  }
+
+  Parser p;
+  Node *root = NULL;
+  if (parser_run(&p, src, &root) != 0) {
+    fprintf(stderr, "bootstrap: %s\n", p.msg);
+    free(src);
+    return 1;
+  }
+  node_dump(root, 0, stdout);
+  arena_free(&p.ar);
+  free(p.toks);
+  free(src);
+  return 0;
+}
+
+int main(int argc, char **argv) {
+  const char *mode = "lex";
+  const char *file = NULL;
+  if (argc == 3 && strcmp(argv[1], "lex") == 0) {
+    mode = "lex";
+    file = argv[2];
+  } else if (argc == 3 && strcmp(argv[1], "ast") == 0) {
+    mode = "ast";
+    file = argv[2];
+  } else if (argc == 2) {
+    mode = "lex";
+    file = argv[1];
+  } else {
+    fprintf(stderr, "usage: bootstrap [lex|ast] <file>\n");
+    return 2;
+  }
+  if (strcmp(mode, "ast") == 0) return run_ast(file);
+  return run_lex(file);
 }

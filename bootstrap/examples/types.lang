@@ -51,15 +51,22 @@ queue chan[string]
 iter Iterable[T]
 arrT array[E]
 locked Locked[T]
-gen func [T] ()
+// generic function declaration (§4.6)
+tmpl func [T] (v T) T = { v }
 
 // function types carry no parameter names
 less func (const T, const T) bool
 
 // meta-type words are ordinary names in declaration position (§2.2 note)
-type enum = { VALUE TInt FLOAT STRING }
-field struct = { name type value }
-field type type
+type enum = {
+  VALUE TInt
+  FLOAT
+  STRING
+}
+field struct = {
+  name string
+  type type
+}
 
 // directives (§3.2)
 Credentials struct = {

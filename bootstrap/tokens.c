@@ -100,6 +100,7 @@ const char *token_kind_name(TokKind kind) {
     case T_OP_MOD_ASSIGN: return "%=";
     case T_OP_SHL_ASSIGN: return "<<=";
     case T_OP_SHR_ASSIGN: return ">>=";
+    case T_OP_USHR_ASSIGN: return ">>>=";
     case T_OP_AND_ASSIGN: return "&=";
     case T_OP_OR_ASSIGN: return "|=";
     case T_OP_XOR_ASSIGN: return "^=";

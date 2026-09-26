@@ -67,6 +67,7 @@ static TokKind keyword_of(const char *s, size_t n) {
 struct op { const char *s; TokKind kind; };
 
 static const struct op ops[] = {
+  { ">>>=", T_OP_USHR_ASSIGN },             /* must precede ">>>" (longest first) */
   { "<<~", T_OP_SHL_CY },   { ">>~", T_OP_SHR_CY },   { ">>>", T_OP_USHR },
   { "<<=", T_OP_SHL_ASSIGN }, { ">>=", T_OP_SHR_ASSIGN },
   { "..=", T_OP_RANGE_LE }, { "..<", T_OP_RANGE_LT },

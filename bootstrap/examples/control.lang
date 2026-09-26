@@ -2,7 +2,10 @@
 
 module control
 
-Status enum = { Accepted Rejected }
+Status enum = {
+  Accepted
+  Rejected
+}
 
 parse2x func (s const string) int! = {
   x := int.from(s)!
@@ -61,10 +64,10 @@ main func () int = {
 
   // select (§6.7)
   select {
-    <-cancel
-    job := <-jobs
-    results <- j * 2
-    default
+    <-cancel => done = true
+    job := <-jobs => out.println(job)
+    results <- j * 2 => sendResult()
+    default => idle()
   }
 
   // try / catch — the guarded region (C21, §6.8)
