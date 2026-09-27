@@ -6,7 +6,8 @@ Status enum = {
   Accepted
   Rejected
 }
-
+/* Documentation?
+ * */
 parse2x func (s const string) int! = {
   x := int.from(s)!
   x * 2

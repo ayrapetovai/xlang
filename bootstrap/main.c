@@ -50,6 +50,11 @@ int run_lex(char *filename) {
       break;
     }
     print_token(&t);
+    switch (t.kind) {
+      case TOK_SLC_START: lexer_skip_until(lexer, "\n"); break;
+      case TOK_MLC_START: lexer_skip_until(lexer, "*/"); break;
+      default:
+    }
   }
 
   lexer_close(lexer);

@@ -99,7 +99,7 @@ enum LexState lexer_next_token(struct Lexer* lexer, struct Token* tok) {
     bool read = reader_getch(lexer->reader, &c);
     if (!read && lexer->reader->error[0] != '\0') {
       // if no read and error present then error, else end of file
-      sprintf(lexer->error, "faild lexing: %s", lexer->reader->error);
+      sprintf(lexer->error, "faild lexing next token: %s", lexer->reader->error);
       return LEX_ERROR;
     }
 
@@ -118,7 +118,7 @@ enum LexState lexer_next_token(struct Lexer* lexer, struct Token* tok) {
         if (is_punct) state = WS_OP;
         break;
       case WS_WORD:
-        if (is_alpha) buf[buf_idx++] = c;
+        if (is_alpha || is_digit) buf[buf_idx++] = c;
         else {
           reader_ungetch(lexer->reader, c);
           lexer->col -= 1;
@@ -173,38 +173,43 @@ enum LexState lexer_skip_until(struct Lexer *lexer, const char* ancor) {
     bool read = reader_getch(lexer->reader, &c);
     if (!read && lexer->reader->error[0] != '\0') {
       // if no read and error present then error, else end of file
-      sprintf(lexer->error, "faild lexing: %s", lexer->reader->error);
+      sprintf(lexer->error, "faild lexing skip: %s", lexer->reader->error);
       return LEX_ERROR;
     }
 
-    if (c == '\n') {
-      lexer->line += 1;
-      lexer->col = 1;
-    } else {
-      lexer->col += 1;
+    if (!read) { // EOF
+      sprintf(lexer->error, "skip failed to reach ancor %s", ancor);
+      return LEX_ERROR;
     }
+
+    lexer->col += 1;
 
     switch (state) {
       case WS_SKIPPING:
-        if (c == ancor[ancor_ith]) {
+        if (c == '\n') {
+          lexer->line += 1;
+          lexer->col = 1;
+        }
+        if (c == ancor[0]) {
+          ancor_ith = 0;
           state = WS_STOPPING;
         }
         break;
       case WS_STOPPING:
-        if (!read) {
-          sprintf(lexer->error, "skip failed to reach ancor %s", ancor);
-          return LEX_ERROR;
-        }
         ancor_ith++;
         if (c != ancor[ancor_ith]) {
           if (ancor[ancor_ith] == '\0') {
             reader_ungetch(lexer->reader, c);
             lexer->col -= 1;
             return LEX_OK;
-          } else { // that was not ancor in parsed text
+          } else { // that was not the ancor in parsed text
             ancor_ith = 0;
             state = WS_SKIPPING;
           }
+        }
+        if (c == '\n') {
+          lexer->line += 1;
+          lexer->col = 1;
         }
         break;
       default:
