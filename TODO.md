@@ -1,5 +1,2 @@
-- out.println and others must panic on errors, for `not panicing output` there must be other functions.
-- Create `#compiler.private` directive, that is applied to name, and prevents name from being visible for linking.
-- user is allowed to put several `module` in one file.
-- names and code defined outside any function is global.
-- Global names are visible only from importing module in imported module.
+- Single inheritance, one level of inheritance only.
+- Function dispatching is available only if type generic T is interface.

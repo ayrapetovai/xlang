@@ -8,31 +8,35 @@
 Reader* new_reader(char* filename) {
   struct Reader *reader = malloc(sizeof(Reader));
   if (reader == NULL) return NULL;
+  reader->file = NULL;
+  reader->available = 0;
+  reader->pos = 0;
+
+  memset(reader->error, 0, sizeof reader->error);
+  memset(reader->unget_buf, 0, sizeof reader->unget_buf);
+
   FILE* f = fopen(filename, "ra"); // read only as text
   if (f == NULL) {
-    perror(reader->error);
-    return NULL;
+    sprintf(reader->error, strerror(errno));
+    return reader;
   }
 
   reader->file = f;
-  reader->available = 0;
-  reader->pos = 0;
-  memset(reader->error, 0, sizeof reader->error);
-  memset(reader->unget_buf, 0, sizeof reader->unget_buf);
   return reader;
 }
 
 bool reader_getch(struct Reader* reader, char *c) {
-  if (reader == NULL || c == NULL) return -1;
+  if (reader == NULL) return false;
 
   // check if the last operation was unget,
   // then ouer get must return the last ungetted char
-  size_t i = 0;
-  while (reader->unget_buf[i] != '\0' && i < sizeof reader->unget_buf) i++;
-  if (reader->unget_buf[0] != '\0' && i < sizeof reader->unget_buf) {
-    char ungetted = reader->unget_buf[i - 1];
-    reader->unget_buf[i - 1] = '\0'; // remove ungetted char, becasue we get it again
-    return ungetted;
+  int i = 0;
+  while (reader->unget_buf[i] != '\0' && i < (int) sizeof reader->unget_buf) i++;
+  i -= 1;
+  if (i >= 0) {
+    *c = reader->unget_buf[i];
+    reader->unget_buf[i] = '\0'; // remove ungetted char, becasue we get it again
+    return true;
   }
 
   if (reader->pos < reader->available) { // if we have something to read - we read it

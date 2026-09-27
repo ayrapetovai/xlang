@@ -6,6 +6,10 @@
 typedef enum TokenKind {
   TOK_UNDEF = 0,
 
+// numbers
+  TOK_INT_L,    // int literal
+  TOK_FLOAT_L,  // float literal
+
 // reserved words
   TOK_INTERFACE,
   TOK_CONTINUE,

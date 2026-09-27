@@ -9,7 +9,7 @@ typedef struct Lexer {
   char *current;
   int line;
   int col;
-  char error[128];
+  char error[256];
 } Lexer;
 
 typedef enum LexState {
@@ -22,9 +22,9 @@ typedef enum LexState {
 
 struct Lexer* new_lexer(struct Reader*);
 
-enum LexState next_token(struct Lexer*, struct Token*);
+enum LexState lexer_next_token(struct Lexer*, struct Token*);
 
-void close_lexer(struct Lexer*);
+void lexer_close(struct Lexer*);
 
 #endif
 

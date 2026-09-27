@@ -19,37 +19,45 @@ Bootstrap compiler does not support:
 - out.println is a direct call of C-printf
 */
 int run_exec(char *filename) {
-  printf("exec %s", filename);
+  printf("exec %s\n", filename);
   return 0;
 }
 
 int run_lex(char *filename) {
   struct Reader* reader = new_reader(filename);
+  if (strlen(reader->error) != 0) {
+    printf("reading error: %s\n", reader->error);
+    return 1;
+  }
   struct Lexer* lexer = new_lexer(reader);
+  if (strlen(lexer->error) != 0) {
+    printf("lexing error: %s\n", lexer->error);
+    return 1;
+  }
   int error_code = 0;
 
   while (true) {
     struct Token t = {};
-    enum LexState state = next_token(lexer, &t);
+    enum LexState state = lexer_next_token(lexer, &t);
     if (state == LEX_EOF) break;
     else if (state == LEX_PRG_ERROR) {
       printf("program error in lexer\n");
       error_code = 1;
       break;
     } else if (state == LEX_ERROR) {
-      printf("error %s\n", lexer->error);
+      printf("lexing error: %s\n", lexer->error);
       error_code = 2;
       break;
     }
     print_token(&t);
   }
 
-  close_lexer(lexer);
+  lexer_close(lexer);
   return error_code;
 }
 
 int run_ast(char *filename) {
-  printf("ast %s", filename);
+  printf("ast %s\n", filename);
   return 0;
 }
 
