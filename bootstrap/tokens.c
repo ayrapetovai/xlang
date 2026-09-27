@@ -82,6 +82,8 @@ const TokenDef TOKEN_KEYWORDS[] = {
   { TOK_DEC      , "--"        },
 
   { TOK_NL       , "\n"        },
+  { TOK_DQUOT    , "\""        },
+  { TOK_SQUOT    , "'"         },
   { TOK_SHARP    , "#"         },
   { TOK_LPAREN   , "("         },
   { TOK_RPAREN   , ")"         },

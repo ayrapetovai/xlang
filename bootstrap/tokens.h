@@ -65,22 +65,22 @@ TOK_OPERATOR_BEGIN,
   TOK_SHR_CY,
 
   // 2 char operators
-  TOK_SLC_START, // start of a single line comment
-  TOK_MLC_START, // start of a multi line comment
+  TOK_SLC_START, // start of a single line comment //
+  TOK_MLC_START, // start of a multi line comment  /*
   TOK_SWAP,
-  TOK_DEFINE,
+  TOK_DEFINE,    // :=
   TOK_SHL,
   TOK_SHR,
   TOK_AND,
   TOK_OR,
-  TOK_QQ,
+  TOK_QQ,        // ??
   TOK_LE,
   TOK_GE,
   TOK_EQ,
   TOK_NE,
-  TOK_ARROW,
-  TOK_FATARROW,
-  TOK_RECV,
+  TOK_ARROW,     // ->
+  TOK_FATARROW,  // =>
+  TOK_RECV,      // <-
   TOK_ADD_ASSIGN,
   TOK_SUB_ASSIGN,
   TOK_MUL_ASSIGN,
@@ -89,32 +89,34 @@ TOK_OPERATOR_BEGIN,
   TOK_AND_ASSIGN,
   TOK_OR_ASSIGN,
   TOK_XOR_ASSIGN,
-  TOK_INC,
-  TOK_DEC,
+  TOK_INC,      // ++
+  TOK_DEC,      // --
 
   // 1 char oprators
   TOK_SPACE,
-  TOK_NL,
-  TOK_SHARP,
-  TOK_LPAREN,
-  TOK_RPAREN,
-  TOK_LBRACKET,
-  TOK_RBRACKET,
-  TOK_LBRACE,
-  TOK_RBRACE,
+  TOK_NL,       // \n
+  TOK_DQUOT,    // "
+  TOK_SQUOT,    // '
+  TOK_SHARP,    // #
+  TOK_LPAREN,   // (
+  TOK_RPAREN,   // )
+  TOK_LBRACKET, // [
+  TOK_RBRACKET, // ]
+  TOK_LBRACE,   // {
+  TOK_RBRACE,   // }
   TOK_COLON,
-  TOK_AMP,
-  TOK_PIPE,
-  TOK_CARET,
+  TOK_AMP,      // &
+  TOK_PIPE,     // |
+  TOK_CARET,    // ^
   TOK_TILDE,
   TOK_PLUS,
   TOK_MINUS,
-  TOK_STAR,
+  TOK_STAR,     // *
   TOK_SLASH,
   TOK_PERCENT,
-  TOK_BANG,
+  TOK_BANG,     // !
   TOK_QMARK,
-  TOK_ASSIGN,
+  TOK_ASSIGN,   // =
   TOK_LT,
   TOK_GT,
   TOK_DOT,
