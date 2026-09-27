@@ -1119,3 +1119,91 @@ made false by value-params-move) and README's iterator *call sites*
     caught errors, per-iteration loop specs).  Lands as the HEAD commit of
     this session, subject `bootstrap: string interpolation (%s{} format
     specs) + escapes (decision C26)`, code and documentation together.
+27. **C27 ownership rules — memory-leak & memory-safety audit (performed, Sep 28)**:
+    a structured reanalysis of the normative core (`OWNERSHIP_RULES.md` §1–§7,
+    §12) and README §Memory Ownership, §Resources (dispose), §defer,
+    §Threads and synchronization, aimed at the places a user can write code
+    that leaks memory, and at the memory-safety properties of the rules as
+    written.  The bootstrap implements only a lexer as of this record, so
+    the findings bind the checker and runtime design, not code — the
+    design-level counterpart of the C25 implementation audit.
+
+    *Strengths confirmed (bars the design already holds):* no user-visible
+    free (O.2) removes the double-free/free-after-use class; arenas own
+    buffers and `dispose` owns *resources*, so the two free paths cannot
+    double-run; the three-lifetime + syntactic-containment discipline makes
+    returning a view of a local a compile error; slot take/reinit + the
+    handle barrier block the fork/double-close class; `panic` = abort
+    abandons rather than corrupts.
+
+    Findings (S = memory-safety violation, L = user-writable leak):
+
+    - **S1 (critical) growing-buffer view invalidation is unguarded**: the
+      single sanctioned invalidation point (growth invalidates outstanding
+      views — `buf += x`, `arr += v`) is checked by neither the checker (no
+      alias analysis, by design) nor the runtime, so fully checked code can
+      read freed/moved bytes through a stale view (`it := b.begin();
+      b += more; it.current()`).  Mitigation direction: make growth never
+      invalidate (grow into a *new* arena block, leaving the old extent
+      valid — stale, not dangling) or carry a generation tag checked at view
+      dereference.
+    - **L1 (high) arena accumulation across long-lived loops and
+      temporaries**: a braced loop body is one arena freed only when the loop
+      ends; a single-statement `do` body is not a block, so its allocations
+      land in the *outer* arena.  A server-style `loop true do { … }` grows
+      monotonically to OOM; per-iteration `s = a + " " + b` temporaries are
+      arena garbage on the same clock.  The only escape is an explicitly
+      nested per-iteration `{}`, which nothing documents or checks.
+      Mitigation direction: per-iteration loop arenas (with cross-arena
+      move-out of the tail value), or a checker-enforced per-iteration
+      inner-block idiom.
+    - **L2 (high, silent) refcounted-cell cycles and arena-hosted handles**:
+      §7 cells are reference-counted runtime memory with no cycle collector —
+      payload-in-cell A may hold a handle to cell B and vice versa, pinning
+      both refcounts ≥ 1 forever (cells + payloads leak).  Independently, the
+      decrement machinery sits "at the end of the lifetime in which each
+      handle appeared" — a *scope exit*; a handle embedded in arena-resident
+      memory (`&`-created structs, `[]T` elements) has no scope exit, and
+      arena bulk-free is not stated to traverse-and-decrement, so every such
+      handle leaks its refcount.  Mitigation direction: a morphological shape
+      check forbidding handles inside cell payloads / arena-resident shapes,
+      or teardown traversal (shapes are known per arena at compile time).
+    - **L3 (high, resource) assignment-overwrite drops the old occupant
+      without disposal**: replacing an owned disposable value
+      (`conn.fd = acquire()`) runs the compiler's deallocation machinery but
+      explicitly *never* a built dispose (OWNERSHIP_RULES §6; README §Slots),
+      while the exactly-once gate keys on end-of-lifetime, not mid-lifetime
+      replacement — so the previous fd/lock/handle leaks.  Mitigation
+      direction: dispose the old occupant as part of its replacement
+      machinery, or require take-out before overwrite.
+    - **L4 (medium, resource, spec gap) disposable temporaries and
+      undelivered cell payloads**: a disposable value dying at the end of an
+      expression has no specified discharge path (safest reading: the gate
+      rejects it — safe but inexpressible — but the record is silent,
+      leaving room for an implementation that silently drops it); a cell
+      freed at zero refs is "freed with its payload" without stating whether
+      a disposable payload's dispose is synthesized.  Needs one ruling.
+    - **S2 (medium, contract) clib("m") raw borrow**: documented as a caller
+      contract (arena must outlive the call; C must not retain) but not
+      checkable; a retained/async pointer becomes UAF written from safe
+      source.  Pin it like the async-registration rule (ownership move or
+      pool-promotion only).
+    - **L5 (low, acknowledged) abandoned coroutines and const pooling**: a
+      coroutine parked forever on an unclosed/unfed channel keeps its arena
+      chain alive (README: "Suspended coroutines keep their arena chain
+      alive") with no cancellation primitive mentioned; `const` crossings
+      join the module-global pool freed only on module unload, and the pool's
+      dedup/mortality is unspecified.  Needs a ruling (cancellation or
+      documented leak).
+
+    *Contradictions checked, no defect found:* `dispose` + arena cannot
+    double-free (dispose never frees memory in the model; per-variable
+    dealloc drops headers; the arena owns buffers); cross-arena thread moves
+    relocate backing but leave the old bytes arena-valid (stale, not
+    dangling); slot take/reinit + repair-before-escape + `swap(a, i, i)`
+    elision close the live-slot extraction corner.
+
+    Priorities recorded: **S1 and L2** before the checker/runtime can be
+    called sound; **L1 and L3** before the runtime serves long-lived
+    processes; **L4, S2, L5** are one-ruling gaps.  All are open items,
+    pending rulings, for the checker and the self-hosted compiler.

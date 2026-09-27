@@ -28,6 +28,7 @@ No exceptions but stacktraces.
 Panic is not recoverable, it destroys the whole application (with stack rollback).
 The `match` (aka `switch`) is strictly exhaustive.
 Dynamic types dispatching for interfaces, like in Go.
+Single inheritance, one level of inheritance only.
 String interpolation with formatting.
 Any value can be written to `ByteBuffer` which is suitable everywhere.
 Meta-type information is stored in the binary. Types are never erased.
@@ -171,6 +172,7 @@ Channel send/receive: `ch <- v` (moves/copies a value into the cell), `v = <-ch`
 Coroutine operator: `spawn f(args)` — starts `f` on its own coroutine, returns `void`
 Unwrap (propagate): postfix `!` on a `T!` (returns the intrinsic error from the function, or panics in `main`), postfix `?` on a `T?` (returns absence, or panics in `main`), and fallback `?? default` (keeps going with `default`) — see ``## `T?` and `T!` ``
 User-defined overloads: `infix_operator<`, `infix_operator==`, … take `const *T` operands (auto-borrowed, non-owning) — see "Copyable types".
+User-defined postfix: `postfix_operator[] func(r range) uint` — bit-range indexing, see `## Bytes`.
 
 ## Control structures
 
@@ -387,6 +389,9 @@ Permanent const struct = {      // only const instances can be created
 }
 p Permanent // all fields are const, the default value will have them
 ```
+
+Inheritance is single and one level deep: a struct may inherit from one
+base struct, and that base struct itself has no base.
 
 ### Enumeration declaration
 
@@ -1186,7 +1191,10 @@ if a template function needs some function it looks up the scope.
 
 A function compiled with dynamic dispatching does not look for functions:
 it requires the type to declare the interface with the marker (below) and
-dispatches through the interface's method table.
+dispatches through the interface's method table. Dispatching through the
+method table is available only when the generic type parameter is an
+interface (constrained, like `[E Iterable]`); with a bare `[T]` a template
+function is compiled from scratch for each instantiation.
 
 ```c
 newList func [T] () *Head[T]
@@ -1558,7 +1566,9 @@ pattern: read the length prefix, slice the body, parse the slice.
 Transforms — produce a new buffer: `b.or(0xFF)` / `b.and(0x0F)` mask each
 byte with `mask & 0xFF`; `b.xor(key)` is element-wise over the key bytes (a
 shorter key cycles); `b.not()` flips every bit. Byte arithmetic wraps modulo
-256; `0x` / `0b` literals are available.
+256; `0x` / `0b` literals are available. Bit-range reads use the same `[]`
+syntax through the user-defined `postfix_operator[] func(r range) uint`
+(see `## Operators`).
 
 Manual codecs are the recommended shape — a cursor makes them trivial:
 
