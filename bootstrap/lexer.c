@@ -55,6 +55,21 @@ void process_number(char* buf, struct Token* tok) {
   sprintf(tok->value, "%s", buf);
 }
 
+bool could_be_operator(char* buf, size_t buf_size, char next) {
+  char tmp[8] = {};
+  memcpy(tmp, buf, buf_size);
+  tmp[buf_size] = next;
+
+  for (size_t i = 0; i < TOKEN_KEYWORDS_COUNT; i++) {
+    TokenKind reserved_word_kind = TOKEN_KEYWORDS[i].kind;
+    if (TOK_OPERATOR_BEGIN < reserved_word_kind && reserved_word_kind < TOK_OPERATOR_END) {
+      if (strcmp(tmp, TOKEN_KEYWORDS[i].letters) == 0) {
+        return true;
+      }    }
+  }
+  return false;
+}
+
 enum LexState lexer_next_token(struct Lexer* lexer, struct Token* tok) {
   if (lexer == NULL || tok == NULL) return LEX_PRG_ERROR;
 
@@ -121,7 +136,7 @@ enum LexState lexer_next_token(struct Lexer* lexer, struct Token* tok) {
         }
         break;
       case WS_OP:
-        if (is_punct && c != '\n' && c != '.') buf[buf_idx++] = c;
+        if (is_punct && could_be_operator(buf, buf_idx, c)) buf[buf_idx++] = c;
         else {
           reader_ungetch(lexer->reader, c);
           lexer->col -= 1;

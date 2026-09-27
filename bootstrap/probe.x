@@ -9,7 +9,7 @@ error
 break
 yield
 spawn
-defer
+defer = *.
 catch
 char
 then
@@ -21,12 +21,12 @@ func
 
 void
 true
-uint
+uint >= ||
 try
 int
 do
 is
-in
+in >>>= x
 if
 qrstuvw abc
 xyz
