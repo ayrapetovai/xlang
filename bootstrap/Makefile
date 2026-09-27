@@ -7,4 +7,7 @@ bootstrap: main.c lexer.c reader.c parser.c tokens.c exec.c tokens.h reader.h le
 clean:
 	rm -f bootstrap
 
+tags: main.c lexer.c reader.c parser.c tokens.c exec.c tokens.h reader.h lexer.h parser.h exec.h
+	ctags -R --languages=C --exclude=.git --exclude=build -f tags .
+
 .PHONY: clean

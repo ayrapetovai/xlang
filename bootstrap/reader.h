@@ -1,8 +1,8 @@
 #ifndef READER_H
 #define READER_H
 
-#include <stdio.h>
 #include <stdbool.h>
+#include <stdio.h>
 
 typedef struct Reader {
   FILE *file;
@@ -13,13 +13,12 @@ typedef struct Reader {
   char error[128];
 } Reader;
 
-Reader* new_reader(char*);
+Reader *new_reader(char *);
 
-bool reader_getch(struct Reader*, char*);
+bool reader_getch(struct Reader *, char *);
 
-void reader_ungetch(struct Reader*, char);
+void reader_ungetch(struct Reader *, char);
 
-void reader_close(struct Reader*);
+void reader_close(struct Reader *);
 
 #endif
-

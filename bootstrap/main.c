@@ -16,6 +16,7 @@ Bootstrap compiler does not support:
 - UTF-8
 - libraries
 - compile-time code execution
+- out.println is a direct call of C-printf
 */
 int run_exec(char *filename) {
   printf("exec %s", filename);

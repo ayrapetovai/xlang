@@ -4,7 +4,7 @@
 #include <stddef.h>
 
 typedef enum TokenKind {
-  TOK_UNDEF,
+  TOK_UNDEF = 0,
   TOK_SEP,
   TOK_ID,
   TOK_IF,
