@@ -20,6 +20,18 @@ struct Lexer* new_lexer(struct Reader* reader) {
   return lexer;
 }
 
+bool strcmplen(const char* s, const char* t, size_t *size) {
+  const char *t_start = t;
+  while (*s != '\0' && *t != '\0' && *s == *t) {
+    s++;
+    t++;
+  }
+  bool are_equal = *s == '\0' && *t == '\0';
+  while (*t++ != '\0');
+  *size = t - t_start;
+  return are_equal;
+}
+
 enum LexState next_token(struct Lexer* lexer, struct Token* tok) {
   if (lexer == NULL || tok == NULL) return LEX_PRG_ERROR;
 
@@ -33,7 +45,7 @@ enum LexState next_token(struct Lexer* lexer, struct Token* tok) {
   while (true) {
     char c;
     bool read = reader_getch(lexer->reader, &c);
-    if (!read) {
+    if (!read && buf_idx == 0) {
       if (lexer->reader->error[0] != 0) {
         strcpy(lexer->error, lexer->reader->error);
         return LEX_ERROR;
@@ -73,19 +85,12 @@ enum LexState next_token(struct Lexer* lexer, struct Token* tok) {
     int found_word_idx = -1;
     bool matching_is_finished = false;
     for (size_t i = 0; i < TOKEN_KEYWORDS_COUNT; i++) {
-      if (strlen(TOKEN_KEYWORDS[i].letters) < buf_idx) break;
-      char keyword_char = TOKEN_KEYWORDS[i].letters[buf_idx];
-      char keyword_next_char = TOKEN_KEYWORDS[i].letters[buf_idx + 1];
-      bool keyword_is_over = (keyword_next_char == '\0');
-      bool letters_are_equal = (c == keyword_char);
-      if (keyword_is_over) {
-        if (letters_are_equal) { // word is found in keywords
-          matching_is_finished = true;
-          found_word_idx = i;
-        }
+      size_t keyword_len;
+      matching_is_finished = strcmplen(buf, TOKEN_KEYWORDS[i].letters, &keyword_len);
+      if (matching_is_finished) found_word_idx = i;
+      if (matching_is_finished || buf_idx > keyword_len) {
         break;
       }
-      if (letters_are_equal) break;
     }
 
     buf_idx += 1;
