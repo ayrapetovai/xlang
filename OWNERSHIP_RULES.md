@@ -13,7 +13,9 @@ runtime mapping is in `GO_RUNTIME_MAPPING.md`.
 1. The `defer` operator fires at the end of the lifetime where it was defined.
 2. Memory deallocation must be implicit.
 3. Destruction (by `dispose` if defined) must be explicit, otherwise a
-   compilation error.
+   compilation error.  *(Amended C30: at runtime-initiated ends of lifetime
+   the value's drop runs by shape — cell free, container/arena drop,
+   overwrite-after-take — see §1.)*
 4. The `dispose` function always has memory deallocation machinery for the
    passed parameter at the end of its lifetime.
 5. The `dispose` function can take more than one argument, but the first one
@@ -53,13 +55,22 @@ runtime mapping is in `GO_RUNTIME_MAPPING.md`.
 ## 1 — Destruction and deallocation
 
 - Lifetimes are exactly three: **code block scope**, **function body**,
-  **expression (temporary value)**.
+  **expression (temporary value)** — plus **each loop iteration** as an
+  arena and defer lifetime (C30, §5).
 - Destruction is **implicit memory deallocation** plus, only for types that
-  define `dispose`, an **explicit `dispose` call** written by the program.
+  define `dispose`, an **explicit `dispose` call** written by the program at
+  the value's **user-initiated** end of lifetime.  **Runtime-initiated ends
+  run the value's drop by shape (C30, amends O.3):** cell free (§7),
+  container/arena drop, and overwrite-after-take (§6) dispose or decrement
+  implicitly — O.3's "must be explicit" governs only user-written disposal.
 - The compiler generates the deallocation machinery **inside the `dispose`
   body**, never at call sites; field disposes run in declaration order. The
   checker verifies exactly one discharge (dispose, defer, or move-out)
-  before a disposable value dies.
+  before a disposable value dies — save the one exemption, a `T?` payload
+  (§8, C30).  **The gate is dominance-based (C30):** dispose, defer, or
+  move-out must dominate every path from the value's last owned use to the
+  end of its lifetime; intra-scope reachability is tracked, with no
+  interprocedural or lifetime inference and no alias analysis.
 - A type defining **no** `dispose` gets compiler-generated deallocation at
   the **end of the variable's scope** (arena bulk-free; refcount decrement
   for shared-cell handles).
@@ -68,10 +79,17 @@ runtime mapping is in `GO_RUNTIME_MAPPING.md`.
   of the expression — dropping a disposable temporary in place is a compile
   error; auto-dispose is not generated, O.3 stays strict.
 - `defer` fires at the end of the lifetime where it was defined (LIFO,
-  before arena teardown); a deferred body must be infallible.
+  before arena teardown); inside a loop body that end is the **iteration's**
+  (C30, §5) — deferred disposal in a loop runs per iteration; a deferred
+  body must be infallible.
 - **`panic` aborts the program and skips defers** — an intrinsic exit, never
   user-callable: `panic(...)` in user code is a compile error (C20); failure
   is always spelled `T?` / `T!`. No invariant survives.
+- **A closure's environment is dropped by shape (C30):** a closure owns its
+  captures; when the closure value dies without having run (an abandoned
+  registration), the machinery runs the drop of owned disposable captures —
+  abandonment cannot leak a captured resource.  Captures are checked at the
+  closure's definition site like any function body.
 
 ## 2 — Ownership and transfers
 
@@ -96,7 +114,8 @@ runtime mapping is in `GO_RUNTIME_MAPPING.md`.
   follow the same rule.
 - Spawning a coroutine is a different lifetime: only **ownership transfer**
   crosses — never a view. Exception per §O.15: `Mutex[T]`, `chan[T]`,
-  `Atomic[T]` are refcounted handles and cross by sharing.
+  `Atomic[T]` are refcounted handles and cross by sharing — and crossing
+  **shares increment** the count (C30, §7).
 - A function that does not own a value cannot destroy it (`dispose` on a
   view is a compile error, §O.12).
 - **Constness widens, never narrows.** Writing through a `const` view is a
@@ -118,7 +137,10 @@ runtime mapping is in `GO_RUNTIME_MAPPING.md`.
   `find`-style search (see `LINKED_LIST.md`).
 - `clib("m")` borrows are **`const *T` only and live for the call (C28)**;
   retention is sanctioned only by the async-registration rule — an ownership
-  move or a pool-promotion, never a view.
+  move or a pool-promotion, never a view.  The C body's non-retention is a
+  **contract, not a checkable obligation (C30)** — the one named carve-out
+  from the "all safety is compiler-enforced" claim, repeated in README; the
+  caller side remains enforced.
 
 ## 5 — Arenas (C7)
 
@@ -136,6 +158,11 @@ runtime mapping is in `GO_RUNTIME_MAPPING.md`.
 - **Each loop iteration is an arena (C28):** allocations inside the
   iteration die at its end; a value that must survive is moved out, its
   backing relocated — exactly the thread-boundary move mechanism.
+- **A store into an outer binding allocates in that binding's arena (C30):**
+  `acc += x` where `acc` predates the loop lands the new backing in `acc`'s
+  arena, never the iteration's — loop-carried accumulators are safe and
+  bounded, and only iteration-local temporaries die per iteration.
+  `defer` inside the iteration fires at the iteration's end (§1).
 - The module-global constant pool is **interned by value (C28):** entries
   are shared by comparable values, so growth is bounded by the distinct
   constants; entries are freed only on module unload.
@@ -194,8 +221,15 @@ runtime mapping is in `GO_RUNTIME_MAPPING.md`.
   the **sanctioned cancellation (C28)** — a parked receive on a
   closed-and-drained channel returns absence.
 - Sending an owned mutable value **moves** it across; const handles are
-  shared. `Atomic[T]` requires `T` a lock-free scalar, checked per
-  instantiation.
+  shared — and sharing **increments (C30):** every handle value entering a
+  new lifetime (spawn argument, channel send, closure capture) bumps the
+  count, each scope-exit decrement balances it, and the cell dies when all
+  co-owners' lifetimes end.  `Atomic[T]` requires `T` a lock-free scalar,
+  checked per instantiation.
+- **A receive is ownership (C30):** the unwrapped payload faces the full
+  gate — discarding an unwrapped disposable (`_ = fd?`) or an unused
+  select-arm binding is a compile error; the `T?` layer itself is exempt
+  (§8), so `_ = <-ch` discards an *Option*, not the payload.
 
 ## 8 — Errors (intrinsic) (C10)
 
@@ -220,6 +254,13 @@ runtime mapping is in `GO_RUNTIME_MAPPING.md`.
   Assignment to a `T?` target wraps the same way: `x = v` wraps, `x = {}`
   clears; a declared `T?` defaults to absent. The implicit tail return
   wraps like `return`. `main`'s failure path is a `panic` instead (§1).
+  The `T?` shape is **exempt from the dispose gate (C30):** clearing
+  (`x = {}`) or overwriting a `Some` that holds a disposable drops the old
+  payload without discharge — an accepted, documented leak — and
+  `_ = <-ch`-style discards of the Option reuse that exemption.  The
+  **unwrap is a consume**: the unwrapped owned binding faces the full gate,
+  even at `_` (C30/8) — only non-disposable payloads may be discarded at
+  `_`.
 - Reads are **obligated-unwrap**: a `T?` payload is read only through `?`
   (unwrap-propagate), `?? default`, the checked `if/loop …?` form, or the
   absence tests `==`/`!= {}`; a `T!` payload only through `!` or `try`. A
@@ -323,7 +364,10 @@ runtime mapping is in `GO_RUNTIME_MAPPING.md`.
   `module_initializer`, called from the main module's initializer section
   in module-definition order — earlier-included imports first. A global is
   visible only across a **direct import edge**: no reverse visibility, no
-  transitivity.
+  transitivity.  **Module unload drops owned disposable globals by shape
+  (C30):** the synthesized `module_unload` runs each owning global's drop,
+  like a block ends its locals; only the const pool and values documented
+  as process-anchored live to process exit.
 - `#compiler.private` removes the name from the link-visible set;
   referencing it from an importing module is a compile error.
 - Output (C22): `out.println` / `out.print` / `out.error` **abort on write

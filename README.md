@@ -580,7 +580,11 @@ Memory is owned, moved, or borrowed — never shared-mutable.
 - **Each loop iteration is an arena** (decision C28): allocations inside one
   iteration die at the iteration's end; a value that must survive the
   iteration is moved out with its backing relocated — the same relocation as
-  a thread-boundary move.
+  a thread-boundary move. **A store into an outer binding allocates in that
+  binding's arena** (decision C30): `acc += x` with `acc` declared before
+  the loop lands its new backing in `acc`'s arena, never the iteration's, so
+  loop-carried accumulators are safe and bounded. `defer` inside the
+  iteration fires at the iteration's end (decision C30).
 - **A function body is not an arena.** A call opens no arena of its own: the
   callee's `&`-creations and owned buffers land in the nearest enclosing
   *statement-block* arena — the caller's. So a function may return an
@@ -590,9 +594,10 @@ Memory is owned, moved, or borrowed — never shared-mutable.
   its per-variable deallocation there (R1) — even though the underlying buffer
   lives in the outer arena.
 - Lifetimes are exactly three — **code block scope**, **function body**,
-  **expression (temporary value)**. A temporary not bound to a name dies at
-  the end of the enclosing expression; a bound one (`x := f()`) extends to
-  the binding's lifetime.
+  **expression (temporary value)** — plus **each loop iteration** as an
+  arena and defer lifetime (see `### Where memory lives`, decision C30). A
+  temporary not bound to a name dies at the end of the enclosing
+  expression; a bound one (`x := f()`) extends to the binding's lifetime.
 
 ```c
 { // code block is a lifetime space
@@ -738,14 +743,20 @@ lifetime inference, no alias analysis.
 - Closures capture by value (copy const handles, move owned values); they own
   their environment and may escape. A callback registered asynchronously runs
   as another coroutine: owned moves and frozen shares cross in; a view in its
-  captures is a compile error.
+  captures is a compile error. A closure's environment is dropped by shape
+  (decision C30): an abandoned registration still releases its owned
+  disposable captures, and captured ownership is checked at the definition
+  site like any function body.
 - Channels: sending an owned mutable value moves it; const handles are shared.
   Suspended coroutines keep their arena chain alive.
 - clib("m"): the C borrow is `const *T` only (C may not write through it) and
   live for the synchronous call; the caller's arena encloses the call. C must
   not retain the pointer after return — retention is sanctioned only through
   the async-registration rule (ownership move or pool-promotion, never a
-  view) (decision C28).
+  view) (decision C28). "Must not retain" is a **contract on the C body, not
+  a checkable obligation** — the one named carve-out from "all safety is
+  compiler-enforced": the caller side is enforced, the C side is trusted
+  (decision C30).
 - Asynchronous registrations (epoll / kqueue / io_uring completions) retain
   their buffer past the call: they are crossing sites, so they take an
   ownership move or a pool-promotion — never a view.
@@ -788,8 +799,13 @@ handle crosses a thread boundary by sharing; the cell lives in runtime
 memory, never in an arena, so it can never dangle. The cell stays mutable
 behind the `const` handle, exactly as `ch <- v` mutates a channel behind its
 handle. The deallocation machinery is embedded at the end of the lifetime in
-which each handle appeared: a scope-exit decrements the reference count, and
-at zero the cell is freed and its payload destroyed.
+which each handle appeared: a scope-exit decrements the reference count, a
+handle stored in arena-allocated memory is decremented by the container's
+synthesized drop (decision C28), and **crossing shares increment** (decision
+C30) — entering a new lifetime bumps the count, so the cell dies only when
+all co-owners' lifetimes end. At zero the cell is freed and its payload
+**runs its drop** (decision C28): a disposable payload is disposed, a handle
+payload decrements — by shape.
 
 ### Atomics
 
@@ -842,7 +858,9 @@ up and transfer the value directly. The handle is a **refcounted pointer**
 *mutable view of the cell*, implemented with synchronization under the hood
 of the language. The cell's memory is managed by the reference count — its
 deallocation machinery is embedded at the end of the lifetime in which each
-handle appeared, and at zero the cell is freed with its payload.
+handle appeared, and at zero the cell is freed and its payload **runs its
+drop** (decision C28): an undelivered disposable payload is disposed, a
+handle payload decrements — by shape.
 
 Closing is a runtime operation on the shared cell, not an owner-exclusive
 one: **any coroutine holding a handle may close** it with `ch.dispose()`.
@@ -883,6 +901,12 @@ means closed and drained. `loop x in ch` iterates until absence.
 `chan[T].new(16)` is
 buffered — sends settle while a slot is free. After `dispose()` a send
 aborts, buffered values still drain, and a double-close aborts too.
+A receive is **ownership** (decision C30): the receive yields `T?`, and the
+Option layer is exempt from the dispose gate (decision C30) — so discarding
+the Option (`_ = <-ch`) is legal; an *unwrapped* owned payload faces the
+full gate, so bind a name and then `dispose()` or move it out. Discarding
+an unwrapped disposable (`_ = fd?`) or an unused select-arm binding is a
+compile error.
 Unbuffered sends and receives park the coroutine, the same machinery as
 `lock()`; when every coroutine is parked with no work left, the program
 aborts — Go's "all goroutines are asleep".
@@ -1126,7 +1150,11 @@ intrinsic error from a handler). In a `T?` function `return v` wraps the
 success and a bare `return` returns **absence**. Assignment to a `T?`
 target wraps the same way: a declared `T?` — local or field — defaults to
 absent, `x = v` wraps, `x = {}` clears. The implicit tail return wraps like
-`return`.
+`return`. The `T?` shape is **exempt from the dispose gate** (decision C30):
+clearing or overwriting a `Some` that holds a disposable drops it without
+discharge — an accepted, documented leak — and `_ = <-ch`-style discards
+reuse that exemption; only an *unwrap* (a consume) carries the obligation
+on to the new owner.
 
 **Reading the shapes is obligated-unwrap** — the checker rejects any bare
 use of a `T?` as its `T` (arithmetic, passing to a `T` parameter, assigning
@@ -1388,6 +1416,10 @@ field struct = {
   main module — the very first thing a binary runs. They execute in
   **module definition order**, so an imported module's initializer that was
   included earlier runs first (dependencies before dependents).
+- **Module unload drops owned disposable globals by shape** (decision C30):
+  a synthesized `module_unload` runs each owning global's drop, like a block
+  ends its locals; only the const pool and values documented as
+  process-anchored live to process exit.
 - A global is visible **only across a direct import edge**: module `B`'s
   globals are visible in `A` exactly when `A` imports `B` — never
   reversed, never transitively.
@@ -1663,7 +1695,11 @@ discharged by exactly one of:
   path.
 
 The check keys on the **last owned use**, not on scope text: a value that
-moved out owes nothing, a value that only lent a view still owes. Generic
+moved out owes nothing, a value that only lent a view still owes. The gate
+is **dominance-based** (decision C30): dispose, defer, or move-out must
+dominate every path from the last owned use to the end of the lifetime —
+intra-scope reachability is tracked, no interprocedural or lifetime
+inference, no alias analysis. Generic
 functions are templates compiled per concrete type, so the obligation is
 checked per instantiation — a generic body that neither disposes nor re-moves
 its `&T` parameter fails to instantiate for a disposable `T`. Panic bypasses
@@ -1710,8 +1746,10 @@ A defer is **registered by execution**: control passes the `defer` statement
 and the body is scheduled. This is what makes try-catch presence invisible —
 a defer written after a `try` exists if and only if that try succeeded,
 because a failed try jumps straight to `catch` and the defer statement is
-never touched. No failure-slice machinery, no path-sensitive tracking of
-"which disposables exist on this path".
+never touched. No failure-slice machinery, and no interprocedural or
+lifetime inference: intra-scope reachability — which disposables a path
+carries — is tracked, which is exactly what the dominance gate (decision
+C30) keys on.
 
 A disposable bound inside a guarded scope must be discharged with `defer` (or
 moved out); an explicit `v.dispose()` covers only the success path, since the

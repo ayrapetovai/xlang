@@ -1255,3 +1255,143 @@ made false by value-params-move) and README's iterator *call sites*
     one shape-derived mechanism: wherever an owned value is dropped, the
     compiler runs the machinery its shape requires (dispose, decrements,
     elementwise), which the normative core now calls the value's **drop**.
+29. **C29 ownership rules — reanalysis after C28 (performed, Sep 28)**: a
+    second audit of the normative core with the C28 rulings applied, on
+    three lenses — (1) internal contradictions, (2) user-writable leak
+    scenarios, (3) cases where disposal is a documented contract rather
+    than a compiler-enforced obligation (the stated bar: all safety
+    compiler-enforced).  Findings ranked S (corruption from checked code),
+    L (user-writable leak), W (wording contradiction / doc drift), C
+    (unenforceable contract).  C28's ten rulings all hold; this pass targets
+    what C28 left open and what its own wording introduced.
+
+    *C27/C28 re-confirmed closed:* S1 growth (C28/1), L1 iteration arenas
+    (C28/2), L2 cell cycles + arena-hosted handles (C28/3+4), L3 overwrite
+    (C28/5), L4 temporaries + cell-free drop (C28/6+7), S2→C28/8 caller
+    side, L5→C28/9+10.
+
+    Findings (each decision-shaped, one ruling away):
+
+    - **S3 (critical) cross-iteration write-through dangles outer bindings**:
+      C28/2 makes each loop iteration an arena freeable at its end, but the
+      common `acc []int = {}; loop … do acc += x` pattern is a write-through
+      into an *outer* binding, not a move-out — `+=` allocates at the nearest
+      enclosing statement-block arena, which is now the iteration, so `acc`'s
+      backing dies with iteration 1 and every later iteration reads
+      freed bytes.  No arena-escalation clause ("a store into an outer
+      binding relocates the value's backing into that binding's arena")
+      exists in core §5 or README "Where memory lives".
+    - **S4 (critical) const-handle sharing without a stated refcount
+      increment**: §3/§O.15 cross handles by "sharing"; §7 embeds the
+      decrement at each lifetime's scope-exit.  `spawn pong(ch)` puts the
+      same handle in a second lifetime whose exit decrements too — the count
+      balances only if sharing *increments*, which no text states.  If shares
+      are zero-cost borrows, the caller's scope-exit frees the cell while
+      `pong` still runs (UAF).  C28/3 avoided cell↔cell refcount math but
+      left the thread-boundary increment unruled.
+    - **S5 defer vs per-iteration arenas — two conflicting firing points**:
+      O.1 "defer fires at the end of the lifetime where it was defined" vs
+      README "the end of the enclosing block", with an iteration now a
+      lifetime.  `loop { defer fd.close() }` either disposes on iteration 1
+      and double-closes (a documented runtime abort) on iteration 2, or
+      defers to loop end contradicting O.1 for the iteration lifetime.
+      Neither reading is pinned.
+    - **W1 O.3 "destruction must be explicit, else CE" vs C28/7 implicit
+      cell-free drop**: the absolute O.3 wording (§O, §1) now coexists with
+      synthesized drop machinery that runs a disposable payload's dispose
+      implicitly at cell free; C28/6 kept O.3 strict for temporaries.  The
+      core enforces "explicit at user-ends, implicit at runtime-ends" while
+      still printing the absolute wording.
+    - **W2 "no path-sensitive tracking" vs "keys on the last owned use"**:
+      README defer denies path-sensitive tracking, README Resources both keys
+      on the last owned use (dataflow) and demands defer in guarded scopes
+      because an explicit dispose "cannot cover the failure path" — which is
+      exactly path reasoning.  The checker's power must be pinned (e.g.
+      dominance-based gate, intra-scope reachability yes, no interprocedural
+      or lifetime inference).
+    - **W3 README drift**: README Threads still says cell free "destroys its
+      payload" and teaches only scope-exit decrements, contradicting core §7
+      (payload drop runs dispose; C28/4 arena-hosted decrements).  The C28
+      wording pass over README was partial.
+    - **L6 abandoned async closures holding owned disposable captures**:
+      escaping closures move owned values in; if the registration is dropped
+      / never invoked, whether environment-drop runs the captured disposables'
+      drop machinery is unstated — an abandoned cleanup callback leaks its
+      resource.
+    - **L7 global disposables and module unload**: only the const pool is
+      "freed on module unload"; an owned disposable global has no stated
+      discharge point.
+    - **L8 swallowed channel payloads**: `_ = <-ch` and select arms that bind
+      and never use are unriled — receiving-as-ownership and the meaning of
+      `_` for a disposable payload are never stated (C28/7 closes undelivered,
+      not discarded).
+    - **L9 disposable payloads in `T?` shapes**: errors ban disposable
+      fields; Optional does not.  `x = {}` clears a `Some(Fd)` with no
+      stated drop and no take-first wording for payloads.
+    - **C1 clib retention is structurally unenforceable**: C28/8 pins the
+      caller side (const, call-live, async = move/pool) — all checked; "C
+      must not retain the pointer" is a contract on the C body no language
+      check can see (retained `const *T` ⇒ stale/dangling reads).  Needs an
+      explicit carve-out ruling so the "all safety compiler-enforced" claim
+      is stated precisely.
+
+    Verdict: every finding except C1 is enforceable by machinery the design
+    already has (arena selection on assignment, refcount balance, derived
+    shapes, the dispose gate) and is one ruling from closure; C1 needs a
+    documented contracts carve-out.  Open items S3, S4, S5, W1, W2, L6, L7,
+    L8, L9, C1, W3 await the C29 interview.
+30. **C30 ownership fixes — C29-ruling application (user-ruled, Sep 28)**:
+    interview follow-up to the C29 audit — ten rulings, one per open item,
+    applied to `OWNERSHIP_RULES.md` and README:
+    (1) **arena escalation on store to an outer binding** — a store into a
+    binding that predates the loop allocates the value's backing in that
+    binding's arena, never the iteration's; only iteration-local temporaries
+    die per iteration, so loop-carried accumulators are safe and bounded
+    (core §5; README "Where memory lives"); answer 1A — closes S3.
+    (2) **crossing shares increment** — every handle value entering a new
+    lifetime (spawn argument, channel send, closure capture) bumps the
+    refcount; each scope-exit decrement balances it; the cell dies when all
+    co-owners' lifetimes end — sharing is counted co-ownership, never a
+    borrow (core §3, §7; README §Threads/§Channels); answer 2A — closes S4.
+    (3) **defer in a loop fires at the iteration's end** — an iteration is a
+    lifetime, so deferred disposal in a loop body runs per iteration, before
+    the iteration arena tears down; README defer gains the iteration clause
+    (core §1, §5); answer 3A — closes S5.
+    (4) **O.3 amended: user-initiated vs runtime-initiated ends** — explicit
+    `dispose` remains mandatory when the *user* ends a lifetime; cell free,
+    container/arena drop, and overwrite-after-take run the value's drop by
+    shape; §O.3 carries the amendment note and §1 names the exemption list
+    (I answered W1 4A); closes the W1 contradiction.
+    (5) **dominance-based gate** — dispose/defer/move-out must dominate
+    every path from the value's last owned use to the end of its lifetime;
+    intra-scope reachability is tracked, no interprocedural or lifetime
+    inference, no alias analysis; README "no path-sensitive tracking" is
+    reworded (core §1; README §Resources/§defer); answer 5A — closes W2.
+    (6) **closure environment drop by shape** — a closure owns its captures;
+    when the closure value dies without having run (abandoned registration),
+    the machinery drops owned disposable captures; captures are checked at
+    the closure's definition site like any function body (core §1; README
+    §Semantics); answer 6A — closes L6.
+    (7) **module unload drops owned globals by shape** — the synthesized
+    `module_unload` runs each owning global's drop; only the const pool and
+    values documented as process-anchored live to process exit (core §12
+    C22; README modules); answer 7A — closes L7.
+    (8) **a receive is ownership** — the unwrapped payload faces the full
+    gate: discarding an unwrapped disposable or an unused select-arm binding
+    is a compile error; the `T?` layer itself is covered by ruling (9) —
+    the two read together: `_ = <-ch` discards the *Option* (legal), `_ =
+    fd?` discards an *owned Fd* (compile error) (core §7, §8; README
+    §Channels/§Select); answer 8A — closes L8.
+    (9) **`T?` payloads are exempt from the dispose gate** — clearing or
+    overwriting a `Some` that holds a disposable drops it without discharge,
+    an accepted documented leak; only the unwrap path carries the obligation
+    on (core §8; README §T?); answer 9C — closes L9 by acceptance.
+    (10) **clib: one named carve-out** — the caller side stays enforced
+    (const, call-live, async = move/pool); "C must not retain" is a contract
+    on the C body, stated as the single exception to the "all safety is
+    compiler-enforced" claim (core §4; README §Semantics); answer 10A —
+    closes C1 by documentation.
+    The rulings close every C29 finding — S3 (1), S4 (2), S5 (3), W1 (4),
+    W2 (5), L6 (6), L7 (7), L8 (8), L9 (9), C1 (10), and W3 by the wording
+    pass — and (1)–(3) pin the per-iteration-arena machinery (C28/2) that
+    C28 left soft.
