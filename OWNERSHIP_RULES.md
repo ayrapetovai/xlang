@@ -63,6 +63,10 @@ runtime mapping is in `GO_RUNTIME_MAPPING.md`.
 - A type defining **no** `dispose` gets compiler-generated deallocation at
   the **end of the variable's scope** (arena bulk-free; refcount decrement
   for shared-cell handles).
+- **Temporaries of disposable type (C28):** a disposable value that ends its
+  life as an expression temporary must be moved out or bound before the end
+  of the expression — dropping a disposable temporary in place is a compile
+  error; auto-dispose is not generated, O.3 stays strict.
 - `defer` fires at the end of the lifetime where it was defined (LIFO,
   before arena teardown); a deferred body must be infallible.
 - **`panic` aborts the program and skips defers** — an intrinsic exit, never
@@ -112,6 +116,9 @@ runtime mapping is in `GO_RUNTIME_MAPPING.md`.
   addressable as values, taking **`const *T`** — non-owning, operands
   auto-borrowed, never moving. A user-type `infix_operator==` powers
   `find`-style search (see `LINKED_LIST.md`).
+- `clib("m")` borrows are **`const *T` only and live for the call (C28)**;
+  retention is sanctioned only by the async-registration rule — an ownership
+  move or a pool-promotion, never a view.
 
 ## 5 — Arenas (C7)
 
@@ -122,9 +129,16 @@ runtime mapping is in `GO_RUNTIME_MAPPING.md`.
   function body (§1).
 - Owned `[]T` grows by **element move-append** — `buf += a[i]` moves the
   value into a freshly grown arena slot (copies nothing; heap types need no
-  Copy; `MERGE_SORT.md`). **Buffer growth invalidates outstanding views**:
-  it is the single sanctioned invalidation point — hold no view into a
-  growing buffer.
+  Copy; `MERGE_SORT.md`). **Growth re-points a view, it never invalidates
+  one (C28):** arena regions are not freed until their block's exit, so an
+  outstanding view stays memory-safe after growth and re-reads the live
+  buffer at its original offset — there is no invalidation point.
+- **Each loop iteration is an arena (C28):** allocations inside the
+  iteration die at its end; a value that must survive is moved out, its
+  backing relocated — exactly the thread-boundary move mechanism.
+- The module-global constant pool is **interned by value (C28):** entries
+  are shared by comparable values, so growth is bounded by the distinct
+  constants; entries are freed only on module unload.
 - No GC and no cycle recovery: cycles are impossible by construction.
 
 ## 6 — Slots (the checker's linear discipline)
@@ -148,11 +162,13 @@ runtime mapping is in `GO_RUNTIME_MAPPING.md`.
   post-take state. A long-lived table encodes absence with the `T?`
   default, never with a vacated slot (`HASH_MAP.md`).
 - **Assignment drops the previous occupant in place** — replacing an owned
-  value (`slot.entry = v`, `m.buckets = nb`) deallocates the old one
-  with compiler-generated machinery, never a built `dispose` (take-first
-  stays the idiom for disposable types). A **dropped container may hold
-  vacated slots**: repair-before-escape governs containers that leave the
-  function, not ones that die in place.
+  value (`slot.entry = v`, `m.buckets = nb`) deallocates the old one with
+  compiler-generated machinery.  If the old occupant is **disposable**,
+  replacing it is a compile error unless it was taken out first (C28) —
+  overwrite must never drop a live resource; take-first is a rule, not an
+  idiom.  A **dropped container may hold vacated slots**: repair-before-
+  escape governs containers that leave the function, not ones that die in
+  place.
 - Copying a heap value by value is a compile error; reading an uninitialized
   slot is a compile error; the checker tracks slots linearly
   (initialized → taken → reinitialized), morphologically, no inference.
@@ -162,8 +178,21 @@ runtime mapping is in `GO_RUNTIME_MAPPING.md`.
 - The only shared mutable state. Refcounted handles to runtime-managed
   cells — each handle is a mutable view of the cell with synchronization
   under the hood; the cell lives in runtime memory, never in an arena; at
-  zero references the cell is freed and its payload destroyed.
-- Any holder of a channel may close it; **double close aborts**.
+  zero references the cell is freed and its payload runs its **drop** (C28)
+  — `dispose` if disposable, refcount decrements if it holds handles, by
+  shape — so an undelivered disposable payload in a drained-then-closed
+  channel is disposed, not leaked.
+- **A cell payload's shape must not contain a handle (C28):**
+  `chan[chan[T]]`, `Mutex[struct { ch chan[T] }]`, … are compile errors
+  (checked per instantiation) — cross-cell reference cycles are impossible
+  by construction.
+- **A handle stored in arena-allocated memory is dropped by shape (C28):**
+  containers that can hold handles (`&`-created structs, `[]T` elements)
+  get synthesized decrement machinery at drop, exactly like the loop-dispose
+  on `[]T`.
+- Any holder of a channel may close it; **double close aborts**; close is
+  the **sanctioned cancellation (C28)** — a parked receive on a
+  closed-and-drained channel returns absence.
 - Sending an owned mutable value **moves** it across; const handles are
   shared. `Atomic[T]` requires `T` a lock-free scalar, checked per
   instantiation.

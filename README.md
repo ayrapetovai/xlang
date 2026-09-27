@@ -115,8 +115,10 @@ r []int = 0..=5 // r is {0, 1, 2, 3, 4, 5}
 
 An owned buffer grows by **element move-append** — the `+=` family alongside
 `string +` and `bytes +=` (`MERGE_SORT.md` stages its merge workspace this
-way). The value moves into a freshly grown arena slot; copies nothing;
-growth invalidates outstanding views, so hold none across it:
+way). The value moves into a freshly grown arena slot; copies nothing.
+Growth re-points views, it never invalidates them — arena regions stay
+valid until their block's exit, so a view across a growth is memory-safe
+and re-reads the live buffer at its original offset (decision C28):
 
 ```c
 buf []T = {}
@@ -575,6 +577,10 @@ Memory is owned, moved, or borrowed — never shared-mutable.
   buffers, `&`-created objects) go to the arena of the nearest enclosing
   statement block, which frees them at that block's exit. Cycles are harmless —
   they are freed en masse, so no GC and no leaks.
+- **Each loop iteration is an arena** (decision C28): allocations inside one
+  iteration die at the iteration's end; a value that must survive the
+  iteration is moved out with its backing relocated — the same relocation as
+  a thread-boundary move.
 - **A function body is not an arena.** A call opens no arena of its own: the
   callee's `&`-creations and owned buffers land in the nearest enclosing
   *statement-block* arena — the caller's. So a function may return an
@@ -596,8 +602,10 @@ Memory is owned, moved, or borrowed — never shared-mutable.
 // s1 and the &-created object are freed
 ```
 
-- String literals and `const` arrays live in a module-global pool, freed only
-  on module unload; they can never dangle.
+- String literals and `const` arrays live in a module-global **interned** pool
+  (decision C28) — entries are shared by comparable value, so growth is
+  bounded by the distinct constants — freed only on module unload; they can
+  never dangle.
 - A string literal handed to an *owned* `string` parameter materializes a
   copy of the pool bytes into the current arena, then moves — a frozen value
   has no unique owner to move. A `const string` (shared) parameter keeps the
@@ -733,8 +741,11 @@ lifetime inference, no alias analysis.
   captures is a compile error.
 - Channels: sending an owned mutable value moves it; const handles are shared.
   Suspended coroutines keep their arena chain alive.
-- clib("m"): C receives a raw `*T` borrow; the caller's arena must outlive the
-  call; C must not retain the pointer after return.
+- clib("m"): the C borrow is `const *T` only (C may not write through it) and
+  live for the synchronous call; the caller's arena encloses the call. C must
+  not retain the pointer after return — retention is sanctioned only through
+  the async-registration rule (ownership move or pool-promotion, never a
+  view) (decision C28).
 - Asynchronous registrations (epoll / kqueue / io_uring completions) retain
   their buffer past the call: they are crossing sites, so they take an
   ownership move or a pool-promotion — never a view.
@@ -751,7 +762,8 @@ generics are checked per instantiation.
 - **Owned values cross by move.** The runtime relocates their backing
   allocations into the receiving coroutine's arena — nothing dangles.
 - **`const` values cross by sharing.** Shared values join the module-global
-  pool (freed only on module unload), so they can never dangle.
+  interned pool (decision C28; freed only on module unload), so they can
+  never dangle.
 - **Views never cross.** Iterators, list handles (`*Head[T]`), and any
   struct holding a view are thread-local by shape — they borrow their
   owner's arena, so that is correct rather than a burden.
@@ -838,7 +850,10 @@ The call consumes the calling coroutine's own binding, and a close on an
 already-closed channel aborts (double-close). Channel handles are therefore
 excused from the static exactly-once gate of `## Resources` — like mutex
 handles, unlike `Fd`. A closed-but-referenced cell keeps draining until the
-last handle dies; sends to a closed channel abort.
+last handle dies; sends to a closed channel abort. Close is the **sanctioned
+cancellation** (decision C28): a parked receive on a closed-and-drained
+channel yields absence, ending `loop s := <-ch? do` — the way to stop a
+parked coroutine.
 
 ```c
 pong func (ch const chan[string]) = {
@@ -1560,7 +1575,8 @@ yields absence, per `### Channels`.
 
 Slicing — views, not copies: `b[2..<5]` is a write-through view (a mutation
 through it hits the buffer), `.copy()` for owned data, `b[i]` reads one
-`byte`. A view is valid until the buffer grows again. This is the framing
+`byte`. Views re-point on growth (decision C28) — they never dangle and
+re-read the live buffer at the original offset. This is the framing
 pattern: read the length prefix, slice the body, parse the slice.
 
 Transforms — produce a new buffer: `b.or(0xFF)` / `b.and(0x0F)` mask each

@@ -1207,3 +1207,51 @@ made false by value-params-move) and README's iterator *call sites*
     called sound; **L1 and L3** before the runtime serves long-lived
     processes; **L4, S2, L5** are one-ruling gaps.  All are open items,
     pending rulings, for the checker and the self-hosted compiler.
+28. **C28 ownership fixes — memory-management rulings (user-ruled, Sep 28)**:
+    interview follow-up to the C27 audit — ten rulings, one per open item,
+    applied to `OWNERSHIP_RULES.md` and README:
+    (1) **growth re-points a view, it never invalidates one** — arena regions
+    are not freed until their block's exit, so an outstanding view stays
+    memory-safe across a growth and re-reads the live buffer at its original
+    offset; the "single sanctioned invalidation point" wording is gone
+    (README `+=` / §Bytes; core §5); answer 1A.
+    (2) **each loop iteration is an arena** — allocations inside one iteration
+    die at its end; a value that must survive is moved out with its backing
+    relocated, the thread-boundary move mechanism (core §5; README "Where
+    memory lives"); answer 2A.
+    (3) **no handles inside cell payloads** — `chan[chan[T]]`, `Mutex[struct
+    { ch chan[T] }]`, … are compile errors (checked per instantiation), so
+    cross-cell reference cycles are impossible by construction (core §7);
+    answer 3A.
+    (4) **arena-hosted handles are dropped by shape** — containers that can
+    hold handles (`&`-created structs, `[]T` elements) get synthesized
+    decrement machinery at drop, exactly like the loop-dispose on `[]T`
+    (core §7); answer 4A.
+    (5) **overwrite must never drop a live resource** — replacing a
+    disposable binding/field is a compile error unless it was taken out
+    first; take-first becomes a rule, not an idiom (core §6; the "never a
+    built dispose" carve-out is deleted); answer 5B.
+    (6) **disposable temporaries stay explicit** — a disposable value ending
+    as an expression temporary must be moved out or bound before the
+    expression's end, else compile error; auto-dispose rejected — O.3 stays
+    strict (core §1); answer 6B.
+    (7) **cell free runs the payload drop** — at zero references the payload's
+    disposition (dispose or decrements) runs by shape, so an undelivered
+    disposable payload in a drained-then-closed channel is disposed, not
+    leaked (core §7); answer 7A.
+    (8) **clib borrows are const** — synchronous `clib("m")` borrows are
+    `const *T` only and live for the call; retention is sanctioned only by
+    the async-registration rule (ownership move or pool-promotion, never a
+    view) (README §Semantics; core §4); answer 8A.
+    (9) **channel close is the sanctioned cancellation** — a parked receive on
+    a closed-and-drained channel yields absence, ending `loop s := <-ch? do`
+    (core §7; README §Channels); answer 9A.
+    (10) **the constant pool is interned** — entries shared by comparable
+    value, growth bounded by the distinct constants, freed only on module
+    unload (README "Where memory lives" / §Thread boundary; core §5);
+    answer 10A.
+    Together the rulings close every C27 finding — S1 (1), L1 (2), L2 (3)+(4),
+    L3 (5), L4 (6)+(7), S2 (8), L5 (9)+(10) — and rulings (4), (5), (7) are
+    one shape-derived mechanism: wherever an owned value is dropped, the
+    compiler runs the machinery its shape requires (dispose, decrements,
+    elementwise), which the normative core now calls the value's **drop**.
