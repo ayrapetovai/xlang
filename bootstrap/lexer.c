@@ -51,7 +51,7 @@ void process_word(char* buf, size_t buf_size, struct Token* tok) {
 }
 
 void process_number(char* buf, struct Token* tok) {
-  tok->kind = TOK_INT_L;
+  tok->kind = TOK_NUMBER;
   sprintf(tok->value, "%s", buf);
 }
 
@@ -149,13 +149,70 @@ enum LexState lexer_next_token(struct Lexer* lexer, struct Token* tok) {
         }
         break;
       default:
-        sprintf(lexer->error, "lexer state is undefined");
+        sprintf(lexer->error, "lexer parse state is undefined");
         return LEX_ERROR;
     }
   }
 
   sprintf(lexer->error, "unexpected lexer condition");
   return LEX_ERROR;
+}
+
+enum LexState lexer_skip_until(struct Lexer *lexer, const char* ancor) {
+  if (lexer == NULL || ancor == NULL) return LEX_PRG_ERROR;
+
+  typedef enum WatchState {
+    WS_SKIPPING,
+    WS_STOPPING,
+  } WatchState;
+
+  size_t ancor_ith = 0;
+  WatchState state = WS_SKIPPING;
+  while (true) {
+    char c = '\0';
+    bool read = reader_getch(lexer->reader, &c);
+    if (!read && lexer->reader->error[0] != '\0') {
+      // if no read and error present then error, else end of file
+      sprintf(lexer->error, "faild lexing: %s", lexer->reader->error);
+      return LEX_ERROR;
+    }
+
+    if (c == '\n') {
+      lexer->line += 1;
+      lexer->col = 1;
+    } else {
+      lexer->col += 1;
+    }
+
+    switch (state) {
+      case WS_SKIPPING:
+        if (c == ancor[ancor_ith]) {
+          state = WS_STOPPING;
+        }
+        break;
+      case WS_STOPPING:
+        if (!read) {
+          sprintf(lexer->error, "skip failed to reach ancor %s", ancor);
+          return LEX_ERROR;
+        }
+        ancor_ith++;
+        if (c != ancor[ancor_ith]) {
+          if (ancor[ancor_ith] == '\0') {
+            reader_ungetch(lexer->reader, c);
+            lexer->col -= 1;
+            return LEX_OK;
+          } else { // that was not ancor in parsed text
+            ancor_ith = 0;
+            state = WS_SKIPPING;
+          }
+        }
+        break;
+      default:
+        sprintf(lexer->error, "lexer skip state is undefined");
+        return LEX_ERROR;
+    }
+  }
+  return LEX_OK;
 }
 
 void lexer_close(struct Lexer* lexer) {

@@ -7,8 +7,7 @@ typedef enum TokenKind {
   TOK_UNDEF = 0,
 
 // numbers
-  TOK_INT_L,    // int literal
-  TOK_FLOAT_L,  // float literal
+  TOK_NUMBER,    // int literal
 
 // reserved words
   TOK_INTERFACE,
@@ -66,6 +65,8 @@ TOK_OPERATOR_BEGIN,
   TOK_SHR_CY,
 
   // 2 char operators
+  TOK_SLC_START, // start of a single line comment
+  TOK_MLC_START, // start of a multi line comment
   TOK_SWAP,
   TOK_DEFINE,
   TOK_SHL,

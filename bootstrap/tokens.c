@@ -53,6 +53,9 @@ const TokenDef TOKEN_KEYWORDS[] = {
   { TOK_SHL_CY    , "<<~"      },
   { TOK_SHR_CY    , ">>~"      },
 
+  { TOK_SLC_START , "//"       },
+  { TOK_MLC_START , "/*"       },
+
   { TOK_SWAP      , "<>"       },
   { TOK_DEFINE    , ":="       },
   { TOK_SHL       , "<<"       },
@@ -114,6 +117,8 @@ static const char* to_string(enum TokenKind token_kind) {
       return "new line";
     else if (token_kind == TOK_SPACE)
       return "space";
+    else if (token_kind == TOK_NUMBER)
+      return "number";
     else if (token_kind == TOK_UNDEF)
       return "undefined";
     else if (token_kind == TOKEN_KEYWORDS[i].kind)

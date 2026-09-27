@@ -24,6 +24,8 @@ struct Lexer* new_lexer(struct Reader*);
 
 enum LexState lexer_next_token(struct Lexer*, struct Token*);
 
+enum LexState lexer_skip_until(struct Lexer*, const char*);
+
 void lexer_close(struct Lexer*);
 
 #endif

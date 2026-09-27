@@ -28,7 +28,9 @@ do
 is
 in >>>= x
 if
+2.7.bar()
 qrstuvw abc
-xyz
+42.foo()
+xyz // 3.14 abc 123
 .
 
