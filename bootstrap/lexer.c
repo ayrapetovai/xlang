@@ -7,16 +7,22 @@
 #include "lexer.h"
 #include "reader.h"
 
-struct Lexer* new_lexer(struct Reader* reader) {
-  if (reader == NULL)
-    return NULL;
+struct Lexer* new_lexer(char* filename) {
   struct Lexer *lexer = malloc(sizeof(Lexer));
   if (lexer == NULL)
     return NULL;
-  lexer->reader = reader;
+
+  memset(lexer->error, 0, sizeof lexer->error);
   lexer->line = 1;
   lexer->col = 1;
-  memset(lexer->error, 0, sizeof lexer->error);
+
+  struct Reader* reader = new_reader(filename);
+  if (strlen(reader->error) != 0) {
+    sprintf(lexer->error, "reading error: %s\n", reader->error);
+  } else {
+    lexer->reader = reader;
+  }
+
   return lexer;
 }
 
