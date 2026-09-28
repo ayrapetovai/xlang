@@ -131,9 +131,11 @@ typedef struct TokenDef {
 extern const TokenDef TOKEN_KEYWORDS[];
 extern const size_t TOKEN_KEYWORDS_COUNT;
 
+#define TOKEN_VALUE_MAX_SIZE 128
+
 typedef struct Token {
   enum TokenKind kind;
-  char value[128];
+  char value[TOKEN_VALUE_MAX_SIZE];
   size_t line;
   size_t col;
 } Token;

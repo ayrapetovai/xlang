@@ -18,6 +18,7 @@ Bootstrap compiler does not support:
 - panicless output
 - processing commentaries (skip only)
 - string interpolation
+- floating point numbers
 */
 
 int run_exec(char *filename) { return exec(filename); }
@@ -47,14 +48,9 @@ int run_lex(char *filename) {
 
     // skip commentaries
     switch (t.kind) {
-    case TOK_SLC_START:
-      lexer_skip_until(lexer, "\n");
-      break;
-    case TOK_MLC_START:
-      lexer_skip_until(lexer, "*/");
-      break;
+    case TOK_SLC_START: lexer_skip_until(lexer, "\n"); break;
+    case TOK_MLC_START: lexer_skip_until(lexer, "*/"); break;
     default:
-      break;
     }
   }
 
@@ -64,15 +60,7 @@ int run_lex(char *filename) {
 
 int run_ast(char *filename) {
   printf("ast %s\n", filename);
-  struct Lexer *lexer = new_lexer(filename);
-  if (strlen(lexer->error) != 0) {
-    printf("lexer initialization: %s\n", lexer->error);
-    return 1;
-  }
-  int ret = parse(lexer);
-  lexer_close(lexer);
-
-  return ret;
+  return 0;
 }
 
 int main(int argc, char **argv) {

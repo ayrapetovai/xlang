@@ -9,32 +9,26 @@
 
 struct Lexer *new_lexer(char *filename) {
   struct Lexer *lexer = malloc(sizeof(Lexer));
-  if (lexer == NULL)
-    return NULL;
+  if (lexer == NULL) return NULL;
 
   memset(lexer->error, 0, sizeof lexer->error);
   lexer->line = 1;
   lexer->col = 1;
 
   struct Reader *reader = new_reader(filename);
-  if (strlen(reader->error) != 0) {
+  if (strlen(reader->error) != 0)
     sprintf(lexer->error, "reading error: %s\n", reader->error);
-  } else {
+  else
     lexer->reader = reader;
-  }
 
   return lexer;
 }
 
 bool strcmplen(const char *s, const char *t, size_t *size) {
   const char *t_start = t;
-  while (*s != '\0' && *t != '\0' && *s == *t) {
-    s++;
-    t++;
-  }
+  while (*s != '\0' && *t != '\0' && *s == *t) { s++; t++; }
   bool are_equal = *s == '\0' && *t == '\0';
-  while (*t++ != '\0')
-    ;
+  while (*t != '\0') t++;
   *size = t - t_start;
   return are_equal;
 }
@@ -45,8 +39,7 @@ void process_word(char *buf, size_t buf_size, struct Token *tok) {
     size_t keyword_len;
     if (strcmplen(buf, TOKEN_KEYWORDS[i].letters, &keyword_len)) {
       found_word_idx = i;
-      if (buf_size > keyword_len)
-        break;
+      if (buf_size > keyword_len) break;
     }
   }
   if (found_word_idx < 0) {
@@ -63,35 +56,30 @@ void process_number(char *buf, struct Token *tok) {
   sprintf(tok->value, "%s", buf);
 }
 
-
 void process_string(char *buf, struct Token *tok) {
   tok->kind = TOK_STRING_L;
   sprintf(tok->value, "%s", buf);
 }
 
 bool could_be_operator(char *buf, size_t buf_size, char next) {
-  char tmp[8] = {};
+  char tmp[32] = {};
   memcpy(tmp, buf, buf_size);
   tmp[buf_size] = next;
 
   for (size_t i = 0; i < TOKEN_KEYWORDS_COUNT; i++) {
     TokenKind reserved_word_kind = TOKEN_KEYWORDS[i].kind;
-    if (TOK_OPERATOR_BEGIN < reserved_word_kind &&
-        reserved_word_kind < TOK_OPERATOR_END) {
-      if (strcmp(tmp, TOKEN_KEYWORDS[i].letters) == 0) {
+    if (TOK_OPERATOR_BEGIN < reserved_word_kind && reserved_word_kind < TOK_OPERATOR_END)
+      if (strcmp(tmp, TOKEN_KEYWORDS[i].letters) == 0)
         return true;
-      }
-    }
   }
   return false;
 }
 
 enum LexState lexer_next_token(struct Lexer *lexer, struct Token *tok) {
-  if (lexer == NULL || tok == NULL)
-    return LEX_PRG_ERROR;
+  if (lexer == NULL || tok == NULL) return LEX_PRG_ERROR;
 
-  // bootstrap compiler cannot parse names longer than 64 chars
-  char buf[64] = {0};
+  // bootstrap compiler cannot parse names and string literals longer than TOKEN_VALUE_MAX_SIZE chars
+  char buf[TOKEN_VALUE_MAX_SIZE] = {0};
   size_t buf_idx = 0;
 
   tok->line = lexer->line;
@@ -109,7 +97,7 @@ enum LexState lexer_next_token(struct Lexer *lexer, struct Token *tok) {
 
   while (true) {
     if (buf_idx > sizeof buf) {
-      sprintf(lexer->error, "too long identifier: %ld", buf_idx);
+      sprintf(lexer->error, "too long identifier: %ld, max %d", buf_idx, TOKEN_VALUE_MAX_SIZE);
       return LEX_ERROR;
     }
 
@@ -117,8 +105,7 @@ enum LexState lexer_next_token(struct Lexer *lexer, struct Token *tok) {
     bool read = reader_getch(lexer->reader, &c);
     if (!read && lexer->reader->error[0] != '\0') {
       // if no read and error present then error, else end of file
-      sprintf(lexer->error, "faild lexing next token: %s",
-              lexer->reader->error);
+      sprintf(lexer->error, "faild lexing next token: %s", lexer->reader->error);
       return LEX_ERROR;
     }
 
@@ -183,6 +170,10 @@ enum LexState lexer_next_token(struct Lexer *lexer, struct Token *tok) {
         process_string(buf, tok);
         return LEX_OK;
       } else buf[buf_idx++] = c;
+      if (c == '\n') {
+        lexer->line += 1;
+        lexer->col = 1;
+      }
       break;
     default:
       sprintf(lexer->error, "lexer parse state is undefined");
@@ -195,8 +186,7 @@ enum LexState lexer_next_token(struct Lexer *lexer, struct Token *tok) {
 }
 
 enum LexState lexer_skip_until(struct Lexer *lexer, const char *ancor) {
-  if (lexer == NULL || ancor == NULL)
-    return LEX_PRG_ERROR;
+  if (lexer == NULL || ancor == NULL) return LEX_PRG_ERROR;
 
   typedef enum WatchState {
     WS_SKIPPING,
@@ -258,18 +248,14 @@ enum LexState lexer_skip_until(struct Lexer *lexer, const char *ancor) {
 }
 
 void lexer_close(struct Lexer *lexer) {
-  if (lexer == NULL)
-    return;
+  if (lexer == NULL) return;
   reader_close(lexer->reader);
   free(lexer);
 }
 
 void print_char(char c) {
   printf("0x%x ", c);
-  if (c != '\n') {
-    putchar(c);
-  } else {
-    printf("\\n");
-  }
+  if (c != '\n') putchar(c);
+  else printf("\\n");
   putchar('\n');
 }

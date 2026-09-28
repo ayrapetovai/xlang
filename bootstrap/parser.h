@@ -3,6 +3,12 @@
 
 #include "lexer.h"
 
-int parse(struct Lexer *);
+typedef struct Parser {
+  struct Lexer* lexer;
+} Parser;
+
+struct Parser *new_parser();
+
+int parser_parse(struct Parser *);
 
 #endif
