@@ -82,8 +82,6 @@ const TokenDef TOKEN_KEYWORDS[] = {
     {TOK_DEC, "--"},
 
     {TOK_NL, "\n"},
-    {TOK_DQUOT, "\""},
-    {TOK_SQUOT, "'"},
     {TOK_SHARP, "#"},
     {TOK_LPAREN, "("},
     {TOK_RPAREN, ")"},
@@ -119,8 +117,10 @@ static const char *to_string(enum TokenKind token_kind) {
       return "new line";
     else if (token_kind == TOK_SPACE)
       return "space";
-    else if (token_kind == TOK_NUMBER)
-      return "number";
+    else if (token_kind == TOK_NUMBER_L)
+      return "number literal";
+    else if (token_kind == TOK_STRING_L)
+      return "string literal";
     else if (token_kind == TOK_UNDEF)
       return "undefined";
     else if (token_kind == TOKEN_KEYWORDS[i].kind)

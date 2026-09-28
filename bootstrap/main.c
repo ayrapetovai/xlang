@@ -17,6 +17,7 @@ Bootstrap compiler does not support:
 - compile-time code execution
 - panicless output
 - processing commentaries (skip only)
+- string interpolation
 */
 
 int run_exec(char *filename) { return exec(filename); }
@@ -32,8 +33,7 @@ int run_lex(char *filename) {
   while (true) {
     Token t = {};
     enum LexState state = lexer_next_token(lexer, &t);
-    if (state == LEX_EOF)
-      break;
+    if (state == LEX_EOF) break;
     else if (state == LEX_PRG_ERROR) {
       printf("lexer crashed\n");
       error_code = 1;

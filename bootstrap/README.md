@@ -32,5 +32,21 @@ vim.lsp.config("clangd", {
 vim.lsp.enable("clangd")
 ```
 
+Disable formatting on `:w`.
+
+```lua
+-- ~/.config/nvim/lua/plugins/conform.lua
+return {
+  {
+    "stevearc/conform.nvim",
+    opts = {
+      formatters_by_ft = {
+        c = { lsp_format = "never" },
+        cpp = { lsp_format = "never" },
+      },
+    },
+  },
+}
+```
 
 

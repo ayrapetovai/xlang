@@ -7,7 +7,8 @@ typedef enum TokenKind {
   TOK_UNDEF = 0,
 
   // numbers
-  TOK_NUMBER, // int literal
+  TOK_NUMBER_L, // int literal 123
+  TOK_STRING_L, // string literal "..."
 
   // reserved words
   TOK_INTERFACE,
@@ -95,8 +96,6 @@ typedef enum TokenKind {
   // 1 char oprators
   TOK_SPACE,
   TOK_NL,       // \n
-  TOK_DQUOT,    // "
-  TOK_SQUOT,    // '
   TOK_SHARP,    // #
   TOK_LPAREN,   // (
   TOK_RPAREN,   // )

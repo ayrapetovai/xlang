@@ -59,7 +59,13 @@ void process_word(char *buf, size_t buf_size, struct Token *tok) {
 }
 
 void process_number(char *buf, struct Token *tok) {
-  tok->kind = TOK_NUMBER;
+  tok->kind = TOK_NUMBER_L;
+  sprintf(tok->value, "%s", buf);
+}
+
+
+void process_string(char *buf, struct Token *tok) {
+  tok->kind = TOK_STRING_L;
   sprintf(tok->value, "%s", buf);
 }
 
@@ -96,6 +102,7 @@ enum LexState lexer_next_token(struct Lexer *lexer, struct Token *tok) {
     WS_WORD,
     WS_DIG,
     WS_OP,
+    WS_STRING,
   } WatchState;
 
   WatchState state = WS_START;
@@ -123,14 +130,18 @@ enum LexState lexer_next_token(struct Lexer *lexer, struct Token *tok) {
 
     switch (state) {
     case WS_START:
-      if (!read)
-        return LEX_EOF;
+      if (!read) return LEX_EOF;
+      if (c == '"') {
+        state = WS_STRING;
+        break;
+      }
+
       buf[buf_idx++] = c;
       if (is_alpha)
         state = WS_WORD;
-      if (is_digit)
+      else if (is_digit)
         state = WS_DIG;
-      if (is_punct)
+      else if (is_punct)
         state = WS_OP;
       break;
     case WS_WORD:
@@ -166,6 +177,12 @@ enum LexState lexer_next_token(struct Lexer *lexer, struct Token *tok) {
         }
         return LEX_OK;
       }
+      break;
+    case WS_STRING:
+      if (c == '"') {
+        process_string(buf, tok);
+        return LEX_OK;
+      } else buf[buf_idx++] = c;
       break;
     default:
       sprintf(lexer->error, "lexer parse state is undefined");
