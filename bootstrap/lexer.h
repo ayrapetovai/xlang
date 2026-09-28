@@ -2,9 +2,10 @@
 #define LEXER_H
 
 #include "reader.h"
+#include "tokens.h"
 
 typedef struct Lexer {
-  Reader* reader;
+  Reader *reader;
   int line;
   int col;
   char error[256];
@@ -18,14 +19,12 @@ typedef enum LexState {
   LEX_PRG_ERROR,
 } LexState;
 
-struct Lexer* new_lexer(char*);
+struct Lexer *new_lexer(char *);
 
-enum LexState lexer_next_token(struct Lexer*, struct Token*);
+enum LexState lexer_next_token(struct Lexer *, struct Token *);
 
-enum LexState lexer_skip_until(struct Lexer*, const char*);
+enum LexState lexer_skip_until(struct Lexer *, const char *);
 
-void lexer_close(struct Lexer*);
+void lexer_close(struct Lexer *);
 
 #endif
-
-

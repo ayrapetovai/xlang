@@ -1,7 +1,3 @@
-#include "tokens.h"
 #include "parser.h"
 
-void parse(struct Lexer*) {
-
-}
-
+int parse(struct Lexer *) { return 0; }

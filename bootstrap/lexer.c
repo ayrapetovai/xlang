@@ -1,13 +1,13 @@
-#include <stdlib.h>
-#include <stdbool.h>
-#include <string.h>
 #include <ctype.h>
+#include <stdbool.h>
+#include <stdlib.h>
+#include <string.h>
 
-#include "tokens.h"
 #include "lexer.h"
 #include "reader.h"
+#include "tokens.h"
 
-struct Lexer* new_lexer(char* filename) {
+struct Lexer *new_lexer(char *filename) {
   struct Lexer *lexer = malloc(sizeof(Lexer));
   if (lexer == NULL)
     return NULL;
@@ -16,7 +16,7 @@ struct Lexer* new_lexer(char* filename) {
   lexer->line = 1;
   lexer->col = 1;
 
-  struct Reader* reader = new_reader(filename);
+  struct Reader *reader = new_reader(filename);
   if (strlen(reader->error) != 0) {
     sprintf(lexer->error, "reading error: %s\n", reader->error);
   } else {
@@ -26,25 +26,27 @@ struct Lexer* new_lexer(char* filename) {
   return lexer;
 }
 
-bool strcmplen(const char* s, const char* t, size_t *size) {
+bool strcmplen(const char *s, const char *t, size_t *size) {
   const char *t_start = t;
   while (*s != '\0' && *t != '\0' && *s == *t) {
     s++;
     t++;
   }
   bool are_equal = *s == '\0' && *t == '\0';
-  while (*t++ != '\0');
+  while (*t++ != '\0')
+    ;
   *size = t - t_start;
   return are_equal;
 }
 
-void process_word(char* buf, size_t buf_size, struct Token* tok) {
+void process_word(char *buf, size_t buf_size, struct Token *tok) {
   int found_word_idx = -1;
   for (size_t i = 0; i < TOKEN_KEYWORDS_COUNT; i++) {
     size_t keyword_len;
     if (strcmplen(buf, TOKEN_KEYWORDS[i].letters, &keyword_len)) {
       found_word_idx = i;
-      if (buf_size > keyword_len) break;
+      if (buf_size > keyword_len)
+        break;
     }
   }
   if (found_word_idx < 0) {
@@ -56,28 +58,31 @@ void process_word(char* buf, size_t buf_size, struct Token* tok) {
   }
 }
 
-void process_number(char* buf, struct Token* tok) {
+void process_number(char *buf, struct Token *tok) {
   tok->kind = TOK_NUMBER;
   sprintf(tok->value, "%s", buf);
 }
 
-bool could_be_operator(char* buf, size_t buf_size, char next) {
+bool could_be_operator(char *buf, size_t buf_size, char next) {
   char tmp[8] = {};
   memcpy(tmp, buf, buf_size);
   tmp[buf_size] = next;
 
   for (size_t i = 0; i < TOKEN_KEYWORDS_COUNT; i++) {
     TokenKind reserved_word_kind = TOKEN_KEYWORDS[i].kind;
-    if (TOK_OPERATOR_BEGIN < reserved_word_kind && reserved_word_kind < TOK_OPERATOR_END) {
+    if (TOK_OPERATOR_BEGIN < reserved_word_kind &&
+        reserved_word_kind < TOK_OPERATOR_END) {
       if (strcmp(tmp, TOKEN_KEYWORDS[i].letters) == 0) {
         return true;
-      }    }
+      }
+    }
   }
   return false;
 }
 
-enum LexState lexer_next_token(struct Lexer* lexer, struct Token* tok) {
-  if (lexer == NULL || tok == NULL) return LEX_PRG_ERROR;
+enum LexState lexer_next_token(struct Lexer *lexer, struct Token *tok) {
+  if (lexer == NULL || tok == NULL)
+    return LEX_PRG_ERROR;
 
   // bootstrap compiler cannot parse names longer than 64 chars
   char buf[64] = {0};
@@ -105,7 +110,8 @@ enum LexState lexer_next_token(struct Lexer* lexer, struct Token* tok) {
     bool read = reader_getch(lexer->reader, &c);
     if (!read && lexer->reader->error[0] != '\0') {
       // if no read and error present then error, else end of file
-      sprintf(lexer->error, "faild lexing next token: %s", lexer->reader->error);
+      sprintf(lexer->error, "faild lexing next token: %s",
+              lexer->reader->error);
       return LEX_ERROR;
     }
 
@@ -116,47 +122,54 @@ enum LexState lexer_next_token(struct Lexer* lexer, struct Token* tok) {
     bool is_punct = !is_alpha && !is_digit && read;
 
     switch (state) {
-      case WS_START:
-        if (!read) return LEX_EOF;
+    case WS_START:
+      if (!read)
+        return LEX_EOF;
+      buf[buf_idx++] = c;
+      if (is_alpha)
+        state = WS_WORD;
+      if (is_digit)
+        state = WS_DIG;
+      if (is_punct)
+        state = WS_OP;
+      break;
+    case WS_WORD:
+      if (is_alpha || is_digit)
         buf[buf_idx++] = c;
-        if (is_alpha) state = WS_WORD;
-        if (is_digit) state = WS_DIG;
-        if (is_punct) state = WS_OP;
-        break;
-      case WS_WORD:
-        if (is_alpha || is_digit) buf[buf_idx++] = c;
-        else {
-          reader_ungetch(lexer->reader, c);
-          lexer->col -= 1;
-          process_word(buf, buf_idx, tok);
-          return LEX_OK;
+      else {
+        reader_ungetch(lexer->reader, c);
+        lexer->col -= 1;
+        process_word(buf, buf_idx, tok);
+        return LEX_OK;
+      }
+      break;
+    case WS_DIG:
+      if (is_digit)
+        buf[buf_idx++] = c;
+      else {
+        reader_ungetch(lexer->reader, c);
+        lexer->col -= 1;
+        process_number(buf, tok);
+        return LEX_OK;
+      }
+      break;
+    case WS_OP:
+      if (is_punct && could_be_operator(buf, buf_idx, c))
+        buf[buf_idx++] = c;
+      else {
+        reader_ungetch(lexer->reader, c);
+        lexer->col -= 1;
+        process_word(buf, buf_idx, tok);
+        if (tok->kind == TOK_NL) {
+          lexer->line += 1;
+          lexer->col = 1;
         }
-        break;
-      case WS_DIG:
-        if (is_digit) buf[buf_idx++] = c;
-        else {
-          reader_ungetch(lexer->reader, c);
-          lexer->col -= 1;
-          process_number(buf, tok);
-          return LEX_OK;
-        }
-        break;
-      case WS_OP:
-        if (is_punct && could_be_operator(buf, buf_idx, c)) buf[buf_idx++] = c;
-        else {
-          reader_ungetch(lexer->reader, c);
-          lexer->col -= 1;
-          process_word(buf, buf_idx, tok);
-          if (tok->kind == TOK_NL) {
-            lexer->line += 1;
-            lexer->col = 1;
-          }
-          return LEX_OK;
-        }
-        break;
-      default:
-        sprintf(lexer->error, "lexer parse state is undefined");
-        return LEX_ERROR;
+        return LEX_OK;
+      }
+      break;
+    default:
+      sprintf(lexer->error, "lexer parse state is undefined");
+      return LEX_ERROR;
     }
   }
 
@@ -164,8 +177,9 @@ enum LexState lexer_next_token(struct Lexer* lexer, struct Token* tok) {
   return LEX_ERROR;
 }
 
-enum LexState lexer_skip_until(struct Lexer *lexer, const char* ancor) {
-  if (lexer == NULL || ancor == NULL) return LEX_PRG_ERROR;
+enum LexState lexer_skip_until(struct Lexer *lexer, const char *ancor) {
+  if (lexer == NULL || ancor == NULL)
+    return LEX_PRG_ERROR;
 
   typedef enum WatchState {
     WS_SKIPPING,
@@ -191,43 +205,44 @@ enum LexState lexer_skip_until(struct Lexer *lexer, const char* ancor) {
     lexer->col += 1;
 
     switch (state) {
-      case WS_SKIPPING:
-        if (c == '\n') {
-          lexer->line += 1;
-          lexer->col = 1;
-        }
-        if (c == ancor[0]) {
+    case WS_SKIPPING:
+      if (c == '\n') {
+        lexer->line += 1;
+        lexer->col = 1;
+      }
+      if (c == ancor[0]) {
+        ancor_ith = 0;
+        state = WS_STOPPING;
+      }
+      break;
+    case WS_STOPPING:
+      ancor_ith++;
+      if (c != ancor[ancor_ith]) {
+        if (ancor[ancor_ith] == '\0') {
+          reader_ungetch(lexer->reader, c);
+          lexer->col -= 1;
+          return LEX_OK;
+        } else { // that was not the ancor in parsed text
           ancor_ith = 0;
-          state = WS_STOPPING;
+          state = WS_SKIPPING;
         }
-        break;
-      case WS_STOPPING:
-        ancor_ith++;
-        if (c != ancor[ancor_ith]) {
-          if (ancor[ancor_ith] == '\0') {
-            reader_ungetch(lexer->reader, c);
-            lexer->col -= 1;
-            return LEX_OK;
-          } else { // that was not the ancor in parsed text
-            ancor_ith = 0;
-            state = WS_SKIPPING;
-          }
-        }
-        if (c == '\n') {
-          lexer->line += 1;
-          lexer->col = 1;
-        }
-        break;
-      default:
-        sprintf(lexer->error, "lexer skip state is undefined");
-        return LEX_ERROR;
+      }
+      if (c == '\n') {
+        lexer->line += 1;
+        lexer->col = 1;
+      }
+      break;
+    default:
+      sprintf(lexer->error, "lexer skip state is undefined");
+      return LEX_ERROR;
     }
   }
   return LEX_OK;
 }
 
-void lexer_close(struct Lexer* lexer) {
-  if (lexer == NULL) return;
+void lexer_close(struct Lexer *lexer) {
+  if (lexer == NULL)
+    return;
   reader_close(lexer->reader);
   free(lexer);
 }
@@ -241,4 +256,3 @@ void print_char(char c) {
   }
   putchar('\n');
 }
-
