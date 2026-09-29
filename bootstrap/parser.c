@@ -1,6 +1,7 @@
 #include "parser.h"
 #include "lexer.h"
 #include "tokens.h"
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -70,6 +71,12 @@ static void* reduce_expr_plus_expr(size_t argc, void* argv[]) {
   return argv[0];
 }
 
+static void* reduce_expr_minus_expr(size_t argc, void* argv[]) {
+  assert(argc == 3);
+  *((int*) argv[0]) -= *((int*) argv[2]);
+  return argv[0];
+}
+
 static void* reduce_lparen_expr_rparen(size_t argc, void* argv[]) {
   assert(argc == 3);
   return argv[1];
@@ -82,22 +89,59 @@ static void* reduce_expr(size_t argc, void* argv[]) {
 
 // WARNING: expression :: arithmetics, logics, array access and funcfion calls
 struct GrammarRule expr;
+struct GrammarRule expr_term;
+
+struct GrammarRule expr_term = {{
+  PROD( TERM(TOK_NUMBER_L),                                     REDUCE(reduce_number_l) ),
+  PROD( TERM(TOK_LPAREN), NTRM(expr), TERM(TOK_RPAREN),         REDUCE(reduce_lparen_expr_rparen) ),
+}};
 
 struct GrammarRule expr = {{
-  PROD( TERM(TOK_LPAREN), NTRM(expr), TERM(TOK_RPAREN),           REDUCE(reduce_lparen_expr_rparen) ),
-  PROD( NTRM(expr), TERM(TOK_PLUS), NTRM(expr),                   REDUCE(reduce_expr_plus_expr) ),
-  PROD( TERM(TOK_NUMBER_L),                                       REDUCE(reduce_number_l) ),
+  PROD( NTRM(expr_term), TERM(TOK_PLUS), NTRM(expr),            REDUCE(reduce_expr_plus_expr) ),
+  PROD( NTRM(expr_term), TERM(TOK_MINUS), NTRM(expr),           REDUCE(reduce_expr_minus_expr) ),
+  PROD( NTRM(expr_term),                                        REDUCE(reduce_expr) ),
 }};
 
 // WARNING: program :: the parsing entry point 
 struct GrammarRule prog = {{
-  PROD( NTRM(expr),                                               REDUCE(reduce_expr) ),
+  PROD( NTRM(expr),                                             REDUCE(reduce_expr) ),
 }};
 
 // private functions
 
 static void* parse(struct Parser* parser, struct GrammarRule* prod);
 static bool parser_move_forward(struct Parser* parser);
+
+// A parse checkpoint captures everything the parser + lexer + reader need to
+// rewind after a failed production attempt (real backtracking).
+typedef struct ParseCheckpoint {
+  size_t r_pos;
+  size_t r_available;
+  char r_unget[4];
+  int lex_line;
+  int lex_col;
+  struct Token* current_token;
+} ParseCheckpoint;
+
+static void parser_checkpoint(struct Parser* parser, struct ParseCheckpoint* chk) {
+  Reader* r = parser->lexer->reader;
+  chk->r_pos = r->pos;
+  chk->r_available = r->available;
+  memcpy(chk->r_unget, r->unget_buf, sizeof r->unget_buf);
+  chk->lex_line = parser->lexer->line;
+  chk->lex_col = parser->lexer->col;
+  chk->current_token = parser->current_token;
+}
+
+static void parser_restore(struct Parser* parser, const struct ParseCheckpoint* chk) {
+  Reader* r = parser->lexer->reader;
+  r->pos = chk->r_pos;
+  r->available = chk->r_available;
+  memcpy(r->unget_buf, chk->r_unget, sizeof r->unget_buf);
+  parser->lexer->line = chk->lex_line;
+  parser->lexer->col = chk->lex_col;
+  parser->current_token = chk->current_token;
+}
 
 // public methods
 
@@ -131,66 +175,71 @@ int parser_parse(struct Parser *parser) {
 }
 
 static void* parse(struct Parser* parser, struct GrammarRule* start) {
-  struct GrammarRule* rule = start;
-  while (true) {
-
-    if (parser->current_token == NULL && !parser_move_forward(parser)) {
-      return NULL;
-    }
-
-    for (int i = 0; rule->productions[i].exists; i++) {
-      struct Production* production = &rule->productions[i]; 
-
-      void *params[PRODUCTION_MAX_LENGTH] = {};
-
-      size_t param_count = 0;
-      for (int j = 0; production->nodes[j].type != PN_EMPTY; j++) {
-        struct ProdNode *node = &production->nodes[j];
-        switch (node->type) {
-          case PN_TERM:
-            if (parser->current_token->kind == node->tok_kind){
-              params[param_count] = parser->current_token; // accept (aka shift)
-              if (!parser_move_forward(parser)) {
-                return NULL;
-              }
-            } else goto try_next_production; // rollabck
-            break;
-          case PN_REDUCE:
-            void* production_result = node->reducer(param_count, params);
-            for (int k = 0; i < PRODUCTION_MAX_LENGTH && params[k] != NULL; k++)
-              if (production_result != params[k]) // do not free the thing that we return to caller
-                free(params[k]);
-            return production_result;
-          case PN_RULE:
-            void *sub_rule_result = parse(parser, node->rule);
-            if (sub_rule_result == NULL) {
-              // error
-              return NULL;
-            }
-            params[param_count] = sub_rule_result;
-            break;
-          default:
-            // error
-        }
-        param_count += 1;
-      }
-
-      try_next_production:
-
-      for (int i = 0; i < PRODUCTION_MAX_LENGTH && params[i] != NULL; i++)
-        free(params[i]);
-    }
+  if (parser->current_token == NULL && !parser_move_forward(parser)) {
+    return NULL; // hard error
   }
+
+  for (int i = 0; start->productions[i].exists; i++) {
+    struct Production* production = &start->productions[i];
+
+    struct ParseCheckpoint chk;
+    parser_checkpoint(parser, &chk);
+
+    void *params[PRODUCTION_MAX_LENGTH] = {};
+    size_t param_count = 0;
+    bool failed = false;
+
+    for (int j = 0; production->nodes[j].type != PN_EMPTY; j++) {
+      struct ProdNode *node = &production->nodes[j];
+      switch (node->type) {
+        case PN_TERM:
+          if (parser->current_token->kind == node->tok_kind) {
+            params[param_count] = parser->current_token; // accept (aka shift)
+            if (!parser_move_forward(parser)) {
+              return NULL; // hard error
+            }
+          } else {
+            failed = true; // roll back to the next alternative
+          }
+          break;
+        case PN_RULE:
+          void *sub_rule_result = parse(parser, node->rule);
+          if (sub_rule_result == NULL) {
+            failed = true; // sub-rule did not match: try next production
+          } else {
+            params[param_count] = sub_rule_result;
+          }
+          break;
+        case PN_REDUCE:
+          return node->reducer(param_count, params);
+        default:
+          failed = true; // error
+      }
+      if (failed) break;
+      param_count += 1;
+    }
+
+    parser_restore(parser, &chk); // rollback: rewind input + current token
+  }
+
+  return NULL; // no production in this rule accepts the current token
 }
 
 static bool parser_move_forward(struct Parser* parser) {
   enum LexState lex_state;
   parser->current_token = malloc(sizeof(struct Token));
+  memset(parser->current_token, 0, sizeof(struct Token)); // no garbage kind
+
   lex_state = lexer_next_token(parser->lexer, parser->current_token);
 
   if (lex_state == LEX_ERROR || lex_state == LEX_PRG_ERROR) {
     sprintf(parser->error, "parsing failed: %s", parser->lexer->error);
     return false;
+  }
+
+  if (lex_state == LEX_EOF) {
+    // sentinel: matches no terminal, so rules fail cleanly at end of input
+    parser->current_token->kind = TOK_UNDEF;
   }
 
   return true;
