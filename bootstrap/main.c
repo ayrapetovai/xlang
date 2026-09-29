@@ -24,7 +24,7 @@ Bootstrap compiler does not support:
 int run_exec(char *filename) { return exec(filename); }
 
 int run_lex(char *filename) {
-  struct Lexer *lexer = new_lexer(filename);
+  struct Lexer *lexer = lexer_new(filename);
   if (strlen(lexer->error) != 0) {
     printf("lexer initialization: %s\n", lexer->error);
     return 1;
@@ -59,33 +59,45 @@ int run_lex(char *filename) {
 }
 
 int run_ast(char *filename) {
-  printf("ast %s\n", filename);
+  struct Lexer *lexer = lexer_new(filename);
+  if (strlen(lexer->error) != 0) {
+    printf("lexer initialization: %s\n", lexer->error);
+    return 1;
+  }
+
+  struct Parser* parser = parser_new(lexer);
+  if (parser == NULL) return 2;
+  if (strlen(parser->error) != 0) {
+    printf("parsing error: %s\n", parser->error);
+    return 3;
+  }
+
+  parser_parse(parser);
+
   return 0;
 }
 
 int main(int argc, char **argv) {
   if (argc == 1) {
     printf("file name missed\n");
-    exit(1);
+    return 1;
   }
 
   if (argc == 2) {
     char *filename = argv[1];
-    int r = run_exec(filename);
-    exit(r);
+    return run_exec(filename);
   }
 
   if (!strcmp(argv[1], "run")) {
     char *filename = argv[2];
-    int r = run_exec(filename);
-    exit(r);
+    return run_exec(filename);
   } else if (!strcmp(argv[1], "lex")) {
     char *filename = argv[2];
-    int r = run_lex(filename);
-    exit(r);
+    return run_lex(filename);
   } else if (!strcmp(argv[1], "ast")) {
     char *filename = argv[2];
-    int r = run_ast(filename);
-    exit(r);
+    return run_ast(filename);
   }
+
+  return 1;
 }

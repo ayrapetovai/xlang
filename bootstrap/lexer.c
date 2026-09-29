@@ -7,7 +7,17 @@
 #include "reader.h"
 #include "tokens.h"
 
-struct Lexer *new_lexer(char *filename) {
+// private functions
+
+static bool strcmplen(const char *s, const char *t, size_t *size);
+static void process_word(char *buf, size_t buf_size, struct Token *tok);
+static void process_number(char *buf, struct Token *tok);
+static void process_string(char *buf, struct Token *tok);
+static bool could_be_operator(char *buf, size_t buf_size, char next);
+
+// public methods
+
+struct Lexer *lexer_new(char *filename) {
   struct Lexer *lexer = malloc(sizeof(Lexer));
   if (lexer == NULL) return NULL;
 
@@ -22,57 +32,6 @@ struct Lexer *new_lexer(char *filename) {
     lexer->reader = reader;
 
   return lexer;
-}
-
-bool strcmplen(const char *s, const char *t, size_t *size) {
-  const char *t_start = t;
-  while (*s != '\0' && *t != '\0' && *s == *t) { s++; t++; }
-  bool are_equal = *s == '\0' && *t == '\0';
-  while (*t != '\0') t++;
-  *size = t - t_start;
-  return are_equal;
-}
-
-void process_word(char *buf, size_t buf_size, struct Token *tok) {
-  int found_word_idx = -1;
-  for (size_t i = 0; i < TOKEN_KEYWORDS_COUNT; i++) {
-    size_t keyword_len;
-    if (strcmplen(buf, TOKEN_KEYWORDS[i].letters, &keyword_len)) {
-      found_word_idx = i;
-      if (buf_size > keyword_len) break;
-    }
-  }
-  if (found_word_idx < 0) {
-    // word is not found in keywrds, it is an identifier
-    tok->kind = TOK_ID;
-    strcpy(tok->value, buf);
-  } else {
-    tok->kind = TOKEN_KEYWORDS[found_word_idx].kind;
-  }
-}
-
-void process_number(char *buf, struct Token *tok) {
-  tok->kind = TOK_NUMBER_L;
-  sprintf(tok->value, "%s", buf);
-}
-
-void process_string(char *buf, struct Token *tok) {
-  tok->kind = TOK_STRING_L;
-  sprintf(tok->value, "%s", buf);
-}
-
-bool could_be_operator(char *buf, size_t buf_size, char next) {
-  char tmp[32] = {};
-  memcpy(tmp, buf, buf_size);
-  tmp[buf_size] = next;
-
-  for (size_t i = 0; i < TOKEN_KEYWORDS_COUNT; i++) {
-    TokenKind reserved_word_kind = TOKEN_KEYWORDS[i].kind;
-    if (TOK_OPERATOR_BEGIN < reserved_word_kind && reserved_word_kind < TOK_OPERATOR_END)
-      if (strcmp(tmp, TOKEN_KEYWORDS[i].letters) == 0)
-        return true;
-  }
-  return false;
 }
 
 enum LexState lexer_next_token(struct Lexer *lexer, struct Token *tok) {
@@ -253,9 +212,54 @@ void lexer_close(struct Lexer *lexer) {
   free(lexer);
 }
 
-void print_char(char c) {
-  printf("0x%x ", c);
-  if (c != '\n') putchar(c);
-  else printf("\\n");
-  putchar('\n');
+bool strcmplen(const char *s, const char *t, size_t *size) {
+  const char *t_start = t;
+  while (*s != '\0' && *t != '\0' && *s == *t) { s++; t++; }
+  bool are_equal = *s == '\0' && *t == '\0';
+  while (*t != '\0') t++;
+  *size = t - t_start;
+  return are_equal;
 }
+
+void process_word(char *buf, size_t buf_size, struct Token *tok) {
+  int found_word_idx = -1;
+  for (size_t i = 0; i < TOKEN_KEYWORDS_COUNT; i++) {
+    size_t keyword_len;
+    if (strcmplen(buf, TOKEN_KEYWORDS[i].letters, &keyword_len)) {
+      found_word_idx = i;
+      if (buf_size > keyword_len) break;
+    }
+  }
+  if (found_word_idx < 0) {
+    // word is not found in keywrds, it is an identifier
+    tok->kind = TOK_ID;
+    strcpy(tok->value, buf);
+  } else {
+    tok->kind = TOKEN_KEYWORDS[found_word_idx].kind;
+  }
+}
+
+void process_number(char *buf, struct Token *tok) {
+  tok->kind = TOK_NUMBER_L;
+  sprintf(tok->value, "%s", buf);
+}
+
+void process_string(char *buf, struct Token *tok) {
+  tok->kind = TOK_STRING_L;
+  sprintf(tok->value, "%s", buf);
+}
+
+bool could_be_operator(char *buf, size_t buf_size, char next) {
+  char tmp[32] = {};
+  memcpy(tmp, buf, buf_size);
+  tmp[buf_size] = next;
+
+  for (size_t i = 0; i < TOKEN_KEYWORDS_COUNT; i++) {
+    TokenKind reserved_word_kind = TOKEN_KEYWORDS[i].kind;
+    if (TOK_OPERATOR_BEGIN < reserved_word_kind && reserved_word_kind < TOK_OPERATOR_END)
+      if (strcmp(tmp, TOKEN_KEYWORDS[i].letters) == 0)
+        return true;
+  }
+  return false;
+}
+

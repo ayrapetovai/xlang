@@ -49,4 +49,18 @@ return {
 }
 ```
 
+Disable inline hints.
 
+```lua
+-- ~/.config/nvim/lua/plugins/clangd.lua
+return {
+  {
+    "neovim/nvim-lspconfig",
+    opts = {
+      inlay_hints = {
+        exclude = { "c" },
+      },
+    },
+  },
+}
+```

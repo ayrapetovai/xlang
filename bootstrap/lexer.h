@@ -19,7 +19,7 @@ typedef enum LexState {
   LEX_PRG_ERROR,
 } LexState;
 
-struct Lexer *new_lexer(char *);
+struct Lexer *lexer_new(char *);
 
 enum LexState lexer_next_token(struct Lexer *, struct Token *);
 
