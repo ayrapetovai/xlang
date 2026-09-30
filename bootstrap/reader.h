@@ -4,10 +4,12 @@
 #include <stdbool.h>
 #include <stdio.h>
 
+#define READER_UNGET_BUF_SIZE 4
+
 typedef struct Reader {
   FILE *file;
   char buf[16];
-  char unget_buf[4];
+  char unget_buf[READER_UNGET_BUF_SIZE];
   size_t pos;
   size_t available;
   char error[128];
