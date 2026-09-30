@@ -21,8 +21,8 @@ struct GrammarRule;
 
 struct ProdNode {
   const char* name;
-  enum ProdNodeType type;
-  union {
+  const enum ProdNodeType type;
+  const union {
     enum TokenKind tok_kind;
     struct GrammarRule* rule;
     void* (*reducer)(size_t, void*[]); // pointer to function:   void* reducer(size_t argc, void* argv[])
@@ -33,19 +33,19 @@ struct ProdNode {
 #define PRODUCTION_MAX_LENGTH 10
 
 struct Production {
-  bool exists;
-  struct ProdNode nodes[PRODUCTION_MAX_LENGTH];
+  const bool exists;
+  const struct ProdNode nodes[PRODUCTION_MAX_LENGTH];
 };
 
 struct GrammarRule {
   const char* name;
-  struct Production productions[PRODUCTIONS_MAX];
+  const struct Production productions[PRODUCTIONS_MAX];
 };
 
-#define TERM(t)   (struct ProdNode)   { .name = #t, .type = PN_TERM,   .tok_kind =  t }
-#define NTRM(r)   (struct ProdNode)   { .name = #r, .type = PN_RULE,   .rule     = &r }
-#define REDUCE(f) (struct ProdNode)   { .name = #f, .type = PN_REDUCE, .reducer  =  f }
-#define PROD(...) (struct Production) { true, { __VA_ARGS__ }}
+#define TERM(t)   (const struct ProdNode)   { .name = #t, .type = PN_TERM,   .tok_kind =  t }
+#define NTRM(r)   (const struct ProdNode)   { .name = #r, .type = PN_RULE,   .rule     = &r }
+#define REDUCE(f) (const struct ProdNode)   { .name = #f, .type = PN_REDUCE, .reducer  =  f }
+#define PROD(...) (const struct Production) { true, { __VA_ARGS__ }}
 #define RULE(rule_id, ...) struct GrammarRule rule_id = { .name = #rule_id, .productions = { __VA_ARGS__ } };
 
 // Rule section.
@@ -118,31 +118,46 @@ static void* reduce_echo_expr(size_t argc, void* argv[]) {
 
 struct GrammarRule expr;
 
-// expression :: arithmetics, logics, array access and funcfion calls
-
+//**************************************************************
+// expression :: arithmetics, logics, if, match, array access and funcfion calls
 RULE( expr_factor,
   PROD( TERM(TOK_NUMBER_L),                                     REDUCE(reduce_number_l) ),
   PROD( TERM(TOK_LPAREN), NTRM(expr), TERM(TOK_RPAREN),         REDUCE(reduce_lparen_expr_rparen) ),
-  PROD( TERM(TOK_MINUS), NTRM(expr),                            REDUCE(reduce_minus_expr) ),
+  PROD( TERM(TOK_MINUS),  NTRM(expr),                           REDUCE(reduce_minus_expr) ),
 )
 
 RULE( expr_term,
-  PROD( NTRM(expr_factor), TERM(TOK_STAR), NTRM(expr_term),     REDUCE(reduce_expr_star_expr) ),
+  PROD( NTRM(expr_factor), TERM(TOK_STAR),  NTRM(expr_term),    REDUCE(reduce_expr_star_expr) ),
   PROD( NTRM(expr_factor), TERM(TOK_SLASH), NTRM(expr_term),    REDUCE(reduce_expr_slash_expr) ),
   PROD( NTRM(expr_factor),                                      REDUCE(reduce_expr) ),
 )
 
 RULE( expr,
-  PROD( NTRM(expr_term), TERM(TOK_PLUS), NTRM(expr),            REDUCE(reduce_expr_plus_expr) ),
+  PROD( NTRM(expr_term), TERM(TOK_PLUS),  NTRM(expr),           REDUCE(reduce_expr_plus_expr) ),
   PROD( NTRM(expr_term), TERM(TOK_MINUS), NTRM(expr),           REDUCE(reduce_expr_minus_expr) ),
   PROD( NTRM(expr_term),                                        REDUCE(reduce_expr) ),
 )
 
-// program :: the parsing entry point 
+//**************************************************************
+// program :: the parsing entry point
 RULE( prog,
   PROD( TERM(TOK_ECHO), NTRM(expr),                             REDUCE(reduce_echo_expr) ),
   PROD( NTRM(expr),                                             REDUCE(reduce_expr) ),
 )
+
+// factor ::= NUMBER | '(' expr ')'
+// 
+// term ::= factor term_tail
+// term_tail ::= '*' factor term_tail
+//             | '/' factor term_tail
+//             | ε
+// 
+// expr ::= term expr_tail
+// expr_tail ::= '+' term expr_tail
+//             | '-' term expr_tail
+//             | ε
+// 
+// prog ::= expr | 'echo' expr
 
 // private functions
 
@@ -232,7 +247,7 @@ static void* parse_by_rule(struct Parser* parser, struct GrammarRule* rule) {
   if (parser->current_token == NULL && !parser_move_forward(parser)) return NULL; // hard error
 
   for (int i = 0; rule->productions[i].exists; i++) {
-    struct Production* production = &rule->productions[i];
+    const struct Production* production = &rule->productions[i];
 
     struct ParseCheckpoint chk;
     parser_checkpoint(parser, &chk);
@@ -245,7 +260,7 @@ static void* parse_by_rule(struct Parser* parser, struct GrammarRule* rule) {
     LOG_DEBUG("using rule ::%s:: #%d", rule->name, i);
 
     for (int j = 0; production->nodes[j].type != PN_EMPTY; j++) {
-      struct ProdNode *prod_node = &production->nodes[j];
+      const struct ProdNode *prod_node = &production->nodes[j];
       switch (prod_node->type) {
         case PN_TERM:
           if (parser->current_token->kind == prod_node->tok_kind) {
