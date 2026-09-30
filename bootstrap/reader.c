@@ -17,7 +17,7 @@ Reader* new_reader(char* filename) {
 
   FILE* f = fopen(filename, "ra"); // read only as text
   if (f == NULL) {
-    sprintf(reader->error, strerror(errno));
+    sprintf(reader->error, "%s", strerror(errno));
     return reader;
   }
 

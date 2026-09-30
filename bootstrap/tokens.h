@@ -32,6 +32,7 @@ typedef enum TokenKind {
   TOK_SPAWN,
   TOK_DEFER,
   TOK_CATCH,
+  TOK_ECHO, // bootstrap compiler only
   TOK_CHAR,
   TOK_THEN,
   TOK_ELSE,

@@ -25,6 +25,7 @@ const TokenDef TOKEN_KEYWORDS[] = {
     {TOK_CATCH, "catch"},
     {TOK_BYTES, "bytes"},
     {TOK_BREAK, "break"},
+    {TOK_ECHO, "echo"},
     {TOK_VOID, "void"},
     {TOK_UINT, "uint"},
     {TOK_TRUE, "true"},

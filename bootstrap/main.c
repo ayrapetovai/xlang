@@ -5,6 +5,7 @@
 
 #include "exec.h"
 #include "lexer.h"
+#include "logger.h"
 #include "parser.h"
 #include "tokens.h"
 
@@ -87,6 +88,11 @@ int run_ast(char *filename) {
 }
 
 int main(int argc, char **argv) {
+  // logger_set_level(LOG_LEVEL_DEBUG);
+  logger_set_level(LOG_LEVEL_INFO);
+
+  LOG_DEBUG("program started");
+
   if (argc == 1) {
     printf("file name missed\n");
     return 1;

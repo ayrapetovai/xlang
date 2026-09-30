@@ -1,6 +1,7 @@
 #include "parser.h"
 #include "reader.h"
 #include "lexer.h"
+#include "logger.h"
 #include "tokens.h"
 #include <stdbool.h>
 #include <stddef.h>
@@ -19,6 +20,7 @@ typedef enum ProdNodeType {
 struct GrammarRule;
 
 struct ProdNode {
+  const char* name;
   enum ProdNodeType type;
   union {
     enum TokenKind tok_kind;
@@ -36,13 +38,15 @@ struct Production {
 };
 
 struct GrammarRule {
+  const char* name;
   struct Production productions[PRODUCTIONS_MAX];
 };
 
-#define TERM(t)   (struct ProdNode)   { .type = PN_TERM,   .tok_kind =  t }
-#define NTRM(r)   (struct ProdNode)   { .type = PN_RULE,   .rule     = &r }
-#define REDUCE(f) (struct ProdNode)   { .type = PN_REDUCE, .reducer  =  f }
+#define TERM(t)   (struct ProdNode)   { .name = #t, .type = PN_TERM,   .tok_kind =  t }
+#define NTRM(r)   (struct ProdNode)   { .name = #r, .type = PN_RULE,   .rule     = &r }
+#define REDUCE(f) (struct ProdNode)   { .name = #f, .type = PN_REDUCE, .reducer  =  f }
 #define PROD(...) (struct Production) { true, { __VA_ARGS__ }}
+#define RULE(rule_id, ...) struct GrammarRule rule_id = { .name = #rule_id, .productions = { __VA_ARGS__ } };
 
 // Rule section.
 
@@ -64,6 +68,24 @@ static void* reduce_number_l(size_t argc, void* argv[]) {
   int *value = malloc(sizeof(int));
   *value = atoi(tok->value);
   return value;
+}
+
+static void* reduce_minus_expr(size_t argc, void* argv[]) {
+  assert(argc == 2);
+  *((int*) argv[1]) = - *((int*) argv[1]);
+  return argv[1];
+}
+
+static void* reduce_expr_star_expr(size_t argc, void* argv[]) {
+  assert(argc == 3);
+  *((int*) argv[0]) *= *((int*) argv[2]);
+  return argv[0];
+}
+
+static void* reduce_expr_slash_expr(size_t argc, void* argv[]) {
+  assert(argc == 3);
+  *((int*) argv[0]) /= *((int*) argv[2]);
+  return argv[0];
 }
 
 static void* reduce_expr_plus_expr(size_t argc, void* argv[]) {
@@ -88,25 +110,39 @@ static void* reduce_expr(size_t argc, void* argv[]) {
   return argv[0];
 }
 
-struct GrammarRule expr;
-struct GrammarRule expr_term;
+static void* reduce_echo_expr(size_t argc, void* argv[]) {
+  assert(argc == 2);
+  printf("%d\n", *((int*)argv[1]));
+  return argv[1];
+}
 
-// WARNING: expression :: arithmetics, logics, array access and funcfion calls
-struct GrammarRule expr_term = {{
+struct GrammarRule expr;
+
+// expression :: arithmetics, logics, array access and funcfion calls
+
+RULE( expr_factor,
   PROD( TERM(TOK_NUMBER_L),                                     REDUCE(reduce_number_l) ),
   PROD( TERM(TOK_LPAREN), NTRM(expr), TERM(TOK_RPAREN),         REDUCE(reduce_lparen_expr_rparen) ),
-}};
+  PROD( TERM(TOK_MINUS), NTRM(expr),                            REDUCE(reduce_minus_expr) ),
+)
 
-struct GrammarRule expr = {{
+RULE( expr_term,
+  PROD( NTRM(expr_factor), TERM(TOK_STAR), NTRM(expr_term),     REDUCE(reduce_expr_star_expr) ),
+  PROD( NTRM(expr_factor), TERM(TOK_SLASH), NTRM(expr_term),    REDUCE(reduce_expr_slash_expr) ),
+  PROD( NTRM(expr_factor),                                      REDUCE(reduce_expr) ),
+)
+
+RULE( expr,
   PROD( NTRM(expr_term), TERM(TOK_PLUS), NTRM(expr),            REDUCE(reduce_expr_plus_expr) ),
   PROD( NTRM(expr_term), TERM(TOK_MINUS), NTRM(expr),           REDUCE(reduce_expr_minus_expr) ),
   PROD( NTRM(expr_term),                                        REDUCE(reduce_expr) ),
-}};
+)
 
-// WARNING: program :: the parsing entry point 
-struct GrammarRule prog = {{
+// program :: the parsing entry point 
+RULE( prog,
+  PROD( TERM(TOK_ECHO), NTRM(expr),                             REDUCE(reduce_echo_expr) ),
   PROD( NTRM(expr),                                             REDUCE(reduce_expr) ),
-}};
+)
 
 // private functions
 
@@ -169,8 +205,8 @@ int parser_parse(struct Parser *parser) {
   int rc = 1;
 
   if (parse_result != NULL) {
-    int result = *((int*) parse_result);
-    printf("result: %d\n", result);
+    // int result = *((int*) parse_result);
+    // printf("result: %d\n", result);
 
     free(parse_result); // the root result belongs to parser_parse
     rc = 0;
@@ -192,9 +228,8 @@ void parser_close(struct Parser* parser) {
 }
 
 static void* parse_by_rule(struct Parser* parser, struct GrammarRule* rule) {
-  if (parser->current_token == NULL && !parser_move_forward(parser)) {
-    return NULL; // hard error
-  }
+  if (rule == NULL) return NULL; // hard error
+  if (parser->current_token == NULL && !parser_move_forward(parser)) return NULL; // hard error
 
   for (int i = 0; rule->productions[i].exists; i++) {
     struct Production* production = &rule->productions[i];
@@ -207,12 +242,15 @@ static void* parse_by_rule(struct Parser* parser, struct GrammarRule* rule) {
     size_t param_count = 0;
     bool failed = false;
 
+    LOG_DEBUG("using rule ::%s:: #%d", rule->name, i);
+
     for (int j = 0; production->nodes[j].type != PN_EMPTY; j++) {
       struct ProdNode *prod_node = &production->nodes[j];
       switch (prod_node->type) {
         case PN_TERM:
           if (parser->current_token->kind == prod_node->tok_kind) {
-            params[param_count] = parser->current_token; // accept (aka shift)
+            LOG_DEBUG("accept %s = %s", prod_node->name, parser->current_token->value);
+            params[param_count] = parser->current_token;
             param_is_token[param_count] = true;
             if (!parser_move_forward(parser))
               return NULL; // hard error
@@ -228,6 +266,7 @@ static void* parse_by_rule(struct Parser* parser, struct GrammarRule* rule) {
           }
           break;
         case PN_REDUCE:
+          LOG_DEBUG("reduce rule ::%s:: #%d", rule->name, i);
           void* reduce_result = prod_node->reducer(param_count, params);
           // free only the results this frame consumed; tokens are owned by
           // the token pool and must outlive any live ParseCheckpoint
@@ -241,6 +280,8 @@ static void* parse_by_rule(struct Parser* parser, struct GrammarRule* rule) {
       if (failed) break;
       param_count += 1;
     }
+
+    LOG_DEBUG("rollback rule ::%s:: #%d", rule->name, i);
 
     // successive procesing must have been returned the reduced result, so this is an error handling
     // rollback: free consumed results only; rewind input + current token
@@ -272,16 +313,22 @@ static bool parser_move_forward(struct Parser* parser) {
   if (!parser_pool_push(parser, parser->current_token))
     return false; // out of memory
 
-  enum LexState lex_state = lexer_next_token(parser->lexer, parser->current_token);
+  while (true) {
+    enum LexState lex_state = lexer_next_token(parser->lexer, parser->current_token);
 
-  if (lex_state == LEX_ERROR || lex_state == LEX_PRG_ERROR) {
-    sprintf(parser->error, "parsing failed: %s", parser->lexer->error);
-    return false;
-  }
+    if (lex_state == LEX_ERROR || lex_state == LEX_PRG_ERROR) {
+      sprintf(parser->error, "parsing failed: %s", parser->lexer->error);
+      return false;
+    }
 
-  if (lex_state == LEX_EOF) {
-    // sentinel: matches no terminal, so rules fail cleanly at end of input
-    parser->current_token->kind = TOK_UNDEF;
+    if (lex_state == LEX_EOF) {
+      parser->current_token->kind = TOK_UNDEF;
+      break;
+    }
+
+    if (parser->current_token->kind != TOK_SPACE) {
+      break;
+    }
   }
 
   return true;
