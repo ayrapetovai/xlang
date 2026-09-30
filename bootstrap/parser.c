@@ -228,17 +228,16 @@ void parser_close(struct Parser* parser) {
   free(parser);
 }
 
-static bool same_head(const struct Production *p1, const struct Production *p2, size_t to) {
+static bool starts_with_same_nodes(const struct Production *p1, const struct Production *p2, size_t to) {
   bool equal = true;
   size_t i = 0;
   while (i < to) {
     struct ProdNode n1 = p1->nodes[i];
     struct ProdNode n2 = p2->nodes[i];
-    if (n1.type != n2.type) {
-      equal = false;
-      break;
-    }
-    if (strcmp(n1.name, n2.name) != 0) {
+    if ( (n1.type != n2.type)
+      || (n1.type == PN_RULE && n2.type == PN_RULE && n1.rule != n2.rule)
+      || (n1.type == PN_TERM && n2.type == PN_TERM && n1.tok_kind != n2.tok_kind)
+      || (strcmp(n1.name, n2.name)) ) {
       equal = false;
       break;
     }
@@ -278,7 +277,9 @@ production_cycle:
             param_is_token[param_count] = true;
             if (!parser_move_forward(parser))
               return NULL; // hard error
-          } else if (rule->productions[i + 1].exists && same_head(&rule->productions[i], &rule->productions[i + 1], i)) {
+          } else if (rule->productions[i + 1].exists
+            && starts_with_same_nodes(&rule->productions[i], &rule->productions[i + 1], i)
+          ) {
             LOG_DEBUG("reject %s = %s", prod_node->name, parser->current_token->value);
             LOG_DEBUG("try next ::%s:: #%d -> #%d", rule->name, i, i + 1);
             i += 1;
