@@ -1,3 +1,0 @@
-- Single inheritance, one level of inheritance only.
-- Function dispatching is available only if type generic T is interface.
-- Add operator `postfix_operator[] func(r range) uint` for working with bits.
