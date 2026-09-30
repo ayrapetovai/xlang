@@ -24,6 +24,7 @@ struct Lexer *lexer_new(char *filename) {
   memset(lexer->error, 0, sizeof lexer->error);
   lexer->line = 1;
   lexer->col = 1;
+  lexer->reader = NULL; // set to NULL until fopen succeeds (error path safety)
 
   struct Reader *reader = new_reader(filename);
   if (strlen(reader->error) != 0)

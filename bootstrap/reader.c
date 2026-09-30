@@ -69,7 +69,7 @@ void reader_ungetch(struct Reader* reader, char c) {
 }
 
 void reader_close(struct Reader* reader) {
-  if (reader == NULL || reader->file == NULL) return;
-  fclose(reader->file);
+  if (reader == NULL) return;
+  if (reader->file != NULL) fclose(reader->file);
   free(reader);
 }

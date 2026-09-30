@@ -1,7 +1,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include "exec.h"
@@ -19,6 +18,7 @@ Bootstrap compiler does not support:
 - processing commentaries (skip only)
 - string interpolation
 - floating point numbers
+- custom memory allocators
 */
 
 int run_exec(char *filename) { return exec(filename); }
@@ -62,19 +62,28 @@ int run_ast(char *filename) {
   struct Lexer *lexer = lexer_new(filename);
   if (strlen(lexer->error) != 0) {
     printf("lexer initialization: %s\n", lexer->error);
+    lexer_close(lexer);
     return 1;
   }
 
   struct Parser* parser = parser_new(lexer);
-  if (parser == NULL) return 2;
+  if (parser == NULL) {
+    lexer_close(lexer);
+    return 2;
+  }
   if (strlen(parser->error) != 0) {
     printf("parsing error: %s\n", parser->error);
+    parser_close(parser);
+    lexer_close(lexer);
     return 3;
   }
 
-  parser_parse(parser);
+  int rc = parser_parse(parser);
 
-  return 0;
+  parser_close(parser);
+  lexer_close(lexer);
+
+  return rc;
 }
 
 int main(int argc, char **argv) {

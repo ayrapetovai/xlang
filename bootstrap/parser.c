@@ -151,6 +151,9 @@ struct Parser* parser_new(struct Lexer *lexer) {
   if (parser == NULL) return NULL;
 
   parser->current_token = NULL;
+  parser->token_pool = NULL;
+  parser->token_pool_size = 0;
+  parser->token_pool_cap = 0;
   memset(parser->error, '\0', sizeof(parser->error));
 
   if (lexer == NULL)
@@ -163,15 +166,29 @@ struct Parser* parser_new(struct Lexer *lexer) {
 
 int parser_parse(struct Parser *parser) {
   void* parse_result = parse_by_rule(parser, &prog);
+  int rc = 1;
 
-  if (parse_result == NULL) return 1;
+  if (parse_result != NULL) {
+    int result = *((int*) parse_result);
+    printf("result: %d\n", result);
 
-  int result = *((int*) parse_result);
-  printf("result: %d\n", result);
+    free(parse_result); // the root result belongs to parser_parse
+    rc = 0;
+  }
 
-  free(parse_result);
+  return rc;
+}
 
-  return 0;
+void parser_close(struct Parser* parser) {
+  if (parser == NULL) return;
+
+  for (size_t i = 0; i < parser->token_pool_size; i++)
+    free(parser->token_pool[i]);
+  free(parser->token_pool);
+  parser->token_pool = NULL;
+  parser->token_pool_size = 0;
+
+  free(parser);
 }
 
 static void* parse_by_rule(struct Parser* parser, struct GrammarRule* rule) {
@@ -186,6 +203,7 @@ static void* parse_by_rule(struct Parser* parser, struct GrammarRule* rule) {
     parser_checkpoint(parser, &chk);
 
     void *params[PRODUCTION_MAX_LENGTH] = {};
+    bool param_is_token[PRODUCTION_MAX_LENGTH] = {}; // true: Token* (lookahead), false: reduced result
     size_t param_count = 0;
     bool failed = false;
 
@@ -195,6 +213,7 @@ static void* parse_by_rule(struct Parser* parser, struct GrammarRule* rule) {
         case PN_TERM:
           if (parser->current_token->kind == prod_node->tok_kind) {
             params[param_count] = parser->current_token; // accept (aka shift)
+            param_is_token[param_count] = true;
             if (!parser_move_forward(parser))
               return NULL; // hard error
           } else failed = true; // roll back to the next alternative
@@ -203,15 +222,18 @@ static void* parse_by_rule(struct Parser* parser, struct GrammarRule* rule) {
           void *sub_rule_result = parse_by_rule(parser, prod_node->rule);
           if (sub_rule_result == NULL)
             failed = true; // sub-rule did not match: try next production
-          else
+          else {
             params[param_count] = sub_rule_result;
+            param_is_token[param_count] = false;
+          }
           break;
         case PN_REDUCE:
           void* reduce_result = prod_node->reducer(param_count, params);
-          printf("param_count %ld\n", param_count);
-          for (size_t k = 0; k < param_count && params[k] != NULL; k++) {
-            if (params[k] != reduce_result) free(params[k]);
-          }
+          // free only the results this frame consumed; tokens are owned by
+          // the token pool and must outlive any live ParseCheckpoint
+          for (size_t k = 0; k < param_count; k++)
+            if (!param_is_token[k] && params[k] != reduce_result)
+              free(params[k]);
           return reduce_result;
         default:
           failed = true; // error
@@ -221,17 +243,34 @@ static void* parse_by_rule(struct Parser* parser, struct GrammarRule* rule) {
     }
 
     // successive procesing must have been returned the reduced result, so this is an error handling
-    // rollback: free parse results; rewind input + current token
-    for (size_t k = 0; k < param_count && params[k] != NULL; k++) free(params[k]);
+    // rollback: free consumed results only; rewind input + current token
+    for (size_t k = 0; k < param_count; k++)
+      if (!param_is_token[k]) free(params[k]);
     parser_restore(parser, &chk);
   }
 
   return NULL; // no production in this rule accepts the current token
 }
 
+// track every token so it can be freed once, at the end of parsing
+static bool parser_pool_push(struct Parser* parser, struct Token* tok) {
+  if (parser->token_pool_size == parser->token_pool_cap) {
+    size_t new_cap = parser->token_pool_cap == 0 ? 64 : parser->token_pool_cap * 2;
+    struct Token** grown = realloc(parser->token_pool, new_cap * sizeof *grown);
+    if (grown == NULL) return false;
+    parser->token_pool = grown;
+    parser->token_pool_cap = new_cap;
+  }
+  parser->token_pool[parser->token_pool_size++] = tok;
+  return true;
+}
+
 static bool parser_move_forward(struct Parser* parser) {
   parser->current_token = malloc(sizeof(struct Token));
   memset(parser->current_token, 0, sizeof(struct Token)); // no garbage kind
+
+  if (!parser_pool_push(parser, parser->current_token))
+    return false; // out of memory
 
   enum LexState lex_state = lexer_next_token(parser->lexer, parser->current_token);
 
