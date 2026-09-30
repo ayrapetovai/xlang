@@ -1,0 +1,121 @@
+[
+  {
+    "file": "main.c",
+    "arguments": [
+      "/usr/bin/cc",
+      "-std=c23",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-O0",
+      "-g",
+      "-o",
+      "bootstrap",
+      "main.c"
+    ],
+    "directory": "/home/artem/code/lang/bootstrap",
+    "output": "bootstrap"
+  },
+  {
+    "file": "lexer.c",
+    "arguments": [
+      "/usr/bin/cc",
+      "-std=c23",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-O0",
+      "-g",
+      "-o",
+      "bootstrap",
+      "lexer.c"
+    ],
+    "directory": "/home/artem/code/lang/bootstrap",
+    "output": "bootstrap"
+  },
+  {
+    "file": "logger.c",
+    "arguments": [
+      "/usr/bin/cc",
+      "-std=c23",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-O0",
+      "-g",
+      "-o",
+      "bootstrap",
+      "logger.c"
+    ],
+    "directory": "/home/artem/code/lang/bootstrap",
+    "output": "bootstrap"
+  },
+  {
+    "file": "parser.c",
+    "arguments": [
+      "/usr/bin/cc",
+      "-std=c23",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-O0",
+      "-g",
+      "-o",
+      "bootstrap",
+      "parser.c"
+    ],
+    "directory": "/home/artem/code/lang/bootstrap",
+    "output": "bootstrap"
+  },
+  {
+    "file": "tokens.c",
+    "arguments": [
+      "/usr/bin/cc",
+      "-std=c23",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-O0",
+      "-g",
+      "-o",
+      "bootstrap",
+      "tokens.c"
+    ],
+    "directory": "/home/artem/code/lang/bootstrap",
+    "output": "bootstrap"
+  },
+  {
+    "file": "exec.c",
+    "arguments": [
+      "/usr/bin/cc",
+      "-std=c23",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-O0",
+      "-g",
+      "-o",
+      "bootstrap",
+      "exec.c"
+    ],
+    "directory": "/home/artem/code/lang/bootstrap",
+    "output": "bootstrap"
+  },
+  {
+    "file": "reader.c",
+    "arguments": [
+      "/usr/bin/cc",
+      "-std=c23",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-O0",
+      "-g",
+      "-o",
+      "bootstrap",
+      "reader.c"
+    ],
+    "directory": "/home/artem/code/lang/bootstrap",
+    "output": "bootstrap"
+  }
+]
