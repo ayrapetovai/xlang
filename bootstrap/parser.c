@@ -145,20 +145,6 @@ RULE( prog,
   PROD( NTRM(expr),                                             REDUCE(reduce_expr) ),
 )
 
-// factor ::= NUMBER | '(' expr ')'
-// 
-// term ::= factor term_tail
-// term_tail ::= '*' factor term_tail
-//             | '/' factor term_tail
-//             | ε
-// 
-// expr ::= term expr_tail
-// expr_tail ::= '+' term expr_tail
-//             | '-' term expr_tail
-//             | ε
-// 
-// prog ::= expr | 'echo' expr
-
 // private functions
 
 static void* parse_by_rule(struct Parser* parser, struct GrammarRule* rule);
@@ -242,24 +228,47 @@ void parser_close(struct Parser* parser) {
   free(parser);
 }
 
+static bool same_head(const struct Production *p1, const struct Production *p2, size_t to) {
+  bool equal = true;
+  size_t i = 0;
+  while (i < to) {
+    struct ProdNode n1 = p1->nodes[i];
+    struct ProdNode n2 = p2->nodes[i];
+    if (n1.type != n2.type) {
+      equal = false;
+      break;
+    }
+    if (strcmp(n1.name, n2.name) != 0) {
+      equal = false;
+      break;
+    }
+    i++;
+  }
+  return equal;
+}
+
 static void* parse_by_rule(struct Parser* parser, struct GrammarRule* rule) {
   if (rule == NULL) return NULL; // hard error
   if (parser->current_token == NULL && !parser_move_forward(parser)) return NULL; // hard error
 
-  for (int i = 0; rule->productions[i].exists; i++) {
+  void *params[PRODUCTION_MAX_LENGTH] = {};
+  bool param_is_token[PRODUCTION_MAX_LENGTH] = {}; // true: Token* (lookahead), false: reduced result
+  size_t param_count = 0;
+
+  int i = 0;
+  int j = 0;
+production_cycle:
+  for (; rule->productions[i].exists; i++) {
     const struct Production* production = &rule->productions[i];
 
     struct ParseCheckpoint chk;
     parser_checkpoint(parser, &chk);
 
-    void *params[PRODUCTION_MAX_LENGTH] = {};
-    bool param_is_token[PRODUCTION_MAX_LENGTH] = {}; // true: Token* (lookahead), false: reduced result
-    size_t param_count = 0;
     bool failed = false;
 
-    LOG_DEBUG("using rule ::%s:: #%d", rule->name, i);
+    LOG_DEBUG("using rule ::%s:: #%d:%d", rule->name, i, j);
 
-    for (int j = 0; production->nodes[j].type != PN_EMPTY; j++) {
+    for (; production->nodes[j].type != PN_EMPTY; j++) {
       const struct ProdNode *prod_node = &production->nodes[j];
       switch (prod_node->type) {
         case PN_TERM:
@@ -269,7 +278,15 @@ static void* parse_by_rule(struct Parser* parser, struct GrammarRule* rule) {
             param_is_token[param_count] = true;
             if (!parser_move_forward(parser))
               return NULL; // hard error
-          } else failed = true; // roll back to the next alternative
+          } else if (rule->productions[i + 1].exists && same_head(&rule->productions[i], &rule->productions[i + 1], i)) {
+            LOG_DEBUG("reject %s = %s", prod_node->name, parser->current_token->value);
+            LOG_DEBUG("try next ::%s:: #%d -> #%d", rule->name, i, i + 1);
+            i += 1;
+            // move to next production without rollback if it starts with the same nodes
+            goto production_cycle;
+          } else {
+            failed = true; // rollback
+          }
           break;
         case PN_RULE:
           void *sub_rule_result = parse_by_rule(parser, prod_node->rule);
@@ -279,9 +296,10 @@ static void* parse_by_rule(struct Parser* parser, struct GrammarRule* rule) {
             params[param_count] = sub_rule_result;
             param_is_token[param_count] = false;
           }
+          LOG_DEBUG("continue rule ::%s:: #%d:%d", rule->name, i, j);
           break;
         case PN_REDUCE:
-          LOG_DEBUG("reduce rule ::%s:: #%d", rule->name, i);
+          LOG_DEBUG("reduce rule ::%s:: #%d:%d", rule->name, i, j);
           void* reduce_result = prod_node->reducer(param_count, params);
           // free only the results this frame consumed; tokens are owned by
           // the token pool and must outlive any live ParseCheckpoint
@@ -295,6 +313,7 @@ static void* parse_by_rule(struct Parser* parser, struct GrammarRule* rule) {
       if (failed) break;
       param_count += 1;
     }
+    j = 0;
 
     LOG_DEBUG("rollback rule ::%s:: #%d", rule->name, i);
 
@@ -302,6 +321,8 @@ static void* parse_by_rule(struct Parser* parser, struct GrammarRule* rule) {
     // rollback: free consumed results only; rewind input + current token
     for (size_t k = 0; k < param_count; k++)
       if (!param_is_token[k]) free(params[k]);
+    memset(params, 0, PRODUCTION_MAX_LENGTH * sizeof(*params));
+    memset(param_is_token, 0, PRODUCTION_MAX_LENGTH * sizeof(*param_is_token));
     parser_restore(parser, &chk);
   }
 
