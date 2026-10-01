@@ -123,13 +123,17 @@ struct GrammarRule expr;
 RULE( expr_factor,
   PROD( TERM(TOK_NUMBER_L),                                     REDUCE(reduce_number_l) ),
   PROD( TERM(TOK_LPAREN), NTRM(expr), TERM(TOK_RPAREN),         REDUCE(reduce_lparen_expr_rparen) ),
-  PROD( TERM(TOK_MINUS),  NTRM(expr),                           REDUCE(reduce_minus_expr) ),
+)
+
+RULE( expr_unary,
+  PROD( TERM(TOK_MINUS),  NTRM(expr_factor),                    REDUCE(reduce_minus_expr) ),
+  PROD( NTRM(expr_factor),                                      REDUCE(reduce_expr) ),
 )
 
 RULE( expr_term,
-  PROD( NTRM(expr_factor), TERM(TOK_STAR),  NTRM(expr_term),    REDUCE(reduce_expr_star_expr) ),
-  PROD( NTRM(expr_factor), TERM(TOK_SLASH), NTRM(expr_term),    REDUCE(reduce_expr_slash_expr) ),
-  PROD( NTRM(expr_factor),                                      REDUCE(reduce_expr) ),
+  PROD( NTRM(expr_unary), TERM(TOK_STAR),  NTRM(expr_term),    REDUCE(reduce_expr_star_expr) ),
+  PROD( NTRM(expr_unary), TERM(TOK_SLASH), NTRM(expr_term),    REDUCE(reduce_expr_slash_expr) ),
+  PROD( NTRM(expr_unary),                                      REDUCE(reduce_expr) ),
 )
 
 RULE( expr,
@@ -280,7 +284,7 @@ production_cycle:
           } else if (rule->productions[i + 1].exists
             && starts_with_same_nodes(&rule->productions[i], &rule->productions[i + 1], i)
           ) {
-            LOG_DEBUG("reject %s = %s", prod_node->name, parser->current_token->value);
+            LOG_DEBUG("reject %s, expected %s", parser->current_token->value, prod_node->name);
             LOG_DEBUG("try next ::%s:: #%d -> #%d", rule->name, i, i + 1);
             i += 1;
             // move to next production without rollback if it starts with the same nodes
@@ -365,6 +369,10 @@ static bool parser_move_forward(struct Parser* parser) {
 
     if (parser->current_token->kind != TOK_SPACE) {
       break;
+    }
+    // skip single line comment
+    if (parser->current_token->kind == TOK_SLC_START) {
+      lexer_skip_until(parser->lexer, "\n");
     }
   }
 
