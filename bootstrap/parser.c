@@ -51,7 +51,8 @@ struct GrammarRule {
 #define TERM(t)   (const struct ProdNode)   { .name = #t, .type = PN_TERM,   .tok_kind =  t }
 #define NTRM(r)   (const struct ProdNode)   { .name = #r, .type = PN_RULE,   .rule     = &r }
 #define REDUCE(f) (const struct ProdNode)   { .name = #f, .type = PN_REDUCE, .reducer  =  f }
-#define PROD(assoc, ...) (const struct Production) { true, assoc, { __VA_ARGS__ }}
+#define PROD_L(...) (const struct Production) { true, ASC_LEFT,  { __VA_ARGS__ }}
+#define PROD_R(...) (const struct Production) { true, ASC_RIGHT, { __VA_ARGS__ }}
 #define RULE(rule_id, ...) struct GrammarRule rule_id = { .name = #rule_id, .productions = { __VA_ARGS__ } };
 
 // Rule section.
@@ -127,32 +128,32 @@ struct GrammarRule expr_prime;
 //**************************************************************
 // expression :: arithmetics, logics, if, match, array access and funcfion calls
 RULE( expr_factor,
-  PROD(ASC_RIGHT, TERM(TOK_NUMBER_L),                                     REDUCE(reduce_number_l) ),
-  PROD(ASC_RIGHT, TERM(TOK_LPAREN), NTRM(expr_prime), TERM(TOK_RPAREN),   REDUCE(reduce_lparen_expr_rparen) ),
+  PROD_R( TERM(TOK_NUMBER_L),                                     REDUCE(reduce_number_l) ),
+  PROD_R( TERM(TOK_LPAREN), NTRM(expr_prime), TERM(TOK_RPAREN),   REDUCE(reduce_lparen_expr_rparen) ),
 )
 
 RULE( expr_unary,
-  PROD(ASC_RIGHT, NTRM(expr_factor),                                      REDUCE(reduce_expr) ),
-  PROD(ASC_RIGHT, TERM(TOK_MINUS),  NTRM(expr_factor),                    REDUCE(reduce_minus_expr) ),
+  PROD_R( NTRM(expr_factor),                                      REDUCE(reduce_expr) ),
+  PROD_R( TERM(TOK_MINUS),  NTRM(expr_factor),                    REDUCE(reduce_minus_expr) ),
 )
 
 RULE( expr_term,
-  PROD(ASC_LEFT,  NTRM(expr_unary), TERM(TOK_STAR),  NTRM(expr_unary),    REDUCE(reduce_expr_star_expr), ),
-  PROD(ASC_LEFT,  NTRM(expr_unary), TERM(TOK_SLASH), NTRM(expr_unary),    REDUCE(reduce_expr_slash_expr), ),
-  PROD(ASC_RIGHT, NTRM(expr_unary),                                       REDUCE(reduce_expr), ),
+  PROD_L( NTRM(expr_unary), TERM(TOK_STAR),  NTRM(expr_unary),    REDUCE(reduce_expr_star_expr), ),
+  PROD_L( NTRM(expr_unary), TERM(TOK_SLASH), NTRM(expr_unary),    REDUCE(reduce_expr_slash_expr), ),
+  PROD_R( NTRM(expr_unary),                                       REDUCE(reduce_expr), ),
 )
 
 RULE( expr_prime,
-  PROD(ASC_LEFT,  NTRM(expr_term), TERM(TOK_PLUS),  NTRM(expr_term),      REDUCE(reduce_expr_plus_expr), ),
-  PROD(ASC_LEFT,  NTRM(expr_term), TERM(TOK_MINUS), NTRM(expr_term),      REDUCE(reduce_expr_minus_expr), ),
-  PROD(ASC_RIGHT, NTRM(expr_term),                                        REDUCE(reduce_expr), ),
+  PROD_L( NTRM(expr_term), TERM(TOK_PLUS),  NTRM(expr_term),      REDUCE(reduce_expr_plus_expr), ),
+  PROD_L( NTRM(expr_term), TERM(TOK_MINUS), NTRM(expr_term),      REDUCE(reduce_expr_minus_expr), ),
+  PROD_R( NTRM(expr_term),                                        REDUCE(reduce_expr), ),
 )
 
 //**************************************************************
 // program :: the parsing entry point
 RULE( prog,
-  PROD(ASC_RIGHT, TERM(TOK_ECHO), NTRM(expr_prime),                       REDUCE(reduce_echo_expr) ),
-  PROD(ASC_RIGHT, NTRM(expr_prime),                                       REDUCE(reduce_expr) ),
+  PROD_R( TERM(TOK_ECHO), NTRM(expr_prime),                       REDUCE(reduce_echo_expr) ),
+  PROD_R( NTRM(expr_prime),                                       REDUCE(reduce_expr) ),
 )
 
 // private functions
