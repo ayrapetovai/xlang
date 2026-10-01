@@ -17,6 +17,11 @@ typedef enum ProdNodeType {
   PN_REDUCE,
 } ProdNodeType;
 
+typedef enum Associativity {
+  ASC_LEFT,
+  ASC_RIGHT,
+} Associativiy;
+
 struct GrammarRule;
 
 struct ProdNode {
@@ -34,6 +39,7 @@ struct ProdNode {
 
 struct Production {
   const bool exists;
+  const enum Associativity assoc;
   const struct ProdNode nodes[PRODUCTION_MAX_LENGTH];
 };
 
@@ -45,7 +51,7 @@ struct GrammarRule {
 #define TERM(t)   (const struct ProdNode)   { .name = #t, .type = PN_TERM,   .tok_kind =  t }
 #define NTRM(r)   (const struct ProdNode)   { .name = #r, .type = PN_RULE,   .rule     = &r }
 #define REDUCE(f) (const struct ProdNode)   { .name = #f, .type = PN_REDUCE, .reducer  =  f }
-#define PROD(...) (const struct Production) { true, { __VA_ARGS__ }}
+#define PROD(assoc, ...) (const struct Production) { true, assoc, { __VA_ARGS__ }}
 #define RULE(rule_id, ...) struct GrammarRule rule_id = { .name = #rule_id, .productions = { __VA_ARGS__ } };
 
 // Rule section.
@@ -116,37 +122,37 @@ static void* reduce_echo_expr(size_t argc, void* argv[]) {
   return argv[1];
 }
 
-struct GrammarRule expr;
+struct GrammarRule expr_prime;
 
 //**************************************************************
 // expression :: arithmetics, logics, if, match, array access and funcfion calls
 RULE( expr_factor,
-  PROD( TERM(TOK_NUMBER_L),                                     REDUCE(reduce_number_l) ),
-  PROD( TERM(TOK_LPAREN), NTRM(expr), TERM(TOK_RPAREN),         REDUCE(reduce_lparen_expr_rparen) ),
+  PROD(ASC_RIGHT, TERM(TOK_NUMBER_L),                                     REDUCE(reduce_number_l) ),
+  PROD(ASC_RIGHT, TERM(TOK_LPAREN), NTRM(expr_prime), TERM(TOK_RPAREN),   REDUCE(reduce_lparen_expr_rparen) ),
 )
 
 RULE( expr_unary,
-  PROD( TERM(TOK_MINUS),  NTRM(expr_factor),                    REDUCE(reduce_minus_expr) ),
-  PROD( NTRM(expr_factor),                                      REDUCE(reduce_expr) ),
+  PROD(ASC_RIGHT, NTRM(expr_factor),                                      REDUCE(reduce_expr) ),
+  PROD(ASC_RIGHT, TERM(TOK_MINUS),  NTRM(expr_factor),                    REDUCE(reduce_minus_expr) ),
 )
 
 RULE( expr_term,
-  PROD( NTRM(expr_unary), TERM(TOK_STAR),  NTRM(expr_term),    REDUCE(reduce_expr_star_expr) ),
-  PROD( NTRM(expr_unary), TERM(TOK_SLASH), NTRM(expr_term),    REDUCE(reduce_expr_slash_expr) ),
-  PROD( NTRM(expr_unary),                                      REDUCE(reduce_expr) ),
+  PROD(ASC_LEFT,  NTRM(expr_unary), TERM(TOK_STAR),  NTRM(expr_unary),    REDUCE(reduce_expr_star_expr), ),
+  PROD(ASC_LEFT,  NTRM(expr_unary), TERM(TOK_SLASH), NTRM(expr_unary),    REDUCE(reduce_expr_slash_expr), ),
+  PROD(ASC_RIGHT, NTRM(expr_unary),                                       REDUCE(reduce_expr), ),
 )
 
-RULE( expr,
-  PROD( NTRM(expr_term), TERM(TOK_PLUS),  NTRM(expr),           REDUCE(reduce_expr_plus_expr) ),
-  PROD( NTRM(expr_term), TERM(TOK_MINUS), NTRM(expr),           REDUCE(reduce_expr_minus_expr) ),
-  PROD( NTRM(expr_term),                                        REDUCE(reduce_expr) ),
+RULE( expr_prime,
+  PROD(ASC_LEFT,  NTRM(expr_term), TERM(TOK_PLUS),  NTRM(expr_term),      REDUCE(reduce_expr_plus_expr), ),
+  PROD(ASC_LEFT,  NTRM(expr_term), TERM(TOK_MINUS), NTRM(expr_term),      REDUCE(reduce_expr_minus_expr), ),
+  PROD(ASC_RIGHT, NTRM(expr_term),                                        REDUCE(reduce_expr), ),
 )
 
 //**************************************************************
 // program :: the parsing entry point
 RULE( prog,
-  PROD( TERM(TOK_ECHO), NTRM(expr),                             REDUCE(reduce_echo_expr) ),
-  PROD( NTRM(expr),                                             REDUCE(reduce_expr) ),
+  PROD(ASC_RIGHT, TERM(TOK_ECHO), NTRM(expr_prime),                       REDUCE(reduce_echo_expr) ),
+  PROD(ASC_RIGHT, NTRM(expr_prime),                                       REDUCE(reduce_expr) ),
 )
 
 // private functions
@@ -250,6 +256,13 @@ static bool starts_with_same_nodes(const struct Production *p1, const struct Pro
   return equal;
 }
 
+static int fold_point(const struct Production *production) {
+  for (size_t k = 1; k < PRODUCTION_MAX_LENGTH && production->nodes[k].type != PN_EMPTY; k++)
+    if (production->nodes[k].type == PN_TERM)
+      return (int)k;
+  return -1;
+}
+
 static void* parse_by_rule(struct Parser* parser, struct GrammarRule* rule) {
   if (rule == NULL) return NULL; // hard error
   if (parser->current_token == NULL && !parser_move_forward(parser)) return NULL; // hard error
@@ -257,6 +270,7 @@ static void* parse_by_rule(struct Parser* parser, struct GrammarRule* rule) {
   void *params[PRODUCTION_MAX_LENGTH] = {};
   bool param_is_token[PRODUCTION_MAX_LENGTH] = {}; // true: Token* (lookahead), false: reduced result
   size_t param_count = 0;
+  bool folded = false;
 
   int i = 0;
   int j = 0;
@@ -282,22 +296,28 @@ production_cycle:
             if (!parser_move_forward(parser))
               return NULL; // hard error
           } else if (rule->productions[i + 1].exists
-            && starts_with_same_nodes(&rule->productions[i], &rule->productions[i + 1], i)
+            && starts_with_same_nodes(&rule->productions[i], &rule->productions[i + 1], j)
           ) {
             LOG_DEBUG("reject %s, expected %s", parser->current_token->value, prod_node->name);
             LOG_DEBUG("try next ::%s:: #%d -> #%d", rule->name, i, i + 1);
             i += 1;
             // move to next production without rollback if it starts with the same nodes
             goto production_cycle;
+          } else if (folded) {
+            // no more operators: the chain ends here, keep what we folded
+            LOG_DEBUG("chain ends, keep folded result of ::%s:: #%d", rule->name, i);
+            return params[0];
           } else {
             failed = true; // rollback
           }
           break;
         case PN_RULE:
           void *sub_rule_result = parse_by_rule(parser, prod_node->rule);
-          if (sub_rule_result == NULL)
+          if (sub_rule_result == NULL) {
+            if (folded) // keep what we folded rather than dropping the whole chain
+              return params[0];
             failed = true; // sub-rule did not match: try next production
-          else {
+          } else {
             params[param_count] = sub_rule_result;
             param_is_token[param_count] = false;
           }
@@ -311,6 +331,19 @@ production_cycle:
           for (size_t k = 0; k < param_count; k++)
             if (!param_is_token[k] && params[k] != reduce_result)
               free(params[k]);
+          if (production->assoc == ASC_LEFT) {
+            int op = fold_point(production);
+            if (op > 0) {
+              LOG_DEBUG("left fold ::%s:: #%d:%d", rule->name, i, j);
+              params[0] = reduce_result;
+              param_is_token[0] = false;
+              param_count = 1;
+              folded = true;
+              i = 0;
+              j = op;
+              goto production_cycle;
+            }
+          } // ASC_RIGHT
           return reduce_result;
         default:
           failed = true; // error
@@ -326,6 +359,8 @@ production_cycle:
     // rollback: free consumed results only; rewind input + current token
     for (size_t k = 0; k < param_count; k++)
       if (!param_is_token[k]) free(params[k]);
+    param_count = 0; // the next production must fill params from index 0
+    folded = false;
     memset(params, 0, PRODUCTION_MAX_LENGTH * sizeof(*params));
     memset(param_is_token, 0, PRODUCTION_MAX_LENGTH * sizeof(*param_is_token));
     parser_restore(parser, &chk);
