@@ -237,7 +237,12 @@ void process_word(char *buf, size_t buf_size, struct Token *tok) {
     strcpy(tok->value, buf);
   } else {
     tok->kind = TOKEN_KEYWORDS[found_word_idx].kind;
-    strcpy(tok->value, buf);
+    if (TOKEN_KEYWORDS[found_word_idx].kind == TOK_NL)
+      sprintf(tok->value, "\\n");
+    else if (TOKEN_KEYWORDS[found_word_idx].kind == TOK_SPACE)
+      sprintf(tok->value, "' '");
+    else
+      strcpy(tok->value, buf);
   }
 }
 

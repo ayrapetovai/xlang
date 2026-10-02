@@ -123,6 +123,20 @@ static void* reduce_echo_expr(size_t argc, void* argv[]) {
   return argv[1];
 }
 
+static void* reduce_stmt_nl_stmts(size_t argc, void* argv[]) {
+  assert(argc == 3);
+  // vec_push(argv[0], argv[2]);  // copy the element in; argv[2] is freed by the engine
+  return argv[2];
+}
+static void* reduce_stmt(size_t argc, void* argv[]) {
+  assert(argc == 1);
+  return argv[0];
+}
+
+static void* reduce_stmts(size_t, void* argv[]) {
+  return argv[0];
+}
+
 struct GrammarRule expr_prime;
 
 //**************************************************************
@@ -149,11 +163,19 @@ RULE( expr_prime,
   PROD_R( NTRM(expr_term),                                        REDUCE(reduce_expr), ),
 )
 
+RULE( stmt,
+  PROD_R( TERM(TOK_ECHO), NTRM(expr_prime),                       REDUCE(reduce_echo_expr) ),
+)
+
+RULE( stmts,
+  PROD_L( NTRM(stmt), TERM(TOK_NL), NTRM(stmts),                  REDUCE(reduce_stmt_nl_stmts) ),
+  PROD_R( NTRM(stmt),                                             REDUCE(reduce_stmt)  ),
+)
+
 //**************************************************************
 // program :: the parsing entry point
 RULE( prog,
-  PROD_R( TERM(TOK_ECHO), NTRM(expr_prime),                       REDUCE(reduce_echo_expr) ),
-  PROD_R( NTRM(expr_prime),                                       REDUCE(reduce_expr) ),
+  PROD_R( NTRM(stmts),                                            REDUCE(reduce_stmts) ),
 )
 
 // private functions
@@ -299,8 +321,8 @@ production_cycle:
           } else if (rule->productions[i + 1].exists
             && starts_with_same_nodes(&rule->productions[i], &rule->productions[i + 1], j)
           ) {
-            LOG_DEBUG("reject %s, expected %s", parser->current_token->value, prod_node->name);
-            LOG_DEBUG("try next ::%s:: #%d -> #%d", rule->name, i, i + 1);
+            LOG_DEBUG("reject %s, expected %s; try next ::%s:: #%d -> #%d",
+                      parser->current_token->value, prod_node->name, rule->name, i, i + 1);
             i += 1;
             // move to next production without rollback if it starts with the same nodes
             goto production_cycle;
@@ -403,12 +425,13 @@ static bool parser_move_forward(struct Parser* parser) {
       break;
     }
 
-    if (parser->current_token->kind != TOK_SPACE) {
-      break;
-    }
     // skip single line comment
     if (parser->current_token->kind == TOK_SLC_START) {
       lexer_skip_until(parser->lexer, "\n");
+    }
+
+    if (parser->current_token->kind != TOK_SPACE && parser->current_token->kind != TOK_SLC_START) {
+      break;
     }
   }
 
