@@ -139,7 +139,7 @@ static void* reduce_expr_minus_expr(size_t argc, void* argv[]) {
   n->info.expr = (InfoExpr) {
     .op_tok = ((Token*)argv[1])->kind,
     .op1 = argv[0],
-    .op2 = argv[1],
+    .op2 = argv[2],
   };
   argv[0] = NULL;
   argv[2] = NULL;
@@ -181,19 +181,21 @@ static void* reduce_stmt_sep_stmts(size_t argc, void* argv[]) {
     result->info.block = (InfoBlock) {
       .len = 2,
       .cap = 2,
-      .stmts = malloc(2 * sizeof(ASTNode)),
+      .stmts = malloc(2 * sizeof(ASTNode*)),
     };
     result->info.block.stmts[0] = stmt;
     result->info.block.stmts[1] = stmt_or_block;
   } else if (stmt_or_block->kind == NODE_BLOCK) {
-    ASTNode** stmts = stmt_or_block->info.block.stmts;
-    ASTNode** new_stmts = malloc(stmt_or_block->info.block.len * sizeof(ASTNode*));
-    memcpy(new_stmts + 1, stmts, stmt_or_block->info.block.len);
-    free(stmt_or_block->info.block.stmts);
-    stmt_or_block->info.block.stmts = stmts;
-    stmt_or_block->info.block.len += 1;
-    stmt_or_block->info.block.cap += 1;
-    result = stmt_or_block;
+    ASTNode *block = stmt_or_block;
+    size_t len = block->info.block.len;
+    ASTNode **new_stmts = malloc((len + 1) * sizeof *new_stmts);
+    new_stmts[0] = stmt;
+    memcpy(new_stmts + 1, block->info.block.stmts, len * sizeof *new_stmts);
+    free(block->info.block.stmts);
+    block->info.block.stmts = new_stmts;
+    block->info.block.len = len + 1;
+    block->info.block.cap = len + 1;
+    result = block;
   } else {
     assert(false);
   }
