@@ -167,33 +167,31 @@ static void* reduce_echo_expr(size_t argc, void* argv[]) {
 static void* reduce_stmt_sep_stmts(size_t argc, void* argv[]) {
   assert(argc == 3);
   ASTNode *stmt = argv[0];
+  assert(stmt->kind == NODE_STMT);
   ASTNode *stmt_or_block = argv[2];
 
-  ASTNode *result;
+  ASTNode *block;
   if (stmt_or_block->kind == NODE_STMT) {
-    result = node_new(NODE_BLOCK);
-    result->info.block = (InfoBlock) {
-      .len = 2,
-      .cap = 2,
-      .stmts = malloc(2 * sizeof(ASTNode*)),
-    };
-    result->info.block.stmts[0] = stmt;
-    result->info.block.stmts[1] = stmt_or_block;
+    block = node_block_new();
+    node_block_append(block, stmt);
+    node_block_append(block, stmt_or_block); // push back
   } else if (stmt_or_block->kind == NODE_BLOCK) {
-    ASTNode *block = stmt_or_block;
-    size_t len = block->info.block.len;
-    ASTNode **new_stmts = malloc((len + 1) * sizeof *new_stmts);
-    new_stmts[0] = stmt;
-    memcpy(new_stmts + 1, block->info.block.stmts, len * sizeof *new_stmts);
-    free(block->info.block.stmts);
-    block->info.block.stmts = new_stmts;
-    block->info.block.len = len + 1;
-    block->info.block.cap = len + 1;
-    result = block;
+    block = stmt_or_block;
+    node_block_prepend(block, stmt);         // push front
   } else {
     assert(false);
   }
-  return result;
+  return block;
+}
+
+static void* reduce_stmt(size_t argc, void* argv[]) {
+  assert(argc == 1);
+  ASTNode *stmt = (ASTNode*) argv[0];
+  assert(stmt->kind == NODE_STMT);
+
+  ASTNode *block = node_block_new();
+  node_block_append(block, stmt);
+  return block;
 }
 
 static void* reduce_sep_seps(size_t argc, void*[]) {
@@ -213,14 +211,12 @@ static void* reduce_empty(size_t argc, void* []) {
 
 static void* reduce_signle_ntrm(size_t argc, void* argv[]) {
   assert(argc == 1);
-  void* n = argv[0];
-  return n;
+  return argv[0];
 }
 
 static void* reduce_optseps_stmts_optseps(size_t argc, void* argv[]) {
   assert(argc == 3);
-  void* n = argv[1];
-  return n;
+  return argv[1];
 }
 
 struct GrammarRule expr_prime;
@@ -273,10 +269,10 @@ RULE( stmt,
 
 RULE( stmts,
   PROD_L( NTRM(stmt), NTRM(stmt_seps), NTRM(stmts),               REDUCE(reduce_stmt_sep_stmts) ),
-  PROD_R( NTRM(stmt),                                             REDUCE(reduce_signle_ntrm) ),
+  PROD_R( NTRM(stmt),                                             REDUCE(reduce_stmt) ),
 )
 
-RULE(block,
+RULE( block,
   PROD_R( NTRM(stmt_optseps), NTRM(stmts), NTRM(stmt_optseps),    REDUCE(reduce_optseps_stmts_optseps) ),
 )
 

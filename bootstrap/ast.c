@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <string.h>
 
 #define RED_TEXT(s) "\033[31m" s "\033[0m"
 #define GREEN_TEXT(s) "\033[32m" s "\033[0m"
@@ -102,3 +103,47 @@ void node_free(ASTNode *n) {
   }
   free(n);
 }
+
+ASTNode *node_block_new() {
+  ASTNode *block = node_new(NODE_BLOCK);
+  block->info.block = (InfoBlock) {
+    .len = 0,
+    .cap = 2,
+    .stmts = malloc(2 * sizeof(ASTNode*)),
+  };
+  assert(block->info.block.stmts != NULL);
+  memset(block->info.block.stmts, 0, 2);
+  return block;
+}
+
+static void ensure_capacity(ASTNode *block, size_t expected_capacity, bool shift_right) {
+  InfoBlock *info_block = &block->info.block;
+  if (info_block->cap < expected_capacity) {
+    size_t new_cap = info_block->cap * 2;
+    ASTNode **new_stmts = malloc(new_cap * sizeof(ASTNode*));
+    assert(new_stmts != NULL);
+    memcpy(new_stmts + (shift_right?1:0), info_block->stmts, info_block->len * sizeof(ASTNode*));
+    free(info_block->stmts);
+    info_block->stmts = new_stmts;
+    info_block->cap = new_cap;
+  } else if (shift_right) {
+    for (int i = info_block->len; 0 < i; i--)
+      info_block->stmts[i] = info_block->stmts[i-1];
+    info_block->stmts[0] = NULL;
+  }
+}
+
+void node_block_append(ASTNode *block, ASTNode *stmt) {
+  InfoBlock *info_block = &block->info.block;
+  ensure_capacity(block, info_block->len + 1, 0);
+  info_block->stmts[info_block->len] = stmt;
+  info_block->len += 1;
+}
+
+void node_block_prepend(ASTNode *block, ASTNode *stmt) {
+  InfoBlock *info_block = &block->info.block;
+  ensure_capacity(block, info_block->len + 1, 1);
+  info_block->stmts[0] = stmt;
+  info_block->len += 1;
+}
+

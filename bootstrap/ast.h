@@ -78,10 +78,12 @@ typedef struct ASTNodeList {
 } ASTNodeList;
 
 ASTNode *node_new(NodeKind);
-ASTNode *node_push(ASTNode*, const ASTNode*);
-ASTNode *node_append(ASTNode *dst, const ASTNode *src);  // returns possibly-realloc'd ptr
+ASTNode *node_block_new();
+void node_block_append(ASTNode *block, ASTNode *stmt);
+void node_block_prepend(ASTNode *block, ASTNode *stmt);
 void node_free(ASTNode *);
 void ast_dump(const ASTNode *);
+
 
 #endif
 
