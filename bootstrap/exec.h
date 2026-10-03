@@ -1,6 +1,8 @@
 #ifndef EXEC_H
 #define EXEC_H
 
-int exec(const char *filename);
+#include "ast.h"
+
+int exec(const struct ASTNode* root);
 
 #endif

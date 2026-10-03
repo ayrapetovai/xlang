@@ -23,7 +23,41 @@ Bootstrap compiler does not support:
 - custom memory allocators
 */
 
-int run_exec(char *filename) { return exec(filename); }
+int run_exec(char *filename) {
+  struct Lexer *lexer = lexer_new(filename);
+  if (strlen(lexer->error) != 0) {
+    printf("lexer initialization: %s\n", lexer->error);
+    lexer_close(lexer);
+    return 1;
+  }
+
+  struct Parser* parser = parser_new(lexer);
+  if (parser == NULL) {
+    lexer_close(lexer);
+    return 2;
+  }
+  if (strlen(parser->error) != 0) {
+    printf("parsing error: %s\n", parser->error);
+    parser_close(parser);
+    lexer_close(lexer);
+    return 3;
+  }
+
+  ASTNode *parse_result = parser_parse(parser);
+  if (parse_result == NULL) {
+    printf("execution failed: %s\n", parser->error);
+    parser_close(parser);
+    lexer_close(lexer);
+    return 4;
+  }
+
+  parser_close(parser);
+  lexer_close(lexer);
+
+  int rc = exec(parse_result);
+  node_free(parse_result);
+  return rc;
+}
 
 int run_lex(char *filename) {
   struct Lexer *lexer = lexer_new(filename);
@@ -81,13 +115,18 @@ int run_ast(char *filename) {
   }
 
   ASTNode *parse_result = parser_parse(parser);
-  ast_dump(parse_result, 0);
-
-  node_free(parse_result);
+  if (parse_result == NULL) {
+    printf("ast failed: %s\n", parser->error);
+    parser_close(parser);
+    lexer_close(lexer);
+    return 4;
+  }
 
   parser_close(parser);
   lexer_close(lexer);
 
+  ast_dump(parse_result, 0);
+  node_free(parse_result);
   return 0;
 }
 
@@ -107,14 +146,12 @@ int main(int argc, char **argv) {
     return run_exec(filename);
   }
 
+  char *filename = argv[2];
   if (!strcmp(argv[1], "run")) {
-    char *filename = argv[2];
     return run_exec(filename);
   } else if (!strcmp(argv[1], "lex")) {
-    char *filename = argv[2];
     return run_lex(filename);
   } else if (!strcmp(argv[1], "ast")) {
-    char *filename = argv[2];
     return run_ast(filename);
   }
 
