@@ -48,7 +48,6 @@ typedef enum TokenKind {
   TOK_DO,
   TOK_IS,
   TOK_IN,
-  TOK_SEP,
   TOK_ID,
   TOK_IF,
 
