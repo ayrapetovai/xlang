@@ -69,26 +69,31 @@ int run_lex(char *filename) {
   int error_code = 0;
 
   while (true) {
-    Token t = {};
+    Token *t = NULL;
     enum LexState state = lexer_next_token(lexer, &t);
-    if (state == LEX_EOF) break;
-    else if (state == LEX_PRG_ERROR) {
+    if (state == LEX_EOF) {
+      free(t); // the lexer allocates a TOK_UNDEF token to signal EOF
+      break;
+    } else if (state == LEX_PRG_ERROR) {
+      free(t);
       printf("lexer crashed\n");
       error_code = 1;
       break;
     } else if (state == LEX_ERROR) {
+      free(t);
       printf("lexing: %s\n", lexer->error);
       error_code = 2;
       break;
     }
-    print_token(&t);
+    print_token(t);
 
     // skip commentaries
-    switch (t.kind) {
+    switch (t->kind) {
     case TOK_SLC_START: lexer_skip_until(lexer, "\n"); break;
     case TOK_MLC_START: lexer_skip_until(lexer, "*/"); break;
     default:
     }
+    free(t);
   }
 
   lexer_close(lexer);

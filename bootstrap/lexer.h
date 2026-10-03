@@ -21,7 +21,7 @@ typedef enum LexState {
 
 struct Lexer *lexer_new(char *);
 
-enum LexState lexer_next_token(struct Lexer *, struct Token *);
+enum LexState lexer_next_token(struct Lexer *, struct Token **);
 
 enum LexState lexer_skip_until(struct Lexer *, const char *);
 

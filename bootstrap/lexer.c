@@ -1,5 +1,6 @@
 #include <ctype.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -10,9 +11,7 @@
 // private functions
 
 static bool strcmplen(const char *s, const char *t, size_t *size);
-static void process_word(char *buf, size_t buf_size, struct Token *tok);
-static void process_number(char *buf, struct Token *tok);
-static void process_string(char *buf, struct Token *tok);
+static Token *process_word(size_t line, size_t col, char *buf, size_t buf_size);
 static bool could_be_operator(char *buf, size_t buf_size, char next);
 
 // public methods
@@ -40,15 +39,15 @@ struct Lexer *lexer_new(char *filename) {
   return lexer;
 }
 
-enum LexState lexer_next_token(struct Lexer *lexer, struct Token *tok) {
-  if (lexer == NULL || tok == NULL) return LEX_PRG_ERROR;
+enum LexState lexer_next_token(struct Lexer *lexer, struct Token **tok) {
+  if (lexer == NULL) return LEX_PRG_ERROR;
 
   // bootstrap compiler cannot parse names and string literals longer than TOKEN_VALUE_MAX_SIZE chars
   char buf[TOKEN_VALUE_MAX_SIZE] = {0};
   size_t buf_idx = 0;
 
-  tok->line = lexer->line;
-  tok->col = lexer->col;
+  const size_t line = lexer->line;
+  const size_t col = lexer->col;
 
   typedef enum WatchState {
     WS_START,
@@ -82,7 +81,12 @@ enum LexState lexer_next_token(struct Lexer *lexer, struct Token *tok) {
 
     switch (state) {
     case WS_START:
-      if (!read) return LEX_EOF;
+      if (!read) {
+        // hand back a fresh token: the caller stores the pointer and may rewind
+        // onto it, so *tok must never keep the previous token's value
+        *tok = token_new(TOK_UNDEF, line, col);
+        return LEX_EOF;
+      }
       if (c == '"') {
         state = WS_STRING;
         break;
@@ -102,7 +106,7 @@ enum LexState lexer_next_token(struct Lexer *lexer, struct Token *tok) {
       else {
         reader_ungetch(lexer->reader, c);
         lexer->col -= 1;
-        process_word(buf, buf_idx, tok);
+        *tok = process_word(line, col, buf, buf_idx);
         return LEX_OK;
       }
       break;
@@ -112,7 +116,7 @@ enum LexState lexer_next_token(struct Lexer *lexer, struct Token *tok) {
       else {
         reader_ungetch(lexer->reader, c);
         lexer->col -= 1;
-        process_number(buf, tok);
+        *tok = token_new_v(TOK_NUMBER_L, line, col, buf, buf_idx);
         return LEX_OK;
       }
       break;
@@ -122,8 +126,8 @@ enum LexState lexer_next_token(struct Lexer *lexer, struct Token *tok) {
       else {
         reader_ungetch(lexer->reader, c);
         lexer->col -= 1;
-        process_word(buf, buf_idx, tok);
-        if (tok->kind == TOK_NL) {
+        *tok = process_word(line, col, buf, buf_idx);
+        if ((*tok)->kind == TOK_NL) {
           lexer->line += 1;
           lexer->col = 1;
         }
@@ -132,7 +136,7 @@ enum LexState lexer_next_token(struct Lexer *lexer, struct Token *tok) {
       break;
     case WS_STRING:
       if (c == '"') {
-        process_string(buf, tok);
+        *tok = token_new_v(TOK_STRING_L, line, col, buf, buf_idx);
         return LEX_OK;
       } else buf[buf_idx++] = c;
       if (c == '\n') {
@@ -227,8 +231,9 @@ bool strcmplen(const char *s, const char *t, size_t *size) {
   return are_equal;
 }
 
-void process_word(char *buf, size_t buf_size, struct Token *tok) {
+Token *process_word(size_t line, size_t col, char *buf, size_t buf_size) {
   int found_word_idx = -1;
+  Token *tok;
   for (size_t i = 0; i < TOKEN_KEYWORDS_COUNT; i++) {
     size_t keyword_len;
     if (strcmplen(buf, TOKEN_KEYWORDS[i].letters, &keyword_len)) {
@@ -238,21 +243,11 @@ void process_word(char *buf, size_t buf_size, struct Token *tok) {
   }
   if (found_word_idx < 0) {
     // word is not found in keywrds, it is an identifier
-    tok->kind = TOK_ID;
-    strcpy(tok->value, buf);
+    tok = token_new_v(TOK_ID, line, col, buf, buf_size);
   } else {
-    tok->kind = TOKEN_KEYWORDS[found_word_idx].kind;
+    tok = token_new(TOKEN_KEYWORDS[found_word_idx].kind, line, col);
   }
-}
-
-void process_number(char *buf, struct Token *tok) {
-  tok->kind = TOK_NUMBER_L;
-  sprintf(tok->value, "%s", buf);
-}
-
-void process_string(char *buf, struct Token *tok) {
-  tok->kind = TOK_STRING_L;
-  sprintf(tok->value, "%s", buf);
+  return tok;
 }
 
 bool could_be_operator(char *buf, size_t buf_size, char next) {

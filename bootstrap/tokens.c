@@ -1,7 +1,10 @@
 #include "tokens.h"
 
 #include <assert.h>
+#include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include "string.h"
 
 // must be reverse sorted or matching will read out of bounds
 const TokenDef TOKEN_KEYWORDS[] = {
@@ -113,6 +116,24 @@ const TokenDef TOKEN_KEYWORDS[] = {
 
 const size_t TOKEN_KEYWORDS_COUNT =
     sizeof TOKEN_KEYWORDS / sizeof TOKEN_KEYWORDS[0];
+
+Token *token_new(TokenKind kind, size_t line, size_t col) {
+  Token *tok = malloc(sizeof(*tok) + 1); // + 1 for '\0'
+  tok->line = line;
+  tok->col = col;
+  tok->value[0] = '\0';
+  tok->kind = kind;
+  return tok;
+}
+
+Token *token_new_v(TokenKind kind, size_t line, size_t col, char* buf, size_t buf_size) {
+  Token *tok = malloc(sizeof(*tok) + buf_size + 1); // + 1 for '\0'
+  tok->line = line;
+  tok->col = col;
+  tok->kind = kind;
+  strcpy(tok->value, buf);
+  return tok;
+}
 
 void print_token(struct Token *tok) {
   printf("kind=%3d:%20s, value=%10s, line=%3ld, col=%3ld\n", tok->kind,

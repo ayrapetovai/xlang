@@ -510,33 +510,33 @@ static bool parser_pool_push(struct Parser* parser, struct Token* tok) {
 }
 
 static bool parser_move_forward(struct Parser* parser) {
-  parser->current_token = malloc(sizeof(struct Token));
-  memset(parser->current_token, 0, sizeof(struct Token)); // no garbage kind
-
-  if (!parser_pool_push(parser, parser->current_token))
-    return false; // out of memory
-
   while (true) {
-    enum LexState lex_state = lexer_next_token(parser->lexer, parser->current_token);
-
+    struct Token* tok = NULL;
+    enum LexState lex_state = lexer_next_token(parser->lexer, &tok);
     if (lex_state == LEX_ERROR || lex_state == LEX_PRG_ERROR) {
+      free(tok);
       sprintf(parser->error, "parsing failed: %s", parser->lexer->error);
       return false;
     }
 
-    if (lex_state == LEX_EOF) {
-      parser->current_token->kind = TOK_UNDEF;
-      break;
+    if (lex_state != LEX_EOF) {
+      // skip single line comment
+      if (tok->kind == TOK_SLC_START) {
+        lexer_skip_until(parser->lexer, "\n");
+      }
+
+      if (tok->kind == TOK_SPACE || tok->kind == TOK_SLC_START) {
+        free(tok);
+        continue;
+      }
     }
 
-    // skip single line comment
-    if (parser->current_token->kind == TOK_SLC_START) {
-      lexer_skip_until(parser->lexer, "\n");
+    if (!parser_pool_push(parser, tok)) {
+      free(tok); // out of memory
+      return false;
     }
-
-    if (parser->current_token->kind != TOK_SPACE && parser->current_token->kind != TOK_SLC_START) {
-      break;
-    }
+    parser->current_token = tok;
+    break;
   }
 
   return true;

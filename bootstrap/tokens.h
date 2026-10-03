@@ -136,12 +136,16 @@ extern const size_t TOKEN_KEYWORDS_COUNT;
 
 typedef struct Token {
   enum TokenKind kind;
-  char value[TOKEN_VALUE_MAX_SIZE];
   size_t line;
   size_t col;
+  char value[];
 } Token;
 
-void print_token(struct Token *);
+Token *token_new(TokenKind kind, size_t line, size_t col);
+
+Token *token_new_v(TokenKind kind, size_t line, size_t col, char* buf, size_t buf_size);
+
+void print_token(struct Token *tok);
 
 const char *token_kind_to_string(enum TokenKind token_kind);
 
