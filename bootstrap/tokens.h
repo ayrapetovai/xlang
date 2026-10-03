@@ -144,4 +144,6 @@ typedef struct Token {
 
 void print_token(struct Token *);
 
+const char *token_kind_to_string(enum TokenKind token_kind);
+
 #endif

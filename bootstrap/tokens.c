@@ -113,7 +113,7 @@ const TokenDef TOKEN_KEYWORDS[] = {
 const size_t TOKEN_KEYWORDS_COUNT =
     sizeof TOKEN_KEYWORDS / sizeof TOKEN_KEYWORDS[0];
 
-static const char *to_string(enum TokenKind token_kind) {
+const char *token_kind_to_string(enum TokenKind token_kind) {
   for (size_t i = 0; i < TOKEN_KEYWORDS_COUNT; i++) {
     if (token_kind == TOK_NL)
       return "new line";
@@ -133,5 +133,5 @@ static const char *to_string(enum TokenKind token_kind) {
 
 void print_token(struct Token *tok) {
   printf("kind=%3d:%20s, value=%10s, line=%3ld, col=%3ld\n", tok->kind,
-         to_string(tok->kind), tok->value, tok->line, tok->col);
+         token_kind_to_string(tok->kind), tok->value, tok->line, tok->col);
 }

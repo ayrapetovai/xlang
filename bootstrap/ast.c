@@ -1,4 +1,5 @@
 #include "ast.h"
+#include "tokens.h"
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,6 +15,8 @@ static void print_indents(int count) {
     printf("  ");
 }
 
+#define RED_TEXT(s) "\033[31m" s "\033[0m"
+
 void ast_dump(const ASTNode *n, int depth) {
   if (n == NULL) return;
 
@@ -27,20 +30,26 @@ void ast_dump(const ASTNode *n, int depth) {
       }
     break;
     case NODE_STMT:
-      printf("stmt %d\n", n->info.stmt.stmt_tok);
+      printf("stmt " RED_TEXT("%s\n"), token_kind_to_string(n->info.stmt.stmt_tok));
       ast_dump(n->info.stmt.expr, depth + 1);
     break;
     case NODE_EXPR:
-      printf("expr %d\n", n->info.expr.op_tok);
+      printf("expr " RED_TEXT("%s\n"), token_kind_to_string(n->info.expr.op_tok));
       ast_dump(n->info.expr.op1, depth + 1);
       ast_dump(n->info.expr.op2, depth + 1);
     break;
+    case NODE_UEXPR:
+      printf("uexpr " RED_TEXT("%s\n"), token_kind_to_string(n->info.uexpr.op_tok));
+      ast_dump(n->info.uexpr.op, depth + 1);
+    break;
     case NODE_VALUE:
-      printf("val %s\n", n->info.val.value);
+      printf("val " RED_TEXT("%s\n"), n->info.val.value);
     break;
     default:
   }
 }
+
+#undef RED_TEXT
 
 void node_free(ASTNode *n) {
   if (n == NULL) return;
@@ -58,6 +67,9 @@ void node_free(ASTNode *n) {
     case NODE_EXPR:
       node_free(n->info.expr.op1);
       node_free(n->info.expr.op2);
+    break;
+    case NODE_UEXPR:
+      node_free(n->info.uexpr.op);
     break;
     case NODE_VALUE:
       free((void*) n->info.val.value);

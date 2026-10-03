@@ -8,6 +8,7 @@
 
 typedef enum NodeKind {
   NODE_EXPR,
+  NODE_UEXPR,
   NODE_VALUE,
   NODE_ID,
   NODE_STMT,
@@ -30,10 +31,15 @@ typedef struct InfoFunDef {
 } InfoFunDef;
 
 typedef struct InfoExpr {
-  TokenKind op_tok; // -x, +, -, /, *, == ...
+  TokenKind op_tok; // +, -, /, *, == ...
   struct ASTNode *op1;
   struct ASTNode *op2;
 } InfoExpr;
+
+typedef struct InfoUExpr {
+  TokenKind op_tok; // -x, *p, &p, ++i, i++
+  struct ASTNode *op;
+} InfoUExpr;
 
 typedef struct InfoValue {
   ValueKind kind;
@@ -56,6 +62,7 @@ typedef struct ASTNode {
   NodeKind kind;
   union {
     struct InfoExpr expr;
+    struct InfoUExpr uexpr;
     struct InfoStmt stmt;
     struct InfoValue val;
     struct InfoFunDef funDef;

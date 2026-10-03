@@ -89,11 +89,10 @@ static void* reduce_number_l(size_t argc, void* argv[]) {
 
 static void* reduce_minus_expr(size_t argc, void* argv[]) {
   assert(argc == 2);
-  ASTNode *n = node_new(NODE_EXPR);
-  n->info.expr = (InfoExpr) {
-    .op_tok = TOK_MINUS,
-    .op1 = argv[1],
-    .op2 = NULL // unary minus
+  ASTNode *n = node_new(NODE_UEXPR);
+  n->info.uexpr = (InfoUExpr) {
+    .op_tok = ((Token*)argv[0])->kind,
+    .op = argv[1],
   };
   return n;
 }
