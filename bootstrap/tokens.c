@@ -274,7 +274,8 @@ const char *token_kind_to_string(enum TokenKind token_kind) {
   case TOK_SPACE:
     return "space";
   case TOK_NL:
-    return "new line";
+    // return "new line";
+    return "\\n";
   case TOK_SHARP:
     return "#";
   case TOK_LPAREN:

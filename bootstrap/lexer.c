@@ -13,7 +13,7 @@ static bool strcmplen(const char *s, const char *t, size_t *size);
 static void process_word(char *buf, size_t buf_size, struct Token *tok);
 static void process_number(char *buf, struct Token *tok);
 static void process_string(char *buf, struct Token *tok);
-static bool could_be_operator(char *buf, size_t buf_size, char next, struct Token* tok);
+static bool could_be_operator(char *buf, size_t buf_size, char next);
 
 // public methods
 
@@ -117,7 +117,7 @@ enum LexState lexer_next_token(struct Lexer *lexer, struct Token *tok) {
       }
       break;
     case WS_OP:
-      if (is_punct && could_be_operator(buf, buf_idx, c, tok))
+      if (is_punct && could_be_operator(buf, buf_idx, c))
         buf[buf_idx++] = c;
       else {
         reader_ungetch(lexer->reader, c);
@@ -242,12 +242,6 @@ void process_word(char *buf, size_t buf_size, struct Token *tok) {
     strcpy(tok->value, buf);
   } else {
     tok->kind = TOKEN_KEYWORDS[found_word_idx].kind;
-    if (TOKEN_KEYWORDS[found_word_idx].kind == TOK_NL)
-      sprintf(tok->value, "\\n");
-    else if (TOKEN_KEYWORDS[found_word_idx].kind == TOK_SPACE)
-      sprintf(tok->value, "' '");
-    else
-      strcpy(tok->value, buf);
   }
 }
 
@@ -261,7 +255,7 @@ void process_string(char *buf, struct Token *tok) {
   sprintf(tok->value, "%s", buf);
 }
 
-bool could_be_operator(char *buf, size_t buf_size, char next, struct Token* tok) {
+bool could_be_operator(char *buf, size_t buf_size, char next) {
   char tmp[32] = {};
   memcpy(tmp, buf, buf_size);
   tmp[buf_size] = next;
@@ -270,7 +264,6 @@ bool could_be_operator(char *buf, size_t buf_size, char next, struct Token* tok)
     TokenKind reserved_word_kind = TOKEN_KEYWORDS[i].kind;
     if (TOK_OPERATOR_BEGIN < reserved_word_kind && reserved_word_kind < TOK_OPERATOR_END)
       if (strcmp(tmp, TOKEN_KEYWORDS[i].letters) == 0) {
-        sprintf(tok->value, "%s", buf);
         return true;
       }
   }

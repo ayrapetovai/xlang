@@ -407,7 +407,7 @@ production_cycle:
       switch (prod_node->type) {
         case PN_TERM:
           if (parser->current_token->kind == prod_node->tok_kind) {
-            LOG_DEBUG("accept %s = %s", prod_node->name, parser->current_token->value);
+            LOG_DEBUG("accept %s", prod_node->name);
             params[param_count] = parser->current_token;
             param_is_token[param_count] = true;
             if (!parser_move_forward(parser)) { // hard error: the lexer is unusable, free nodes
@@ -422,7 +422,7 @@ production_cycle:
             && starts_with_same_nodes(&rule->productions[i], &rule->productions[i + 1], j)
           ) {
             LOG_DEBUG("reject %s, expected %s; try next ::%s:: #%d -> #%d",
-                      parser->current_token->value, prod_node->name, rule->name, i, i + 1);
+                      token_kind_to_string(parser->current_token->kind), prod_node->name, rule->name, i, i + 1);
             i += 1;
             // move to next production without rollback if it starts with the same nodes
             goto production_cycle;
