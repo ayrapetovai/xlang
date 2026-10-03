@@ -105,6 +105,7 @@ typedef enum TokenKind {
   TOK_LBRACE,   // {
   TOK_RBRACE,   // }
   TOK_COLON,
+  TOK_SEMICOLON,
   TOK_AMP,   // &
   TOK_PIPE,  // |
   TOK_CARET, // ^

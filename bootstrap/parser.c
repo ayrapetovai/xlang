@@ -170,7 +170,7 @@ static void* reduce_echo_expr(size_t argc, void* argv[]) {
   return n;
 }
 
-static void* reduce_stmt_nl_stmts(size_t argc, void* argv[]) {
+static void* reduce_stmt_sep_stmts(size_t argc, void* argv[]) {
   assert(argc == 3);
   ASTNode *stmt = argv[0];
   ASTNode *stmt_or_block = argv[2];
@@ -249,8 +249,9 @@ RULE( stmt,
 )
 
 RULE( stmts,
-  PROD_L( NTRM(stmt), TERM(TOK_NL), NTRM(stmts),                  REDUCE(reduce_stmt_nl_stmts) ),
-  PROD_R( NTRM(stmt),                                             REDUCE(reduce_stmt)  ),
+  PROD_L( NTRM(stmt), TERM(TOK_NL), NTRM(stmts),                  REDUCE(reduce_stmt_sep_stmts) ),
+  PROD_L( NTRM(stmt), TERM(TOK_SEMICOLON), NTRM(stmts),           REDUCE(reduce_stmt_sep_stmts) ),
+  PROD_R( NTRM(stmt),                                             REDUCE(reduce_stmt) ),
 )
 
 //**************************************************************
