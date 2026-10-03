@@ -1,3 +1,6 @@
+# For clangd language server:
+# $ bear -- make -B
+
 CC      ?= cc
 CFLAGS  ?= -std=c23 -Wall -Wextra -Werror -O0 -g
 
