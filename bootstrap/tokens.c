@@ -350,9 +350,9 @@ const char *token_kind_to_string(enum TokenKind token_kind) {
   case TOK_OPERATOR_END:
     assert(false);
 
-    // no spelling is registered for these kinds (the loop version fell through)
   case TOK_ID:
-  default:
     return "identifier";
+  default:
+    assert(false);
   }
 }

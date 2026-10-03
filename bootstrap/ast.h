@@ -27,7 +27,7 @@ typedef struct InfoFunDef {
   const char* name;
   size_t param_len;
   struct ASTNode **params;
-  struct ASTNode **body;
+  struct ASTNode **body; // NODE_BLOCK
 } InfoFunDef;
 
 typedef struct InfoExpr {

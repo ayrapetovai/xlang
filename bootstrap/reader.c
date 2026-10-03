@@ -42,8 +42,6 @@ bool reader_getch(struct Reader* reader, char *c) {
   if (reader->pos < reader->available) { // if we have something to read - we read it
     *c = reader->buf[reader->pos++];
   } else {
-    // if we have nothing to read from buffer we will read text from file to buffer
-    // text fills buffer from the beginning
     size_t read = fread(reader->buf, 1, sizeof reader->buf, reader->file);
     if (ferror(reader->file)) {
       strcpy(reader->error, strerror(errno));
