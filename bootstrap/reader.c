@@ -12,8 +12,8 @@ Reader* new_reader(char* filename) {
   reader->available = 0;
   reader->pos = 0;
 
-  memset(reader->error, 0, sizeof reader->error);
-  memset(reader->unget_buf, 0, sizeof reader->unget_buf);
+  memset(reader->error, '\0', sizeof reader->error);
+  memset(reader->unget_buf, '\0', sizeof reader->unget_buf);
 
   FILE* f = fopen(filename, "ra"); // read only as text
   if (f == NULL) {

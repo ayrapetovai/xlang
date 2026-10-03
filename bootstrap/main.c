@@ -63,6 +63,7 @@ int run_lex(char *filename) {
   struct Lexer *lexer = lexer_new(filename);
   if (strlen(lexer->error) != 0) {
     printf("lexer initialization: %s\n", lexer->error);
+    lexer_close(lexer);
     return 1;
   }
   int error_code = 0;
@@ -131,8 +132,8 @@ int run_ast(char *filename) {
 }
 
 int main(int argc, char **argv) {
-  // logger_set_level(LOG_LEVEL_DEBUG);
-  logger_set_level(LOG_LEVEL_INFO);
+  logger_set_level(LOG_LEVEL_DEBUG);
+  // logger_set_level(LOG_LEVEL_INFO);
 
   LOG_DEBUG("program started");
 

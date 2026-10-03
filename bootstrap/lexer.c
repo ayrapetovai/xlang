@@ -21,15 +21,20 @@ struct Lexer *lexer_new(char *filename) {
   struct Lexer *lexer = malloc(sizeof(Lexer));
   if (lexer == NULL) return NULL;
 
-  memset(lexer->error, 0, sizeof lexer->error);
+  memset(lexer->error, '\0', sizeof lexer->error);
   lexer->line = 1;
   lexer->col = 1;
   lexer->reader = NULL; // set to NULL until fopen succeeds (error path safety)
 
   struct Reader *reader = new_reader(filename);
-  if (strlen(reader->error) != 0)
+  if (reader == NULL) {
+    sprintf(lexer->error, "reader is NULL");
+    return lexer;
+  }
+  if (strlen(reader->error) != 0) {
     sprintf(lexer->error, "reading error: %s\n", reader->error);
-  else
+    reader_close(reader);
+  } else
     lexer->reader = reader;
 
   return lexer;
@@ -56,7 +61,7 @@ enum LexState lexer_next_token(struct Lexer *lexer, struct Token *tok) {
   WatchState state = WS_START;
 
   while (true) {
-    if (buf_idx > sizeof buf) {
+    if (buf_idx >= sizeof buf) {
       sprintf(lexer->error, "too long identifier: %ld, max %d", buf_idx, TOKEN_VALUE_MAX_SIZE);
       return LEX_ERROR;
     }

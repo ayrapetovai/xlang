@@ -95,7 +95,6 @@ static void* reduce_minus_expr(size_t argc, void* argv[]) {
     .op1 = argv[1],
     .op2 = NULL // unary minus
   };
-  argv[1] = NULL;
   return n;
 }
 
@@ -107,8 +106,6 @@ static void* reduce_expr_star_expr(size_t argc, void* argv[]) {
     .op1 = argv[0],
     .op2 = argv[2],
   };
-  argv[0] = NULL;
-  argv[2] = NULL;
   return n;
 }
 
@@ -120,8 +117,6 @@ static void* reduce_expr_slash_expr(size_t argc, void* argv[]) {
     .op1 = argv[0],
     .op2 = argv[2],
   };
-  argv[0] = NULL;
-  argv[2] = NULL;
   return n;
 }
 
@@ -133,8 +128,6 @@ static void* reduce_expr_plus_expr(size_t argc, void* argv[]) {
     .op1 = argv[0],
     .op2 = argv[2],
   };
-  argv[0] = NULL;
-  argv[2] = NULL;
   return n;
 }
 
@@ -146,8 +139,6 @@ static void* reduce_expr_minus_expr(size_t argc, void* argv[]) {
     .op1 = argv[0],
     .op2 = argv[2],
   };
-  argv[0] = NULL;
-  argv[2] = NULL;
   return n;
 }
 
@@ -171,7 +162,6 @@ static void* reduce_echo_expr(size_t argc, void* argv[]) {
     .stmt_tok = echo_tok->kind,
     .expr = argv[1]
   };
-  argv[1] = NULL;
   return n;
 }
 
@@ -204,8 +194,6 @@ static void* reduce_stmt_sep_stmts(size_t argc, void* argv[]) {
   } else {
     assert(false);
   }
-  argv[0] = NULL;
-  argv[2] = NULL;
   return result;
 }
 
@@ -227,14 +215,12 @@ static void* reduce_empty(size_t argc, void* []) {
 static void* reduce_signle_ntrm(size_t argc, void* argv[]) {
   assert(argc == 1);
   void* n = argv[0];
-  argv[0] = NULL;
   return n;
 }
 
 static void* reduce_optseps_stmts_optseps(size_t argc, void* argv[]) {
   assert(argc == 3);
   void* n = argv[1];
-  argv[1] = NULL;
   return n;
 }
 
@@ -429,11 +415,14 @@ production_cycle:
             LOG_DEBUG("accept %s = %s", prod_node->name, parser->current_token->value);
             params[param_count] = parser->current_token;
             param_is_token[param_count] = true;
-            if (!parser_move_forward(parser))
+            if (!parser_move_forward(parser)) { // hard error: the lexer is unusable, free nodes
+              for (size_t k = 0; k <= param_count; k++)
+                if (!param_is_token[k] && params[k] != NULL) node_free(params[k]);
               return (ParseResult) {
                 .result = NULL, // hard error
                 .reduced = false,
               };
+            }
           } else if (rule->productions[i + 1].exists
             && starts_with_same_nodes(&rule->productions[i], &rule->productions[i + 1], j)
           ) {
@@ -471,11 +460,6 @@ production_cycle:
         case PN_REDUCE:
           LOG_DEBUG("reduce rule ::%s:: #%d:%d", rule->name, i, j);
           void* reduce_result = prod_node->reducer(param_count, params);
-          // free only the results this frame consumed; tokens are owned by
-          // the token pool and must outlive any live ParseCheckpoint
-          for (size_t k = 0; k < param_count; k++)
-            if (!param_is_token[k] && params[k] != reduce_result && params[k] != NULL)
-              node_free(params[k]);
           if (production->assoc == ASC_LEFT) {
             int op = fold_point(production);
             if (op > 0) {
