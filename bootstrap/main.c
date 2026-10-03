@@ -126,7 +126,7 @@ int run_ast(char *filename) {
   parser_close(parser);
   lexer_close(lexer);
 
-  ast_dump(parse_result, 0);
+  ast_dump(parse_result);
   node_free(parse_result);
   return 0;
 }

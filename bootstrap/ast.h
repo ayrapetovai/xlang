@@ -81,7 +81,7 @@ ASTNode *node_new(NodeKind);
 ASTNode *node_push(ASTNode*, const ASTNode*);
 ASTNode *node_append(ASTNode *dst, const ASTNode *src);  // returns possibly-realloc'd ptr
 void node_free(ASTNode *);
-void ast_dump(const ASTNode *, int depth);
+void ast_dump(const ASTNode *);
 
 #endif
 
