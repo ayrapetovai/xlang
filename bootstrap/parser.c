@@ -11,6 +11,11 @@
 #include <string.h>
 #include <assert.h>
 
+typedef struct ParseResult {
+  ASTNode* result;
+  bool reduced;
+} ParseResult;
+
 typedef enum ProdNodeType {
   PN_EMPTY = 0,
   PN_TERM,
@@ -204,17 +209,32 @@ static void* reduce_stmt_sep_stmts(size_t argc, void* argv[]) {
   return result;
 }
 
-static void* reduce_stmt(size_t argc, void* argv[]) {
+static void* reduce_sep_seps(size_t argc, void*[]) {
+  assert(argc == 2);
+  return NULL;
+}
+
+static void* reduce_sep(size_t argc, void* []) {
+  assert(argc == 1);
+  return NULL;
+}
+
+static void* reduce_empty(size_t argc, void* []) {
+  assert(argc == 0);
+  return NULL;
+}
+
+static void* reduce_signle_ntrm(size_t argc, void* argv[]) {
   assert(argc == 1);
   void* n = argv[0];
   argv[0] = NULL;
   return n;
 }
 
-static void* reduce_stmts(size_t argc, void* argv[]) {
-  assert(argc == 1);
-  void* n = argv[0];
-  argv[0] = NULL;
+static void* reduce_optseps_stmts_optseps(size_t argc, void* argv[]) {
+  assert(argc == 3);
+  void* n = argv[1];
+  argv[1] = NULL;
   return n;
 }
 
@@ -246,25 +266,44 @@ RULE( expr_prime,
 
 //**************************************************************
 // statement :: :=, if, loop, func, struct, ...
+RULE( stmt_sep,
+  PROD_R( TERM(TOK_NL),                                           REDUCE(reduce_sep) ),
+  PROD_R( TERM(TOK_SEMICOLON),                                    REDUCE(reduce_sep) ),
+)
+
+RULE( stmt_seps,
+  PROD_R( NTRM(stmt_sep), NTRM(stmt_seps),                        REDUCE(reduce_sep_seps) ),
+  PROD_R( NTRM(stmt_sep),                                         REDUCE(reduce_sep) ),
+  PROD_R(                                                         REDUCE(reduce_empty), )
+)
+
+RULE( stmt_optseps,
+  PROD_R( NTRM(stmt_seps),                                        REDUCE(reduce_sep) ),
+  PROD_R(                                                         REDUCE(reduce_empty), )
+)
+
 RULE( stmt,
   PROD_R( TERM(TOK_ECHO), NTRM(expr_prime),                       REDUCE(reduce_echo_expr) ),
 )
 
 RULE( stmts,
-  PROD_L( NTRM(stmt), TERM(TOK_NL), NTRM(stmts),                  REDUCE(reduce_stmt_sep_stmts) ),
-  PROD_L( NTRM(stmt), TERM(TOK_SEMICOLON), NTRM(stmts),           REDUCE(reduce_stmt_sep_stmts) ),
-  PROD_R( NTRM(stmt),                                             REDUCE(reduce_stmt) ),
+  PROD_L( NTRM(stmt), NTRM(stmt_seps), NTRM(stmts),               REDUCE(reduce_stmt_sep_stmts) ),
+  PROD_R( NTRM(stmt),                                             REDUCE(reduce_signle_ntrm) ),
+)
+
+RULE(block,
+  PROD_R( NTRM(stmt_optseps), NTRM(stmts), NTRM(stmt_optseps),    REDUCE(reduce_optseps_stmts_optseps) ),
 )
 
 //**************************************************************
 // program :: the parsing entry point
 RULE( prog,
-  PROD_R( NTRM(stmts),                                            REDUCE(reduce_stmts) ),
+  PROD_R( NTRM(block),                                            REDUCE(reduce_signle_ntrm) ),
 )
 
 // private functions
 
-static void* parse_by_rule(struct Parser* parser, struct GrammarRule* rule);
+static ParseResult parse_by_rule(struct Parser* parser, struct GrammarRule* rule);
 static bool parser_move_forward(struct Parser* parser);
 
 // A parse checkpoint captures everything the parser + lexer + reader need to
@@ -319,8 +358,8 @@ struct Parser* parser_new(struct Lexer *lexer) {
 }
 
 ASTNode *parser_parse(struct Parser *parser) {
-  void* parse_result = parse_by_rule(parser, &prog);
-  return parse_result;
+  ParseResult reduce_result = parse_by_rule(parser, &prog);
+  return reduce_result.result;
 }
 
 void parser_close(struct Parser* parser) {
@@ -360,12 +399,12 @@ static int fold_point(const struct Production *production) {
   return -1;
 }
 
-static void* parse_by_rule(struct Parser* parser, struct GrammarRule* rule) {
-  if (rule == NULL) return NULL; // hard error
-  if (parser->current_token == NULL && !parser_move_forward(parser)) return NULL; // hard error
+static ParseResult parse_by_rule(struct Parser* parser, struct GrammarRule* rule) {
+  if (rule == NULL) return (ParseResult) { NULL, false }; // hard error
+  if (parser->current_token == NULL && !parser_move_forward(parser)) return (ParseResult) { NULL, false}; // hard error
 
   void *params[PRODUCTION_MAX_LENGTH] = {};
-  bool param_is_token[PRODUCTION_MAX_LENGTH] = {}; // true: Token* (lookahead), false: reduced result
+  bool param_is_token[PRODUCTION_MAX_LENGTH] = {}; // true: Token* (lookahead), false: node
   size_t param_count = 0;
   bool folded = false;
 
@@ -391,7 +430,10 @@ production_cycle:
             params[param_count] = parser->current_token;
             param_is_token[param_count] = true;
             if (!parser_move_forward(parser))
-              return NULL; // hard error
+              return (ParseResult) {
+                .result = NULL, // hard error
+                .reduced = false,
+              };
           } else if (rule->productions[i + 1].exists
             && starts_with_same_nodes(&rule->productions[i], &rule->productions[i + 1], j)
           ) {
@@ -403,19 +445,25 @@ production_cycle:
           } else if (folded) {
             // no more operators: the chain ends here, keep what we folded
             LOG_DEBUG("chain ends, keep folded result of ::%s:: #%d", rule->name, i);
-            return params[0];
+            return (ParseResult) {
+                .result = params[0],
+                .reduced = true,
+              };
           } else {
             failed = true; // rollback
           }
           break;
         case PN_RULE:
-          void *sub_rule_result = parse_by_rule(parser, prod_node->rule);
-          if (sub_rule_result == NULL) {
+          ParseResult sub_rule_result = parse_by_rule(parser, prod_node->rule);
+          if (!sub_rule_result.reduced) {
             if (folded) // keep what we folded rather than dropping the whole chain
-              return params[0];
+              return (ParseResult) {
+                .result = params[0],
+                .reduced = true,
+              };
             failed = true; // sub-rule did not match: try next production
           } else {
-            params[param_count] = sub_rule_result;
+            params[param_count] = sub_rule_result.result;
             param_is_token[param_count] = false;
           }
           LOG_DEBUG("continue rule ::%s:: #%d:%d", rule->name, i, j);
@@ -441,7 +489,7 @@ production_cycle:
               goto production_cycle;
             }
           } // ASC_RIGHT
-          return reduce_result;
+          return (ParseResult) { reduce_result, true };
         default:
           failed = true; // error
       }
@@ -463,7 +511,10 @@ production_cycle:
     parser_restore(parser, &chk);
   }
 
-  return NULL; // no production in this rule accepts the current token
+  return (ParseResult) {
+    .result = NULL, // no production in this rule accepts the current token
+    .reduced = false,
+  };
 }
 
 // track every token so it can be freed once, at the end of parsing
