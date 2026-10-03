@@ -1,3 +1,4 @@
+#include "ast.h"
 #include "parser.h"
 #include "reader.h"
 #include "lexer.h"
@@ -72,39 +73,77 @@ static void* reduce_number_l(size_t argc, void* argv[]) {
   assert(argc == 1);
   struct Token* tok = (struct Token*) argv[0];
   assert(tok->kind == TOK_NUMBER_L);
-  int *value = malloc(sizeof(int));
-  *value = atoi(tok->value);
-  return value;
+
+  ASTNode *n = node_new(NODE_VALUE);
+  n->info.val = (InfoValue) {
+    .kind = VK_INTEGER,
+    .value = strdup(tok->value),
+  };
+  return n;
 }
 
 static void* reduce_minus_expr(size_t argc, void* argv[]) {
   assert(argc == 2);
-  *((int*) argv[1]) = - *((int*) argv[1]);
-  return argv[1];
+  ASTNode *n = node_new(NODE_EXPR);
+  n->info.expr = (InfoExpr) {
+    .op_tok = TOK_MINUS,
+    .op1 = argv[1],
+    .op2 = NULL // unary minus
+  };
+  argv[1] = NULL;
+  return n;
 }
 
 static void* reduce_expr_star_expr(size_t argc, void* argv[]) {
   assert(argc == 3);
-  *((int*) argv[0]) *= *((int*) argv[2]);
-  return argv[0];
+  ASTNode *n = node_new(NODE_EXPR);
+  n->info.expr = (InfoExpr) {
+    .op_tok = ((Token*)argv[1])->kind,
+    .op1 = argv[0],
+    .op2 = argv[2],
+  };
+  argv[0] = NULL;
+  argv[2] = NULL;
+  return n;
 }
 
 static void* reduce_expr_slash_expr(size_t argc, void* argv[]) {
   assert(argc == 3);
-  *((int*) argv[0]) /= *((int*) argv[2]);
-  return argv[0];
+  ASTNode *n = node_new(NODE_EXPR);
+  n->info.expr = (InfoExpr) {
+    .op_tok = ((Token*)argv[1])->kind,
+    .op1 = argv[0],
+    .op2 = argv[2],
+  };
+  argv[0] = NULL;
+  argv[2] = NULL;
+  return n;
 }
 
 static void* reduce_expr_plus_expr(size_t argc, void* argv[]) {
   assert(argc == 3);
-  *((int*) argv[0]) += *((int*) argv[2]);
-  return argv[0];
+  ASTNode *n = node_new(NODE_EXPR);
+  n->info.expr = (InfoExpr) {
+    .op_tok = ((Token*)argv[1])->kind,
+    .op1 = argv[0],
+    .op2 = argv[2],
+  };
+  argv[0] = NULL;
+  argv[2] = NULL;
+  return n;
 }
 
 static void* reduce_expr_minus_expr(size_t argc, void* argv[]) {
   assert(argc == 3);
-  *((int*) argv[0]) -= *((int*) argv[2]);
-  return argv[0];
+  ASTNode *n = node_new(NODE_EXPR);
+  n->info.expr = (InfoExpr) {
+    .op_tok = ((Token*)argv[1])->kind,
+    .op1 = argv[0],
+    .op2 = argv[1],
+  };
+  argv[0] = NULL;
+  argv[2] = NULL;
+  return n;
 }
 
 static void* reduce_lparen_expr_rparen(size_t argc, void* argv[]) {
@@ -119,22 +158,62 @@ static void* reduce_expr(size_t argc, void* argv[]) {
 
 static void* reduce_echo_expr(size_t argc, void* argv[]) {
   assert(argc == 2);
-  printf("%d\n", *((int*)argv[1]));
-  return argv[1];
+  Token* echo_tok = (Token*) argv[0];
+  assert(echo_tok->kind == TOK_ECHO);
+
+  ASTNode *n = node_new(NODE_STMT);
+  n->info.stmt = (InfoStmt) {
+    .stmt_tok = echo_tok->kind,
+    .expr = argv[1]
+  };
+  argv[1] = NULL;
+  return n;
 }
 
 static void* reduce_stmt_nl_stmts(size_t argc, void* argv[]) {
   assert(argc == 3);
-  // vec_push(argv[0], argv[2]);  // copy the element in; argv[2] is freed by the engine
-  return argv[2];
-}
-static void* reduce_stmt(size_t argc, void* argv[]) {
-  assert(argc == 1);
-  return argv[0];
+  ASTNode *stmt = argv[0];
+  ASTNode *stmt_or_block = argv[2];
+
+  ASTNode *result;
+  if (stmt_or_block->kind == NODE_STMT) {
+    result = node_new(NODE_BLOCK);
+    result->info.block = (InfoBlock) {
+      .len = 2,
+      .cap = 2,
+      .stmts = malloc(2 * sizeof(ASTNode)),
+    };
+    result->info.block.stmts[0] = stmt;
+    result->info.block.stmts[1] = stmt_or_block;
+  } else if (stmt_or_block->kind == NODE_BLOCK) {
+    ASTNode** stmts = stmt_or_block->info.block.stmts;
+    ASTNode** new_stmts = malloc(stmt_or_block->info.block.len * sizeof(ASTNode*));
+    memcpy(new_stmts + 1, stmts, stmt_or_block->info.block.len);
+    free(stmt_or_block->info.block.stmts);
+    stmt_or_block->info.block.stmts = stmts;
+    stmt_or_block->info.block.len += 1;
+    stmt_or_block->info.block.cap += 1;
+    result = stmt_or_block;
+  } else {
+    assert(false);
+  }
+  argv[0] = NULL;
+  argv[2] = NULL;
+  return result;
 }
 
-static void* reduce_stmts(size_t, void* argv[]) {
-  return argv[0];
+static void* reduce_stmt(size_t argc, void* argv[]) {
+  assert(argc == 1);
+  void* n = argv[0];
+  argv[0] = NULL;
+  return n;
+}
+
+static void* reduce_stmts(size_t argc, void* argv[]) {
+  assert(argc == 1);
+  void* n = argv[0];
+  argv[0] = NULL;
+  return n;
 }
 
 struct GrammarRule expr_prime;
@@ -163,6 +242,8 @@ RULE( expr_prime,
   PROD_R( NTRM(expr_term),                                        REDUCE(reduce_expr), ),
 )
 
+//**************************************************************
+// statement :: :=, if, loop, func, struct, ...
 RULE( stmt,
   PROD_R( TERM(TOK_ECHO), NTRM(expr_prime),                       REDUCE(reduce_echo_expr) ),
 )
@@ -234,19 +315,9 @@ struct Parser* parser_new(struct Lexer *lexer) {
   return parser;
 }
 
-int parser_parse(struct Parser *parser) {
+ASTNode *parser_parse(struct Parser *parser) {
   void* parse_result = parse_by_rule(parser, &prog);
-  int rc = 1;
-
-  if (parse_result != NULL) {
-    // int result = *((int*) parse_result);
-    // printf("result: %d\n", result);
-
-    free(parse_result); // the root result belongs to parser_parse
-    rc = 0;
-  }
-
-  return rc;
+  return parse_result;
 }
 
 void parser_close(struct Parser* parser) {
@@ -352,8 +423,8 @@ production_cycle:
           // free only the results this frame consumed; tokens are owned by
           // the token pool and must outlive any live ParseCheckpoint
           for (size_t k = 0; k < param_count; k++)
-            if (!param_is_token[k] && params[k] != reduce_result)
-              free(params[k]);
+            if (!param_is_token[k] && params[k] != reduce_result && params[k] != NULL)
+              node_free(params[k]);
           if (production->assoc == ASC_LEFT) {
             int op = fold_point(production);
             if (op > 0) {
@@ -381,7 +452,7 @@ production_cycle:
     // successive procesing must have been returned the reduced result, so this is an error handling
     // rollback: free consumed results only; rewind input + current token
     for (size_t k = 0; k < param_count; k++)
-      if (!param_is_token[k]) free(params[k]);
+      if (!param_is_token[k] && params[k] != NULL) node_free(params[k]);
     param_count = 0; // the next production must fill params from index 0
     folded = false;
     memset(params, 0, PRODUCTION_MAX_LENGTH * sizeof(*params));

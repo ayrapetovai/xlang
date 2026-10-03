@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "ast.h"
 #include "exec.h"
 #include "lexer.h"
 #include "logger.h"
@@ -79,12 +80,15 @@ int run_ast(char *filename) {
     return 3;
   }
 
-  int rc = parser_parse(parser);
+  ASTNode *parse_result = parser_parse(parser);
+  ast_dump(parse_result, 0);
+
+  node_free(parse_result);
 
   parser_close(parser);
   lexer_close(lexer);
 
-  return rc;
+  return 0;
 }
 
 int main(int argc, char **argv) {

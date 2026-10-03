@@ -17,6 +17,23 @@
     "output": "bootstrap"
   },
   {
+    "file": "ast.c",
+    "arguments": [
+      "/usr/bin/cc",
+      "-std=c23",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-O0",
+      "-g",
+      "-o",
+      "bootstrap",
+      "ast.c"
+    ],
+    "directory": "/home/artem/code/lang/bootstrap",
+    "output": "bootstrap"
+  },
+  {
     "file": "lexer.c",
     "arguments": [
       "/usr/bin/cc",

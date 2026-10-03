@@ -1,6 +1,7 @@
 #ifndef PARSER_H
 #define PARSER_H
 
+#include "ast.h"
 #include "tokens.h"
 #include "lexer.h"
 
@@ -15,7 +16,7 @@ typedef struct Parser {
 
 struct Parser *parser_new(struct Lexer*);
 
-int parser_parse(struct Parser *);
+ASTNode *parser_parse(struct Parser *);
 
 void parser_close(struct Parser*);
 
