@@ -188,7 +188,7 @@ RULE_EXPR( expr_prime,
 )
 
 //**************************************************************
-// statement :: :=, if, loop, func, struct, ...
+// statement :: echo, :=, loop, func, struct, ...
 RULE( stmt_sep,
   PROD_R( TERM(TOK_NL),                                           REDUCE(reduce_sep) ),
   PROD_R( TERM(TOK_SEMICOLON),                                    REDUCE(reduce_sep) ),
@@ -286,7 +286,10 @@ ASTNode *parser_parse(struct Parser *parser) {
 
   struct Token *rest = parser->current_token;
   if (rest != NULL && rest->kind != TOK_UNDEF) {
-    sprintf(parser->error, "unexpected %s at line %zu, col %zu",
+    if (strlen(parser->lexer->error) > 0)
+      sprintf(parser->error, "parsing error: %s", parser->lexer->error);
+    else
+      sprintf(parser->error, "parsing error, unexpected %s at line %zu, col %zu",
             token_kind_to_string(rest->kind), rest->line, rest->col);
     node_free(reduce_result.result);
     return NULL;
@@ -505,9 +508,17 @@ static bool parser_move_forward(struct Parser* parser) {
       // skip single line comment, but keep the '\n' that ends it
       if (tok->kind == TOK_SLC_START) {
         lexer_skip_line(parser->lexer);
+      } else if (tok->kind == TOK_MLC_START) {
+        lex_state = lexer_skip_until(parser->lexer, "*/");
+        free(tok);
+        if (lex_state == LEX_ERROR || lex_state == LEX_EOF) {
+          sprintf(parser->error, "parsing failed to skip: %s", parser->lexer->error);
+          return false;
+        }
+        tok = token_new(TOK_NL, parser->lexer->line, parser->lexer->col);
       }
 
-      if (tok->kind == TOK_SPACE || tok->kind == TOK_SLC_START) {
+      if (tok->kind == TOK_SPACE || tok->kind == TOK_SLC_START || tok->kind == TOK_MLC_START) {
         free(tok);
         continue;
       }

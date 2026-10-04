@@ -27,7 +27,11 @@ int exec(const ASTNode* n) {
         case TOK_MINUS: return exec(n->info.expr.op1) - exec(n->info.expr.op2);
         case TOK_PLUS:  return exec(n->info.expr.op1) + exec(n->info.expr.op2);
         case TOK_STAR:  return exec(n->info.expr.op1) * exec(n->info.expr.op2);
-        case TOK_SLASH: return exec(n->info.expr.op1) / exec(n->info.expr.op2);
+        case TOK_SLASH:
+          int op2 = exec(n->info.expr.op2);
+          assert(op2 != 0);
+          return exec(n->info.expr.op1) / op2;
+          break;
         default:
           assert(false);
       }
