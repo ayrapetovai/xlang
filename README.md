@@ -48,8 +48,10 @@ no value.
 
 ## Line continuation
 
-A statement continues onto the next line when the next line begins with an
-operator symbol. This is how long method chains and expressions are split:
+`\n` separates statements. Inside an expression it is just whitespace, because
+an expression is only ever parsed while it still needs input — so wherever the
+grammar is waiting for a token, a newline does not end the statement. This is
+how long method chains and expressions are split:
 
 ```c
 a []string = {"  alice", "bob  "}
@@ -59,6 +61,23 @@ names := a.map(toString)
 sum := 1
       + 2              // one statement, sum == 3
 ```
+
+It follows that a statement may be split at any point inside an expression,
+not only before an operator:
+
+```c
+echo
+  1                   // one statement, prints 1
+
+echo 1 +
+  2                   // one statement, prints 3
+
+echo (1 + 2
+)                     // one statement, prints 3
+```
+
+Once the expression is complete the newline separates again, so `echo 1` and
+`echo 2` on consecutive lines stay two statements.
 
 ## Commentaries
 
