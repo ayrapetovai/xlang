@@ -32,6 +32,6 @@ if
 qrstuvw abc
 42.foo()
 xyz // 3.14 abc 123
-
+;
 .
 

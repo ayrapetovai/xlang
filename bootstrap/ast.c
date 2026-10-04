@@ -39,7 +39,10 @@ static void inner_ast_dump(const ASTNode *n, bool colored, int depth) {
       if (colored) s1 = "stmt " GREEN_TEXT("%s\n");
       else s1 = "stms %s\n";
       printf(s1, token_kind_to_string(n->info.stmt.stmt_tok));
-      inner_ast_dump(n->info.stmt.expr, colored, depth + 1);
+      switch (n->info.stmt.stmt_tok) {
+        case TOK_ECHO: inner_ast_dump(n->info.stmt.echo.expr, colored, depth + 1); break;
+        default: assert(false);
+      }
     break;
     case NODE_EXPR:
       const char* s2;
@@ -86,7 +89,10 @@ void node_free(ASTNode *n) {
       free(n->info.block.stmts);
     break;
     case NODE_STMT:
-      node_free(n->info.stmt.expr);
+      switch (n->info.stmt.stmt_tok) {
+        case TOK_ECHO: node_free(n->info.stmt.echo.expr); break;
+        default: assert(false);
+      }
     break;
     case NODE_EXPR:
       node_free(n->info.expr.op1);
@@ -102,6 +108,47 @@ void node_free(ASTNode *n) {
     assert(false);
   }
   free(n);
+}
+
+ASTNode *node_value_new(ValueKind kind, const char *v) {
+  ASTNode *n = node_new(NODE_VALUE);
+  n->info.val = (InfoValue) {
+    .kind = kind,
+    .value = strdup(v),
+  };
+  return n;
+}
+
+ASTNode *node_expr_new(TokenKind kind, ASTNode *l, ASTNode *r) {
+  ASTNode *n = node_new(NODE_EXPR);
+  n->info.expr = (InfoExpr) {
+    .op_tok = kind,
+    .op1 = l,
+    .op2 = r,
+  };
+  l->parent = n;
+  r->parent = n;
+  return n;
+}
+
+ASTNode *node_uexpr_new(TokenKind kind, ASTNode *expr) {
+  ASTNode *n = node_new(NODE_UEXPR);
+  n->info.uexpr = (InfoUExpr) {
+    .op_tok = kind,
+    .op = expr,
+  };
+  expr->parent = n;
+  return n;
+}
+
+ASTNode *node_stmt_echo_new(TokenKind kind, ASTNode *expr) {
+  ASTNode *n = node_new(NODE_STMT);
+  n->info.stmt = (InfoStmt) {
+    .stmt_tok = kind,
+    .echo.expr = expr,
+  };
+  expr->parent = n;
+  return n;
 }
 
 ASTNode *node_block_new() {
@@ -138,6 +185,7 @@ void node_block_append(ASTNode *block, ASTNode *stmt) {
   ensure_capacity(block, info_block->len + 1, 0);
   info_block->stmts[info_block->len] = stmt;
   info_block->len += 1;
+  stmt->parent = block;
 }
 
 void node_block_prepend(ASTNode *block, ASTNode *stmt) {
@@ -145,5 +193,6 @@ void node_block_prepend(ASTNode *block, ASTNode *stmt) {
   ensure_capacity(block, info_block->len + 1, 1);
   info_block->stmts[0] = stmt;
   info_block->len += 1;
+  stmt->parent = block;
 }
 

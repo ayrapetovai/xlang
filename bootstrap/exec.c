@@ -15,11 +15,11 @@ int exec(const ASTNode* n) {
       }
     break;
     case NODE_STMT:
-      if (n->info.stmt.stmt_tok == TOK_ECHO) {
-        int res = exec(n->info.stmt.expr);
-        printf("%d\n", res);
-      } else {
-        assert(false);
+      switch (n->info.stmt.stmt_tok) {
+        case TOK_ECHO:
+          printf("%d\n", exec(n->info.stmt.echo.expr));
+          break;
+        default: assert(false);
       }
     break;
     case NODE_EXPR:
