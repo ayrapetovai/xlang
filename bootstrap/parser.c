@@ -51,21 +51,18 @@ struct Production {
 
 struct GrammarRule {
   const char* name;
-  // expression rules only: a '\n' seen where this rule expects more input is
-  // whitespace, not a statement separator, because an expression rule is only
-  // entered while the expression is unfinished
-  const bool nl_is_whitespace;
+  const bool skip_new_line;
   const struct Production productions[PRODUCTIONS_MAX];
 };
 
-#define TERM(t)   (const struct ProdNode)   { .name = #t, .type = PN_TERM,   .tok_kind =  t }
-#define NTRM(r)   (const struct ProdNode)   { .name = #r, .type = PN_RULE,   .rule     = &r }
-#define REDUCE(f) (const struct ProdNode)   { .name = #f, .type = PN_REDUCE, .reducer  =  f }
-#define PROD_L(...) (const struct Production) { true, ASC_LEFT,  { __VA_ARGS__ }}
-#define PROD_R(...) (const struct Production) { true, ASC_RIGHT, { __VA_ARGS__ }}
+#define TERM(t)           (struct ProdNode)   { .name = #t,     .type = PN_TERM,   .tok_kind =  t }
+#define NTRM(r)           (struct ProdNode)   { .name = #r,     .type = PN_RULE,   .rule     = &r }
+#define REDUCE(f)         (struct ProdNode)   { .name = #f,     .type = PN_REDUCE, .reducer  =  f }
+#define PROD_L(...)       (struct Production) { true, ASC_LEFT,  { __VA_ARGS__ }}
+#define PROD_R(...)       (struct Production) { true, ASC_RIGHT, { __VA_ARGS__ }}
 #define RULE(rule_id, ...) struct GrammarRule rule_id = { .name = #rule_id, .productions = { __VA_ARGS__ } };
-// an expression rule, in which a '\n' is whitespace rather than a separator
-#define RULE_EXPR(rule_id, ...) struct GrammarRule rule_id = { .name = #rule_id, .nl_is_whitespace = true, .productions = { __VA_ARGS__ } };
+// an expression rule, in which a '\n' is skipped like a whitespace rather than a separator
+#define RULE_EXPR(rule_id, ...) struct GrammarRule rule_id = { .name = #rule_id, .skip_new_line = true, .productions = { __VA_ARGS__ } };
 
 // Rule section.
 
@@ -335,23 +332,13 @@ static int fold_point(const struct Production *production) {
   return -1;
 }
 
-// Inside an expression a '\n' is whitespace: expr_* rules are only entered while
-// the expression still needs input, so a newline can never be the separator that
-// ends the statement. A newline therefore never blocks a token match -- but if
-// the match then fails we put the newlines back, because the caller may switch to
-// the next production without a rollback and expects the input untouched.
-static bool expr_token_matches(struct Parser* parser, struct GrammarRule* rule, enum TokenKind want) {
-  if (!rule->nl_is_whitespace || parser->current_token->kind != TOK_NL)
-    return parser->current_token->kind == want;
+static bool expr_token_matches(struct Parser* parser, bool skip_new_line, enum TokenKind expected) {
+  if (!skip_new_line || parser->current_token->kind != TOK_NL)
+    return parser->current_token->kind == expected;
 
   size_t start = reader_tell(parser->lexer->reader);
 
-  // An expression rule is entered more than once at the same offset, because a
-  // rule has several productions and each one retries the match at position 0.
-  // When a skip failed there, the token that hides behind the newlines is known
-  // and rules out every kind but itself, so the retry need not scan again. A hit
-  // that does match still has to skip: the newlines are in the input either way.
-  if (parser->nl_probe_valid && parser->nl_probe_start == start && parser->nl_probe_kind != want)
+  if (parser->nl_probe_valid && parser->nl_probe_start == start && parser->nl_probe_kind != expected)
     return false;
 
   struct ParseCheckpoint chk;
@@ -360,7 +347,7 @@ static bool expr_token_matches(struct Parser* parser, struct GrammarRule* rule, 
   while (parser->current_token->kind == TOK_NL)
     if (!parser_move_forward(parser)) return false; // hard error
 
-  if (parser->current_token->kind == want) return true;
+  if (parser->current_token->kind == expected) return true;
 
   parser_restore(parser, &chk); // speculative: give the newlines back
   return false;
@@ -392,7 +379,7 @@ production_cycle:
       const struct ProdNode *prod_node = &production->nodes[j];
       switch (prod_node->type) {
         case PN_TERM:
-          if (expr_token_matches(parser, rule, prod_node->tok_kind)) {
+          if (expr_token_matches(parser, rule->skip_new_line, prod_node->tok_kind)) {
             LOG_DEBUG("accept %s", prod_node->name);
             params[param_count] = parser->current_token;
             param_is_token[param_count] = true;
