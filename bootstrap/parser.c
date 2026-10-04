@@ -51,6 +51,10 @@ struct Production {
 
 struct GrammarRule {
   const char* name;
+  // expression rules only: a '\n' seen where this rule expects more input is
+  // whitespace, not a statement separator, because an expression rule is only
+  // entered while the expression is unfinished
+  const bool nl_is_whitespace;
   const struct Production productions[PRODUCTIONS_MAX];
 };
 
@@ -60,6 +64,8 @@ struct GrammarRule {
 #define PROD_L(...) (const struct Production) { true, ASC_LEFT,  { __VA_ARGS__ }}
 #define PROD_R(...) (const struct Production) { true, ASC_RIGHT, { __VA_ARGS__ }}
 #define RULE(rule_id, ...) struct GrammarRule rule_id = { .name = #rule_id, .productions = { __VA_ARGS__ } };
+// an expression rule, in which a '\n' is whitespace rather than a separator
+#define RULE_EXPR(rule_id, ...) struct GrammarRule rule_id = { .name = #rule_id, .nl_is_whitespace = true, .productions = { __VA_ARGS__ } };
 
 // Rule section.
 
@@ -162,23 +168,23 @@ struct GrammarRule expr_prime;
 
 //**************************************************************
 // expression :: arithmetics, logics, if, match, array access and funcfion calls
-RULE( expr_factor,
+RULE_EXPR( expr_factor,
   PROD_R( TERM(TOK_NUMBER_L),                                     REDUCE(reduce_number_l) ),
   PROD_R( TERM(TOK_LPAREN), NTRM(expr_prime), TERM(TOK_RPAREN),   REDUCE(reduce_tripple_ntrm) ),
 )
 
-RULE( expr_unary,
+RULE_EXPR( expr_unary,
   PROD_R( NTRM(expr_factor),                                      REDUCE(reduce_signle_ntrm) ),
   PROD_R( TERM(TOK_MINUS),  NTRM(expr_factor),                    REDUCE(reduce_minus_expr) ),
 )
 
-RULE( expr_term,
+RULE_EXPR( expr_term,
   PROD_L( NTRM(expr_unary), TERM(TOK_STAR),  NTRM(expr_unary),    REDUCE(reduce_expr_op_expr), ),
   PROD_L( NTRM(expr_unary), TERM(TOK_SLASH), NTRM(expr_unary),    REDUCE(reduce_expr_op_expr), ),
   PROD_R( NTRM(expr_unary),                                       REDUCE(reduce_signle_ntrm), ),
 )
 
-RULE( expr_prime,
+RULE_EXPR( expr_prime,
   PROD_L( NTRM(expr_term), TERM(TOK_PLUS),  NTRM(expr_term),      REDUCE(reduce_expr_op_expr), ),
   PROD_L( NTRM(expr_term), TERM(TOK_MINUS), NTRM(expr_term),      REDUCE(reduce_expr_op_expr), ),
   PROD_R( NTRM(expr_term),                                        REDUCE(reduce_signle_ntrm), ),
@@ -225,6 +231,9 @@ RULE( prog,
 
 static ParseResult parse_by_rule(struct Parser* parser, struct GrammarRule* rule);
 static bool parser_move_forward(struct Parser* parser);
+static bool parser_lex_significant(struct Parser*, struct Token**, bool);
+static bool is_continuation_operator(TokenKind);
+static bool continues_expression(struct Parser*, struct Token**);
 
 // A parse checkpoint captures everything the parser + lexer + reader need to
 // rewind after a failed production attempt (real backtracking).
@@ -261,6 +270,9 @@ struct Parser* parser_new(struct Lexer *lexer) {
   if (parser == NULL) return NULL;
 
   parser->current_token = NULL;
+  parser->run_end = 0;
+  parser->run_valid = false;
+  parser->prev_kind = TOK_UNDEF;
   parser->token_pool = NULL;
   parser->token_pool_size = 0;
   parser->token_pool_cap = 0;
@@ -275,6 +287,9 @@ struct Parser* parser_new(struct Lexer *lexer) {
 }
 
 ASTNode *parser_parse(struct Parser *parser) {
+  parser->run_valid = false;
+  parser->prev_kind = TOK_UNDEF;
+
   ParseResult reduce_result = parse_by_rule(parser, &prog);
   if (!reduce_result.reduced) return NULL;
 
@@ -329,6 +344,14 @@ static int fold_point(const struct Production *production) {
 static ParseResult parse_by_rule(struct Parser* parser, struct GrammarRule* rule) {
   if (rule == NULL) return (ParseResult) { NULL, false }; // hard error
   if (parser->current_token == NULL && !parser_move_forward(parser)) return (ParseResult) { NULL, false}; // hard error
+
+  // An expression rule is only ever entered while the expression still needs
+  // input, so a '\n' here is whitespace rather than a statement separator.
+  // Done before the first checkpoint, so a production that rolls back puts the
+  // newlines back.
+  if (rule->nl_is_whitespace)
+    while (parser->current_token->kind == TOK_NL)
+      if (!parser_move_forward(parser)) return (ParseResult) { NULL, false }; // hard error
 
   void *params[PRODUCTION_MAX_LENGTH] = {};
   bool param_is_token[PRODUCTION_MAX_LENGTH] = {}; // true: Token* (lookahead), false: node
@@ -455,7 +478,44 @@ static bool parser_pool_push(struct Parser* parser, struct Token* tok) {
   return true;
 }
 
-static bool parser_move_forward(struct Parser* parser) {
+static bool is_continuation_operator(TokenKind kind) {
+  switch (kind) {
+    case TOK_PLUS: case TOK_MINUS: case TOK_STAR: case TOK_SLASH:
+      return true;
+    default:
+      return false;
+  }
+}
+
+static bool continues_expression(struct Parser* parser, struct Token** out) {
+  size_t start = reader_tell(parser->lexer->reader);
+
+  if (parser->run_valid && start < parser->run_end) {
+    return false;
+  }
+
+  ParseCheckpoint chk;
+  parser_checkpoint(parser, &chk);
+
+  // eat_newlines is what stops the probe from recursing into itself.
+  struct Token* tok = NULL;
+  bool ok = parser_lex_significant(parser, &tok, /*eat_newlines=*/true);
+  bool cont = ok && is_continuation_operator(tok->kind);
+
+  parser->run_valid = !cont;
+  parser->run_end = reader_tell(parser->lexer->reader);
+
+  if (!cont) {
+    free(tok);
+    parser_restore(parser, &chk); // speculative: put the input back
+    return false;
+  }
+  *out = tok; // the operator: hand it back instead of re-scanning the run
+  return true;
+}
+
+// Lexes one significant token (skip \n)
+static bool parser_lex_significant(struct Parser* parser, struct Token** out, bool eat_newlines) {
   while (true) {
     struct Token* tok = NULL;
     enum LexState lex_state = lexer_next_token(parser->lexer, &tok);
@@ -477,13 +537,40 @@ static bool parser_move_forward(struct Parser* parser) {
       }
     }
 
-    if (!parser_pool_push(parser, tok)) {
-      free(tok); // out of memory
-      return false;
+    if (tok->kind == TOK_NL) {
+      if (eat_newlines) {
+        free(tok);
+        continue;
+      }
+      // An unfinished expression lets a '\n' through in two ways: the line
+      // ends with an infix operator ...
+      if (is_continuation_operator(parser->prev_kind)) {
+        free(tok);
+        continue;
+      }
+      // ... or the next line begins with one (README "Line continuation").
+      struct Token* next = NULL;
+      if (continues_expression(parser, &next)) {
+        free(tok);
+        *out = next; // the newline run is invisible; this is the next token
+        return true;
+      }
     }
-    parser->current_token = tok;
-    break;
-  }
 
+    *out = tok;
+    return true;
+  }
+}
+
+static bool parser_move_forward(struct Parser* parser) {
+  struct Token* tok = NULL;
+  if (!parser_lex_significant(parser, &tok, /*eat_newlines=*/false)) return false;
+
+  if (!parser_pool_push(parser, tok)) {
+    free(tok); // out of memory
+    return false;
+  }
+  parser->prev_kind = tok->kind; // last significant token; see prev_kind
+  parser->current_token = tok;
   return true;
 }

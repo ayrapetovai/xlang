@@ -4,4 +4,4 @@
 - Parser's error messages are bad.
 - Lexer searches for reserved word the inefficient way.
 - parser: skip multi line comments.
-
+- parser: reader rewinding must not reread file.
