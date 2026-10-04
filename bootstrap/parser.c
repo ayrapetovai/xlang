@@ -86,22 +86,7 @@ static void* reduce_minus_expr(size_t argc, void* argv[]) {
   return node_uexpr_new(((Token*)argv[0])->kind, argv[1]);
 }
 
-static void* reduce_expr_star_expr(size_t argc, void* argv[]) {
-  assert(argc == 3);
-  return node_expr_new(((Token*)argv[1])->kind, argv[0], argv[2]);
-}
-
-static void* reduce_expr_slash_expr(size_t argc, void* argv[]) {
-  assert(argc == 3);
-  return node_expr_new(((Token*)argv[1])->kind, argv[0], argv[2]);
-}
-
-static void* reduce_expr_plus_expr(size_t argc, void* argv[]) {
-  assert(argc == 3);
-  return node_expr_new(((Token*)argv[1])->kind, argv[0], argv[2]);
-}
-
-static void* reduce_expr_minus_expr(size_t argc, void* argv[]) {
+static void* reduce_expr_op_expr(size_t argc, void* argv[]) {
   assert(argc == 3);
   return node_expr_new(((Token*)argv[1])->kind, argv[0], argv[2]);
 }
@@ -183,14 +168,14 @@ RULE( expr_unary,
 )
 
 RULE( expr_term,
-  PROD_L( NTRM(expr_unary), TERM(TOK_STAR),  NTRM(expr_unary),    REDUCE(reduce_expr_star_expr), ),
-  PROD_L( NTRM(expr_unary), TERM(TOK_SLASH), NTRM(expr_unary),    REDUCE(reduce_expr_slash_expr), ),
+  PROD_L( NTRM(expr_unary), TERM(TOK_STAR),  NTRM(expr_unary),    REDUCE(reduce_expr_op_expr), ),
+  PROD_L( NTRM(expr_unary), TERM(TOK_SLASH), NTRM(expr_unary),    REDUCE(reduce_expr_op_expr), ),
   PROD_R( NTRM(expr_unary),                                       REDUCE(reduce_signle_ntrm), ),
 )
 
 RULE( expr_prime,
-  PROD_L( NTRM(expr_term), TERM(TOK_PLUS),  NTRM(expr_term),      REDUCE(reduce_expr_plus_expr), ),
-  PROD_L( NTRM(expr_term), TERM(TOK_MINUS), NTRM(expr_term),      REDUCE(reduce_expr_minus_expr), ),
+  PROD_L( NTRM(expr_term), TERM(TOK_PLUS),  NTRM(expr_term),      REDUCE(reduce_expr_op_expr), ),
+  PROD_L( NTRM(expr_term), TERM(TOK_MINUS), NTRM(expr_term),      REDUCE(reduce_expr_op_expr), ),
   PROD_R( NTRM(expr_term),                                        REDUCE(reduce_signle_ntrm), ),
 )
 
