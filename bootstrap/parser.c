@@ -349,6 +349,12 @@ static bool expr_token_matches(struct Parser* parser, bool skip_new_line, enum T
 
   if (parser->current_token->kind == expected) return true;
 
+  // remember what the newlines hide, keyed by where the run starts: the next
+  // production retries this match at the same offset with a different token
+  parser->nl_probe_start = start;
+  parser->nl_probe_kind = parser->current_token->kind;
+  parser->nl_probe_valid = true;
+
   parser_restore(parser, &chk); // speculative: give the newlines back
   return false;
 }
