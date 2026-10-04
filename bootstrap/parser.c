@@ -77,6 +77,20 @@ struct GrammarRule {
 // grammar_2 ...
 //
 
+static void* reduce_true(size_t argc, void* argv[]) {
+  assert(argc == 1);
+  struct Token* tok = (struct Token*) argv[0];
+  assert(tok->kind == TOK_TRUE);
+  return node_value_new(VK_BOOL, "true");
+}
+
+static void* reduce_false(size_t argc, void* argv[]) {
+  assert(argc == 1);
+  struct Token* tok = (struct Token*) argv[0];
+  assert(tok->kind == TOK_FALSE);
+  return node_value_new(VK_BOOL, "false");
+}
+
 static void* reduce_number_l(size_t argc, void* argv[]) {
   assert(argc == 1);
   struct Token* tok = (struct Token*) argv[0];
@@ -165,8 +179,14 @@ struct GrammarRule expr_prime;
 
 //**************************************************************
 // expression :: arithmetics, logics, if, match, array access and funcfion calls
+RULE_EXPR( boolean,
+  PROD_R( TERM(TOK_TRUE),                                         REDUCE(reduce_true) ),
+  PROD_R( TERM(TOK_FALSE),                                        REDUCE(reduce_false) ),
+)
+
 RULE_EXPR( expr_factor,
   PROD_R( TERM(TOK_NUMBER_L),                                     REDUCE(reduce_number_l) ),
+  PROD_R( NTRM(boolean),                                          REDUCE(reduce_signle_ntrm), ),
   PROD_R( TERM(TOK_LPAREN), NTRM(expr_prime), TERM(TOK_RPAREN),   REDUCE(reduce_tripple_ntrm) ),
 )
 

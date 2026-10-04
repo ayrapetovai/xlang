@@ -3,6 +3,7 @@
 #include "tokens.h"
 #include <assert.h>
 #include <stdio.h>
+#include <string.h>
 
 int exec(const ASTNode* n) {
   if (n == NULL) return 0;
@@ -43,10 +44,12 @@ int exec(const ASTNode* n) {
         assert(false);
     break;
     case NODE_VALUE:
-      if (n->info.val.kind == VK_INTEGER)
-        return atoi(n->info.val.value);
-      else
-        assert(false);
+      switch (n->info.val.kind) {
+        case VK_INTEGER: return atoi(n->info.val.value);
+        case VK_BOOL: return strcmp(n->info.val.value, "true") == 0;
+        default:
+          assert(false);
+      }
     break;
     default:
       assert(false);
