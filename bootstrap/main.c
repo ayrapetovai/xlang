@@ -132,8 +132,8 @@ int run_ast(char *filename) {
 }
 
 int main(int argc, char **argv) {
-  logger_set_level(LOG_LEVEL_DEBUG);
-  // logger_set_level(LOG_LEVEL_INFO);
+  // logger_set_level(LOG_LEVEL_DEBUG);
+  logger_set_level(LOG_LEVEL_INFO);
 
   LOG_DEBUG("program started");
 

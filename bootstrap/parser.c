@@ -231,9 +231,6 @@ RULE( prog,
 
 static ParseResult parse_by_rule(struct Parser* parser, struct GrammarRule* rule);
 static bool parser_move_forward(struct Parser* parser);
-static bool parser_lex_significant(struct Parser*, struct Token**, bool);
-static bool is_continuation_operator(TokenKind);
-static bool continues_expression(struct Parser*, struct Token**);
 
 // A parse checkpoint captures everything the parser + lexer + reader need to
 // rewind after a failed production attempt (real backtracking).
@@ -270,9 +267,9 @@ struct Parser* parser_new(struct Lexer *lexer) {
   if (parser == NULL) return NULL;
 
   parser->current_token = NULL;
-  parser->run_end = 0;
-  parser->run_valid = false;
-  parser->prev_kind = TOK_UNDEF;
+  parser->nl_probe_start = 0;
+  parser->nl_probe_kind = TOK_UNDEF;
+  parser->nl_probe_valid = false;
   parser->token_pool = NULL;
   parser->token_pool_size = 0;
   parser->token_pool_cap = 0;
@@ -287,9 +284,6 @@ struct Parser* parser_new(struct Lexer *lexer) {
 }
 
 ASTNode *parser_parse(struct Parser *parser) {
-  parser->run_valid = false;
-  parser->prev_kind = TOK_UNDEF;
-
   ParseResult reduce_result = parse_by_rule(parser, &prog);
   if (!reduce_result.reduced) return NULL;
 
@@ -341,17 +335,45 @@ static int fold_point(const struct Production *production) {
   return -1;
 }
 
+// Inside an expression a '\n' is whitespace: expr_* rules are only entered while
+// the expression still needs input, so a newline can never be the separator that
+// ends the statement. A newline therefore never blocks a token match -- but if
+// the match then fails we put the newlines back, because the caller may switch to
+// the next production without a rollback and expects the input untouched.
+static bool expr_token_matches(struct Parser* parser, struct GrammarRule* rule, enum TokenKind want) {
+  if (!rule->nl_is_whitespace || parser->current_token->kind != TOK_NL)
+    return parser->current_token->kind == want;
+
+  size_t start = reader_tell(parser->lexer->reader);
+
+  // An expression rule is entered more than once at the same offset, because a
+  // rule has several productions and each one retries the match at position 0.
+  // When a skip failed there, the token that hides behind the newlines is known
+  // and rules out every kind but itself, so the retry need not scan again. A hit
+  // that does match still has to skip: the newlines are in the input either way.
+  if (parser->nl_probe_valid && parser->nl_probe_start == start && parser->nl_probe_kind != want)
+    return false;
+
+  struct ParseCheckpoint chk;
+  parser_checkpoint(parser, &chk);
+
+  while (parser->current_token->kind == TOK_NL)
+    if (!parser_move_forward(parser)) return false; // hard error
+
+  if (parser->current_token->kind == want) return true;
+
+  // remember what the newlines hide, keyed by where the run starts
+  parser->nl_probe_start = start;
+  parser->nl_probe_kind = parser->current_token->kind;
+  parser->nl_probe_valid = true;
+
+  parser_restore(parser, &chk); // speculative: give the newlines back
+  return false;
+}
+
 static ParseResult parse_by_rule(struct Parser* parser, struct GrammarRule* rule) {
   if (rule == NULL) return (ParseResult) { NULL, false }; // hard error
   if (parser->current_token == NULL && !parser_move_forward(parser)) return (ParseResult) { NULL, false}; // hard error
-
-  // An expression rule is only ever entered while the expression still needs
-  // input, so a '\n' here is whitespace rather than a statement separator.
-  // Done before the first checkpoint, so a production that rolls back puts the
-  // newlines back.
-  if (rule->nl_is_whitespace)
-    while (parser->current_token->kind == TOK_NL)
-      if (!parser_move_forward(parser)) return (ParseResult) { NULL, false }; // hard error
 
   void *params[PRODUCTION_MAX_LENGTH] = {};
   bool param_is_token[PRODUCTION_MAX_LENGTH] = {}; // true: Token* (lookahead), false: node
@@ -375,7 +397,7 @@ production_cycle:
       const struct ProdNode *prod_node = &production->nodes[j];
       switch (prod_node->type) {
         case PN_TERM:
-          if (parser->current_token->kind == prod_node->tok_kind) {
+          if (expr_token_matches(parser, rule, prod_node->tok_kind)) {
             LOG_DEBUG("accept %s", prod_node->name);
             params[param_count] = parser->current_token;
             param_is_token[param_count] = true;
@@ -478,44 +500,10 @@ static bool parser_pool_push(struct Parser* parser, struct Token* tok) {
   return true;
 }
 
-static bool is_continuation_operator(TokenKind kind) {
-  switch (kind) {
-    case TOK_PLUS: case TOK_MINUS: case TOK_STAR: case TOK_SLASH:
-      return true;
-    default:
-      return false;
-  }
-}
-
-static bool continues_expression(struct Parser* parser, struct Token** out) {
-  size_t start = reader_tell(parser->lexer->reader);
-
-  if (parser->run_valid && start < parser->run_end) {
-    return false;
-  }
-
-  ParseCheckpoint chk;
-  parser_checkpoint(parser, &chk);
-
-  // eat_newlines is what stops the probe from recursing into itself.
-  struct Token* tok = NULL;
-  bool ok = parser_lex_significant(parser, &tok, /*eat_newlines=*/true);
-  bool cont = ok && is_continuation_operator(tok->kind);
-
-  parser->run_valid = !cont;
-  parser->run_end = reader_tell(parser->lexer->reader);
-
-  if (!cont) {
-    free(tok);
-    parser_restore(parser, &chk); // speculative: put the input back
-    return false;
-  }
-  *out = tok; // the operator: hand it back instead of re-scanning the run
-  return true;
-}
-
-// Lexes one significant token (skip \n)
-static bool parser_lex_significant(struct Parser* parser, struct Token** out, bool eat_newlines) {
+// Lexes the next significant token: skips spaces and single line comments, but
+// never a '\n'. Newlines separate statements and only expr_token_matches may
+// look through one, so they are always significant here.
+static bool parser_move_forward(struct Parser* parser) {
   while (true) {
     struct Token* tok = NULL;
     enum LexState lex_state = lexer_next_token(parser->lexer, &tok);
@@ -537,40 +525,11 @@ static bool parser_lex_significant(struct Parser* parser, struct Token** out, bo
       }
     }
 
-    if (tok->kind == TOK_NL) {
-      if (eat_newlines) {
-        free(tok);
-        continue;
-      }
-      // An unfinished expression lets a '\n' through in two ways: the line
-      // ends with an infix operator ...
-      if (is_continuation_operator(parser->prev_kind)) {
-        free(tok);
-        continue;
-      }
-      // ... or the next line begins with one (README "Line continuation").
-      struct Token* next = NULL;
-      if (continues_expression(parser, &next)) {
-        free(tok);
-        *out = next; // the newline run is invisible; this is the next token
-        return true;
-      }
+    if (!parser_pool_push(parser, tok)) {
+      free(tok); // out of memory
+      return false;
     }
-
-    *out = tok;
+    parser->current_token = tok;
     return true;
   }
-}
-
-static bool parser_move_forward(struct Parser* parser) {
-  struct Token* tok = NULL;
-  if (!parser_lex_significant(parser, &tok, /*eat_newlines=*/false)) return false;
-
-  if (!parser_pool_push(parser, tok)) {
-    free(tok); // out of memory
-    return false;
-  }
-  parser->prev_kind = tok->kind; // last significant token; see prev_kind
-  parser->current_token = tok;
-  return true;
 }
