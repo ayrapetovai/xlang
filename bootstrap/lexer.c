@@ -177,15 +177,15 @@ enum LexState lexer_skip_line(struct Lexer *lexer) {
   }
 }
 
-enum LexState lexer_skip_until(struct Lexer *lexer, const char *ancor) {
-  assert(lexer != NULL && ancor != NULL);
+enum LexState lexer_skip_until(struct Lexer *lexer, const char *anchor) {
+  assert(lexer != NULL && anchor != NULL);
 
   typedef enum WatchState {
     WS_SKIPPING,
     WS_STOPPING,
   } WatchState;
 
-  size_t ancor_ith = 0;
+  size_t anchor_ith = 0;
   WatchState state = WS_SKIPPING;
   while (true) {
     char c = '\0';
@@ -197,7 +197,7 @@ enum LexState lexer_skip_until(struct Lexer *lexer, const char *ancor) {
     }
 
     if (!read) { // EOF
-      sprintf(lexer->error, "skip failed to reach ancor %s", ancor);
+      sprintf(lexer->error, "skip failed to reach anchor %s", anchor);
       return LEX_ERROR;
     }
 
@@ -209,20 +209,20 @@ enum LexState lexer_skip_until(struct Lexer *lexer, const char *ancor) {
         lexer->line += 1;
         lexer->col = 1;
       }
-      if (c == ancor[0]) {
-        ancor_ith = 0;
+      if (c == anchor[0]) {
+        anchor_ith = 0;
         state = WS_STOPPING;
       }
       break;
     case WS_STOPPING:
-      ancor_ith++;
-      if (c != ancor[ancor_ith]) {
-        if (ancor[ancor_ith] == '\0') {
+      anchor_ith++;
+      if (c != anchor[anchor_ith]) {
+        if (anchor[anchor_ith] == '\0') {
           reader_ungetch(lexer->reader, c);
           lexer->col -= 1;
           return LEX_OK;
-        } else { // that was not the ancor in parsed text
-          ancor_ith = 0;
+        } else { // that was not the anchor in parsed text
+          anchor_ith = 0;
           state = WS_SKIPPING;
         }
       }
