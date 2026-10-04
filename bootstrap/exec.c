@@ -9,7 +9,6 @@ int exec(const ASTNode* n) {
 
   switch (n->kind) {
     case NODE_BLOCK:
-      if (n->info.block.len <= 0) assert(false);
       for (size_t i = 0; i < n->info.block.len; i++) {
         exec(n->info.block.stmts[i]);
       }

@@ -128,6 +128,11 @@ static void* reduce_stmt(size_t argc, void* argv[]) {
   return block;
 }
 
+static void* reduce_empty_block(size_t argc, void* []) {
+  assert(argc == 0);
+  return node_block_new();
+}
+
 static void* reduce_sep_seps(size_t argc, void*[]) {
   assert(argc == 2);
   return NULL;
@@ -189,7 +194,6 @@ RULE( stmt_sep,
 RULE( stmt_seps,
   PROD_R( NTRM(stmt_sep), NTRM(stmt_seps),                        REDUCE(reduce_sep_seps) ),
   PROD_R( NTRM(stmt_sep),                                         REDUCE(reduce_sep) ),
-  PROD_R(                                                         REDUCE(reduce_empty), )
 )
 
 RULE( stmt_optseps,
@@ -204,6 +208,7 @@ RULE( stmt,
 RULE( stmts,
   PROD_L( NTRM(stmt), NTRM(stmt_seps), NTRM(stmts),               REDUCE(reduce_stmt_sep_stmts) ),
   PROD_R( NTRM(stmt),                                             REDUCE(reduce_stmt) ),
+  PROD_R(                                                         REDUCE(reduce_empty_block) ),
 )
 
 RULE( block,
