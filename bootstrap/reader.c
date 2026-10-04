@@ -31,7 +31,7 @@ bool reader_getch(struct Reader* reader, char *c) {
   // check if the last operation was unget,
   // then ouer get must return the last ungetted char
   int i = 0;
-  while (reader->unget_buf[i] != '\0' && i < (int) sizeof reader->unget_buf) i++;
+  while (i < (int) sizeof reader->unget_buf && reader->unget_buf[i] != '\0') i++;
   i -= 1;
   if (i >= 0) {
     *c = reader->unget_buf[i];
@@ -60,7 +60,7 @@ void reader_ungetch(struct Reader* reader, char c) {
   // the \0 is an anchor of emtpy place
   if (c == '\0') return;
   size_t i = 0;
-  while (reader->unget_buf[i] != 0 && i < sizeof reader->unget_buf) i++;
+  while (i < sizeof reader->unget_buf && reader->unget_buf[i] != 0) i++;
   if (i == sizeof reader->unget_buf) return; // unget buffer is overfload
   // write the ungetted char right after the last ungetted char
   reader->unget_buf[i] = c;

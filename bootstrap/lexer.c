@@ -155,6 +155,28 @@ enum LexState lexer_next_token(struct Lexer *lexer, struct Token **tok) {
   return LEX_ERROR;
 }
 
+enum LexState lexer_skip_line(struct Lexer *lexer) {
+  assert(lexer != NULL);
+
+  while (true) {
+    char c = '\0';
+    bool read = reader_getch(lexer->reader, &c);
+    if (!read && lexer->reader->error[0] != '\0') {
+      sprintf(lexer->error, "failed lexing line comment: %s", lexer->reader->error);
+      return LEX_ERROR;
+    }
+
+    if (!read) return LEX_OK; // EOF before the newline
+
+    if (c == '\n') {
+      reader_ungetch(lexer->reader, c);
+      return LEX_OK;
+    }
+
+    lexer->col += 1;
+  }
+}
+
 enum LexState lexer_skip_until(struct Lexer *lexer, const char *ancor) {
   assert(lexer != NULL && ancor != NULL);
 

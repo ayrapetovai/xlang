@@ -454,9 +454,9 @@ static bool parser_move_forward(struct Parser* parser) {
     }
 
     if (lex_state != LEX_EOF) {
-      // skip single line comment
+      // skip single line comment, but keep the '\n' that ends it
       if (tok->kind == TOK_SLC_START) {
-        lexer_skip_until(parser->lexer, "\n");
+        lexer_skip_line(parser->lexer);
       }
 
       if (tok->kind == TOK_SPACE || tok->kind == TOK_SLC_START) {

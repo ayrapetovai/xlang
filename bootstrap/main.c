@@ -84,7 +84,7 @@ int run_lex(char *filename) {
 
     // skip commentaries
     switch (t->kind) {
-    case TOK_SLC_START: lexer_skip_until(lexer, "\n"); break;
+    case TOK_SLC_START: lexer_skip_line(lexer); break;
     case TOK_MLC_START: lexer_skip_until(lexer, "*/"); break;
     default:
     }
