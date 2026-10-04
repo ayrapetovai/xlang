@@ -1,4 +1,4 @@
-- lex floats: create token TOK_FLOAT_L.
+- lexer: add multi line expressions support.
 - add TOK_EOF, let the lexer return it.
 - Remove pool from parser.
 - Parser's error messages are bad.

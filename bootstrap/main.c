@@ -74,11 +74,6 @@ int run_lex(char *filename) {
     if (state == LEX_EOF) {
       free(t); // the lexer allocates a TOK_UNDEF token to signal EOF
       break;
-    } else if (state == LEX_PRG_ERROR) {
-      free(t);
-      printf("lexer crashed\n");
-      error_code = 1;
-      break;
     } else if (state == LEX_ERROR) {
       free(t);
       printf("lexing: %s\n", lexer->error);

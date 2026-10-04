@@ -447,7 +447,7 @@ static bool parser_move_forward(struct Parser* parser) {
   while (true) {
     struct Token* tok = NULL;
     enum LexState lex_state = lexer_next_token(parser->lexer, &tok);
-    if (lex_state == LEX_ERROR || lex_state == LEX_PRG_ERROR) {
+    if (lex_state == LEX_ERROR) {
       free(tok);
       sprintf(parser->error, "parsing failed: %s", parser->lexer->error);
       return false;

@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#include <assert.h>
 
 #include "lexer.h"
 #include "reader.h"
@@ -40,7 +41,7 @@ struct Lexer *lexer_new(char *filename) {
 }
 
 enum LexState lexer_next_token(struct Lexer *lexer, struct Token **tok) {
-  if (lexer == NULL) return LEX_PRG_ERROR;
+  assert(lexer != NULL);
 
   // bootstrap compiler cannot parse names and string literals longer than TOKEN_VALUE_MAX_SIZE chars
   char buf[TOKEN_VALUE_MAX_SIZE] = {0};
@@ -155,7 +156,7 @@ enum LexState lexer_next_token(struct Lexer *lexer, struct Token **tok) {
 }
 
 enum LexState lexer_skip_until(struct Lexer *lexer, const char *ancor) {
-  if (lexer == NULL || ancor == NULL) return LEX_PRG_ERROR;
+  assert(lexer != NULL && ancor != NULL);
 
   typedef enum WatchState {
     WS_SKIPPING,
