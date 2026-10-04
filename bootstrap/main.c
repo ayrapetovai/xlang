@@ -60,6 +60,7 @@ int run_exec(char *filename) {
 }
 
 int run_lex(char *filename) {
+  LOG_DEBUG("minimal token size %db", sizeof(Token));
   struct Lexer *lexer = lexer_new(filename);
   if (strlen(lexer->error) != 0) {
     printf("lexer initialization: %s\n", lexer->error);
@@ -68,6 +69,8 @@ int run_lex(char *filename) {
   }
   int error_code = 0;
 
+  size_t token_count = 0;
+  size_t value_bytes = 0;
   while (true) {
     Token *t = NULL;
     enum LexState state = lexer_next_token(lexer, &t);
@@ -88,10 +91,13 @@ int run_lex(char *filename) {
     case TOK_MLC_START: lexer_skip_until(lexer, "*/"); break;
     default:
     }
+    token_count++;
+    value_bytes += strlen(t->value);
     free(t);
   }
 
   lexer_close(lexer);
+  LOG_DEBUG("memory used for %d tokens %db", token_count, token_count * sizeof(Token) + value_bytes);
   return error_code;
 }
 

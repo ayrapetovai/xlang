@@ -6,7 +6,7 @@
 typedef enum TokenKind {
   TOK_UNDEF = 0,
 
-  // numbers
+  // literals
   TOK_NUMBER_L, // int literal 123
   TOK_STRING_L, // string literal "..."
 

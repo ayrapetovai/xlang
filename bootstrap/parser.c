@@ -186,8 +186,8 @@ RULE_EXPR( boolean,
 
 RULE_EXPR( expr_factor,
   PROD_R( TERM(TOK_NUMBER_L),                                     REDUCE(reduce_number_l) ),
-  PROD_R( NTRM(boolean),                                          REDUCE(reduce_signle_ntrm), ),
   PROD_R( TERM(TOK_LPAREN), NTRM(expr_prime), TERM(TOK_RPAREN),   REDUCE(reduce_tripple_ntrm) ),
+  PROD_R( NTRM(boolean),                                          REDUCE(reduce_signle_ntrm), ),
 )
 
 RULE_EXPR( expr_unary,
