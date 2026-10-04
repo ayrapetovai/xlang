@@ -1,0 +1,11 @@
+//
+// c
+// 42
+// ;
+// = 5
+// one two three
+// with // slashes
+// - not an operator
+// /*
+/* c */
+/* a * b */

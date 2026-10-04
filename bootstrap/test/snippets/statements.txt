@@ -1,0 +1,17 @@
+# One complete statement per line. gen.awk reads this with slurp_records() and
+# then inserts its own line breaks (the "split once" / "split twice" body
+# variants) at the boundaries where the newline-continuation rule engages.
+#
+# Every snippet here is a single line on purpose: pre-splitting them in this
+# file would multiply the corpus size without adding an axis, because the
+# generator can already break any statement anywhere.
+
+echo 1
+echo 7
+echo 8 / 9
+echo 2 + 3
+echo 4 * 5 - 6
+echo (1 + 2) * 3
+echo 1 + 2 + 3
+echo 10 - 3 - 2
+echo -1

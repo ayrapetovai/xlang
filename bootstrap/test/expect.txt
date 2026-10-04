@@ -1,0 +1,92 @@
+# Expected behaviour for cases/*.x, checked by check.sh.
+#
+#   <file>  <rc>  <min-"stms">  <must-contain>
+#
+# rc 0 = parsed, 4 = rejected. "stms" appears once per statement in the AST
+# dump, so its count is the statement count. The must-contain field is the rest
+# of the line, so it may contain spaces; use "-" for none.
+#
+# A rejection case asserts the diagnostic text too, so that improving error
+# reporting (TODO: "parser's error messages are bad") shows up here as a
+# deliberate edit rather than a silent drift.
+
+# --- cont_: a '\n' inside an unfinished expression is whitespace -----------
+cases/cont_lead_op.x          0  1  block
+cases/cont_both_sides.x       0  1  block
+cases/cont_lead_and_trail.x   0  1  block
+cases/cont_blank_then_op.x    0  1  block
+cases/cont_chain.x            0  1  block
+cases/cont_mixed_ops.x        0  1  block
+cases/cont_trail_space.x      0  1  block
+cases/cont_comment_between.x  0  1  block
+cases/cont_comment_lead.x     0  1  block
+cases/cont_paren_lead_op.x    0  1  block
+cases/cont_paren_split.x      0  1  block
+cases/cont_paren_close.x      0  1  block
+cases/cont_paren_close_op.x   0  1  block
+cases/cont_echo_nl_num.x      0  1  block
+cases/cont_echo_nl_neg.x      0  1  block
+cases/cont_echo_nl_paren.x    0  1  block
+cases/cont_echo_nl_expr.x     0  1  block
+cases/cont_echo_blank.x       0  1  block
+cases/cont_echo_chain.x       0  1  block
+
+# --- sep_: a completed statement ends at the '\n' -------------------------
+cases/sep_nl.x                0  2  block
+cases/sep_blank.x             0  2  block
+cases/sep_three_blank.x       0  2  block
+cases/sep_semis.x             0  2  block
+cases/sep_semi_run.x          0  2  block
+cases/sep_semi_same.x         0  2  block
+cases/sep_lead_blank.x        0  1  block
+cases/sep_trail_semi.x        0  1  block
+cases/sep_echo_then_num.x     0  2  block
+cases/sep_comment_mid.x       0  1  block
+
+# --- edge_: degenerate but legal ------------------------------------------
+cases/edge_empty.x            0  0  block
+cases/edge_only_nl.x          0  0  block
+cases/edge_no_trailing_nl.x   0  1  block
+cases/edge_expr_no_nl.x       0  1  block
+cases/edge_lead_space.x       0  1  block
+cases/edge_lead_semi.x        0  1  block
+
+# --- err_: the grammar must reject these ----------------------------------
+# stmt ::= `echo` expr_prime, so a second operand with no operator is an error
+cases/err_num_nl_num.x        4  0  unexpected number literal
+cases/err_echo_two_nums.x     4  0  unexpected number literal
+cases/err_blank_then_num.x    4  0  unexpected number literal
+cases/err_three_nums.x        4  0  unexpected number literal
+# `echo` with nothing to print: not an operand after the newline
+cases/err_echo_gap.x          4  0  unexpected echo
+cases/err_echo_star.x         4  0  unexpected echo
+# an operator with no right-hand side
+cases/err_dangling_op.x       4  0  unexpected +
+cases/err_dangling_op_eof.x   4  0  unexpected +
+# two statements with nothing between them
+cases/err_no_sep.x            4  0  unexpected echo
+# closing paren with nothing open; '=' ',' '.' '\' '@' are not in the grammar
+cases/err_paren_stray.x       4  0  unexpected )
+cases/err_assign.x            4  0  unexpected =
+cases/err_comma.x             4  0  unexpected identifier
+cases/err_method.x            4  0  unexpected .
+cases/err_backslash.x         4  0  unexpected identifier
+cases/err_at.x                4  0  unexpected identifier
+# ':=' and '.' are not in the grammar yet (README examples use both)
+cases/err_define.x            4  0  unexpected identifier
+# --- mlc_: a /* */ comment is skipped by the parse path -------------------
+# parser.c calls lexer_skip_until(lexer, "*/") and then synthesises a TOK_NL,
+# so a block comment behaves like a blank line: it separates statements but
+# never continues an expression. These were rejections until that was wired in.
+cases/mlc_lead.x              0  1  block
+cases/mlc_inline.x            0  1  block
+cases/mlc_between.x           0  1  block
+cases/mlc_splits_stmt.x       0  2  block
+# an unterminated /* is still an error: the anchor is never reached
+cases/err_mlc_unterminated.x   4  0  parsing failed to skip
+# TODO: CR is not whitespace in the lexer, so \r lexes as an identifier
+cases/err_crlf.x              4  0  unexpected identifier
+cases/err_crlf2.x             4  0  unexpected identifier
+cases/err_bare_cr.x           4  0  unexpected identifier
+# the ';' ends the statement, so a following operator cannot continue it
+cases/err_semi_then_op.x      4  0  unexpected +
