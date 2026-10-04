@@ -362,11 +362,6 @@ static bool expr_token_matches(struct Parser* parser, struct GrammarRule* rule, 
 
   if (parser->current_token->kind == want) return true;
 
-  // remember what the newlines hide, keyed by where the run starts
-  parser->nl_probe_start = start;
-  parser->nl_probe_kind = parser->current_token->kind;
-  parser->nl_probe_valid = true;
-
   parser_restore(parser, &chk); // speculative: give the newlines back
   return false;
 }
