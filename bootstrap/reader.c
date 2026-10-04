@@ -10,6 +10,7 @@ Reader* new_reader(char* filename) {
   if (reader == NULL) return NULL;
   reader->file = NULL;
   reader->available = 0;
+  reader->buf_base = 0;
   reader->pos = 0;
 
   memset(reader->error, '\0', sizeof reader->error);
@@ -47,12 +48,33 @@ bool reader_getch(struct Reader* reader, char *c) {
       strcpy(reader->error, strerror(errno));
       return false;
     } else if (read == 0 && feof(reader->file)) {
-      return false;
+      return false; // EOF: buf_base/available/pos must stay as they are
     }
+    reader->buf_base += reader->available; // the new buf[0] starts here
     reader->available = read;
     reader->pos = 1; // we could make it 0, but anyway it must be ++
     *c = reader->buf[0];
   }
+  return true;
+}
+
+size_t reader_tell(const struct Reader* reader) {
+  return reader->buf_base + reader->pos;
+}
+
+bool reader_rewind(struct Reader* reader, size_t offset) {
+  if (reader == NULL) return false;
+  if (offset >= reader->buf_base && offset <= reader->buf_base + reader->available) {
+    reader->pos = offset - reader->buf_base; // still buffered
+    return true;
+  }
+  if (fseek(reader->file, (long) offset, SEEK_SET) != 0) {
+    strcpy(reader->error, strerror(errno));
+    return false;
+  }
+  reader->buf_base = offset;
+  reader->pos = 0;
+  reader->available = 0; // force a refill on the next getch
   return true;
 }
 

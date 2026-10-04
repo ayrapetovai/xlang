@@ -229,8 +229,7 @@ static bool parser_move_forward(struct Parser* parser);
 // A parse checkpoint captures everything the parser + lexer + reader need to
 // rewind after a failed production attempt (real backtracking).
 typedef struct ParseCheckpoint {
-  size_t r_pos;
-  size_t r_available;
+  size_t r_offset;
   char r_unget[READER_UNGET_BUF_SIZE];
   int lex_line;
   int lex_col;
@@ -239,8 +238,7 @@ typedef struct ParseCheckpoint {
 
 static void parser_checkpoint(struct Parser* parser, struct ParseCheckpoint* chk) {
   Reader* r = parser->lexer->reader;
-  chk->r_pos = r->pos;
-  chk->r_available = r->available;
+  chk->r_offset = reader_tell(r);
   memcpy(chk->r_unget, r->unget_buf, sizeof r->unget_buf);
   chk->lex_line = parser->lexer->line;
   chk->lex_col = parser->lexer->col;
@@ -249,8 +247,7 @@ static void parser_checkpoint(struct Parser* parser, struct ParseCheckpoint* chk
 
 static void parser_restore(struct Parser* parser, const struct ParseCheckpoint* chk) {
   Reader* r = parser->lexer->reader;
-  r->pos = chk->r_pos;
-  r->available = chk->r_available;
+  reader_rewind(r, chk->r_offset);
   memcpy(r->unget_buf, chk->r_unget, sizeof r->unget_buf);
   parser->lexer->line = chk->lex_line;
   parser->lexer->col = chk->lex_col;
