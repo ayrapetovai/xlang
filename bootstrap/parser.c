@@ -274,6 +274,16 @@ struct Parser* parser_new(struct Lexer *lexer) {
 
 ASTNode *parser_parse(struct Parser *parser) {
   ParseResult reduce_result = parse_by_rule(parser, &prog);
+  if (!reduce_result.reduced) return NULL;
+
+  struct Token *rest = parser->current_token;
+  if (rest != NULL && rest->kind != TOK_UNDEF) {
+    sprintf(parser->error, "unexpected %s at line %zu, col %zu",
+            token_kind_to_string(rest->kind), rest->line, rest->col);
+    node_free(reduce_result.result);
+    return NULL;
+  }
+
   return reduce_result.result;
 }
 
