@@ -22,6 +22,9 @@ void logger_set_level(LogLevel level)
     minimum_level = level;
 }
 
+// #define TIME_FORMAT_UNIXTIME
+// #define TIME_FORMAT_RFC3339
+
 void logger_log(
     LogLevel level,
     const char *file,
@@ -41,8 +44,10 @@ void logger_log(
         return;
     }
 
-    char timestamp[32];
+    FILE *output = level >= LOG_LEVEL_ERROR ? stdout : stderr;
 
+  char timestamp[32] = {};
+  #ifdef TIME_FORMAT_RFC3339
     if (strftime(
             timestamp,
             sizeof timestamp,
@@ -50,8 +55,11 @@ void logger_log(
             &tm_now) == 0) {
         return;
     }
+  #endif
 
-    FILE *output = level >= LOG_LEVEL_ERROR ? stderr : stdout;
+  #ifdef TIME_FORMAT_UNIXTIME
+    sprintf(timestamp, "%ld", now);
+  #endif
 
     fprintf(
         output,

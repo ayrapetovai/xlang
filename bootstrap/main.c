@@ -1,6 +1,5 @@
 #include <stdbool.h>
 #include <stddef.h>
-#include <stdio.h>
 #include <string.h>
 
 #include "ast.h"
@@ -26,7 +25,7 @@ Bootstrap compiler does not support:
 int run_exec(char *filename) {
   struct Lexer *lexer = lexer_new(filename);
   if (strlen(lexer->error) != 0) {
-    printf("lexer initialization: %s\n", lexer->error);
+    printf("lexer initialization: %s", lexer->error);
     lexer_close(lexer);
     return 1;
   }
@@ -37,7 +36,7 @@ int run_exec(char *filename) {
     return 2;
   }
   if (strlen(parser->error) != 0) {
-    printf("parsing error: %s\n", parser->error);
+    printf("parsing error: %s", parser->error);
     parser_close(parser);
     lexer_close(lexer);
     return 3;
@@ -45,7 +44,7 @@ int run_exec(char *filename) {
 
   ASTNode *parse_result = parser_parse(parser);
   if (parse_result == NULL) {
-    printf("execution failed: %s\n", parser->error);
+    printf("execution failed: %s", parser->error);
     parser_close(parser);
     lexer_close(lexer);
     return 4;
@@ -63,7 +62,7 @@ int run_lex(char *filename) {
   LOG_DEBUG("minimal token size %db", sizeof(Token));
   struct Lexer *lexer = lexer_new(filename);
   if (strlen(lexer->error) != 0) {
-    printf("lexer initialization: %s\n", lexer->error);
+    LOG_ERROR("lexer initialization: %s", lexer->error);
     lexer_close(lexer);
     return 1;
   }
@@ -79,7 +78,7 @@ int run_lex(char *filename) {
       break;
     } else if (state == LEX_ERROR) {
       free(t);
-      printf("lexing error: %s\n", lexer->error);
+      LOG_ERROR("lexing error: %s", lexer->error);
       error_code = 2;
       break;
     }
@@ -104,7 +103,7 @@ int run_lex(char *filename) {
 int run_ast(char *filename) {
   struct Lexer *lexer = lexer_new(filename);
   if (strlen(lexer->error) != 0) {
-    printf("lexer initialization: %s\n", lexer->error);
+    LOG_ERROR("lexer initialization: %s", lexer->error);
     lexer_close(lexer);
     return 1;
   }
@@ -115,7 +114,7 @@ int run_ast(char *filename) {
     return 2;
   }
   if (strlen(parser->error) != 0) {
-    printf("parsing error: %s\n", parser->error);
+    LOG_ERROR("parsing error: %s", parser->error);
     parser_close(parser);
     lexer_close(lexer);
     return 3;
@@ -123,7 +122,7 @@ int run_ast(char *filename) {
 
   ASTNode *parse_result = parser_parse(parser);
   if (parse_result == NULL) {
-    printf("ast failed: %s\n", parser->error);
+    LOG_ERROR("ast failed: %s", parser->error);
     parser_close(parser);
     lexer_close(lexer);
     return 4;
@@ -144,7 +143,7 @@ int main(int argc, char **argv) {
   LOG_DEBUG("program started");
 
   if (argc == 1) {
-    printf("file name missed\n");
+    LOG_ERROR("file name missed");
     return 1;
   }
 
@@ -153,14 +152,15 @@ int main(int argc, char **argv) {
     return run_exec(filename);
   }
 
+  int rc = 1;
   char *filename = argv[2];
   if (!strcmp(argv[1], "run")) {
-    return run_exec(filename);
+    rc = run_exec(filename);
   } else if (!strcmp(argv[1], "lex")) {
-    return run_lex(filename);
+    rc = run_lex(filename);
   } else if (!strcmp(argv[1], "ast")) {
-    return run_ast(filename);
+    rc = run_ast(filename);
   }
 
-  return 1;
+  return rc;
 }

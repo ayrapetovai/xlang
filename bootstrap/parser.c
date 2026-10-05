@@ -405,7 +405,7 @@ production_cycle:
 
     bool failed = false;
 
-    LOG_DEBUG("using rule ::%s:: #%d:%d", rule->name, i, j);
+    LOG_DEBUG("using rule ::%s:: #%d:%s", rule->name, i, production->nodes[j].name);
 
     for (; production->nodes[j].type != PN_EMPTY; j++) {
       const struct ProdNode *prod_node = &production->nodes[j];
@@ -455,15 +455,15 @@ production_cycle:
             params[param_count] = sub_rule_result.result;
             param_is_token[param_count] = false;
           }
-          LOG_DEBUG("continue rule ::%s:: #%d:%d", rule->name, i, j);
+          LOG_DEBUG("continue rule ::%s:: #%d:%s", rule->name, i, production->nodes[j].name);
           break;
         case PN_REDUCE:
-          LOG_DEBUG("reduce rule ::%s:: #%d:%d", rule->name, i, j);
+          LOG_DEBUG("reduce rule ::%s:: #%d:%s", rule->name, i, production->nodes[j].name);
           void* reduce_result = prod_node->reducer(param_count, params);
           if (production->assoc == ASC_LEFT) {
             int op = fold_point(production);
             if (op > 0) {
-              LOG_DEBUG("left fold ::%s:: #%d:%d", rule->name, i, j);
+              LOG_DEBUG("left fold ::%s:: #%d:%s", rule->name, i, production->nodes[j].name);
               params[0] = reduce_result;
               param_is_token[0] = false;
               param_count = 1;
