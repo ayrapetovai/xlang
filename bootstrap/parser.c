@@ -302,7 +302,10 @@ struct Parser* parser_new(struct Lexer *lexer) {
 
 ASTNode *parser_parse(struct Parser *parser) {
   ParseResult reduce_result = parse_by_rule(parser, &prog);
-  if (!reduce_result.reduced) return NULL;
+  if (!reduce_result.reduced) {
+    sprintf(parser->error, "parsing error, reduce failed");
+    return NULL;
+  }
 
   struct Token *rest = parser->current_token;
   if (rest != NULL && rest->kind != TOK_UNDEF) {

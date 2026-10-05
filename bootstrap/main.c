@@ -75,11 +75,11 @@ int run_lex(char *filename) {
     Token *t = NULL;
     enum LexState state = lexer_next_token(lexer, &t);
     if (state == LEX_EOF) {
-      free(t); // the lexer allocates a TOK_UNDEF token to signal EOF
+      free(t);
       break;
     } else if (state == LEX_ERROR) {
       free(t);
-      printf("lexing: %s\n", lexer->error);
+      printf("lexing error: %s\n", lexer->error);
       error_code = 2;
       break;
     }
