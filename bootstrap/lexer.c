@@ -18,7 +18,7 @@ static bool could_be_operator(char *buf, size_t buf_size, char next);
 
 // public methods
 
-struct Lexer *lexer_new(char *filename) {
+struct Lexer *lexer_new(FILE *src) {
   struct Lexer *lexer = malloc(sizeof(Lexer));
   if (lexer == NULL) return NULL;
 
@@ -32,7 +32,7 @@ struct Lexer *lexer_new(char *filename) {
   lexer->steps_pos = 0;
   lexer->at_eof = false;
 
-  struct Reader *reader = new_reader(filename);
+  struct Reader *reader = new_reader(src);
   if (reader == NULL) {
     sprintf(lexer->error, "reader is NULL");
     return lexer;

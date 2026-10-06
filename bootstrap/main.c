@@ -1,6 +1,8 @@
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdio.h>
 #include <string.h>
+#include <errno.h>
 
 #include "ast.h"
 #include "exec.h"
@@ -22,10 +24,10 @@ Bootstrap compiler does not support:
 - custom memory allocators
 */
 
-int run_exec(char *filename) {
-  struct Lexer *lexer = lexer_new(filename);
+int run_exec(FILE* src) {
+  struct Lexer *lexer = lexer_new(src);
   if (strlen(lexer->error) != 0) {
-    printf("lexer initialization: %s", lexer->error);
+    fprintf(stderr, "lexer initialization: %s\n", lexer->error);
     lexer_close(lexer);
     return 1;
   }
@@ -36,7 +38,7 @@ int run_exec(char *filename) {
     return 2;
   }
   if (strlen(parser->error) != 0) {
-    printf("parsing error: %s", parser->error);
+    fprintf(stderr, "parsing error: %s\n", parser->error);
     parser_close(parser);
     lexer_close(lexer);
     return 3;
@@ -44,7 +46,7 @@ int run_exec(char *filename) {
 
   ASTNode *parse_result = parser_parse(parser);
   if (parse_result == NULL) {
-    printf("execution failed: %s", parser->error);
+    fprintf(stderr, "execution failed: %s\n", parser->error);
     parser_close(parser);
     lexer_close(lexer);
     return 4;
@@ -58,11 +60,11 @@ int run_exec(char *filename) {
   return rc;
 }
 
-int run_lex(char *filename) {
+int run_lex(FILE* src) {
   LOG_DEBUG("minimal token size %db", sizeof(Token));
-  struct Lexer *lexer = lexer_new(filename);
+  struct Lexer *lexer = lexer_new(src);
   if (strlen(lexer->error) != 0) {
-    LOG_ERROR("lexer initialization: %s", lexer->error);
+    fprintf(stderr, "lexer initialization: %s\n", lexer->error);
     lexer_close(lexer);
     return 1;
   }
@@ -78,7 +80,7 @@ int run_lex(char *filename) {
       break;
     } else if (state == LEX_ERROR) {
       free(t);
-      LOG_ERROR("lexing error: %s", lexer->error);
+      fprintf(stderr, "lexing error: %s\n", lexer->error);
       error_code = 2;
       break;
     }
@@ -100,10 +102,10 @@ int run_lex(char *filename) {
   return error_code;
 }
 
-int run_ast(char *filename) {
-  struct Lexer *lexer = lexer_new(filename);
+int run_ast(FILE* src) {
+  struct Lexer *lexer = lexer_new(src);
   if (strlen(lexer->error) != 0) {
-    LOG_ERROR("lexer initialization: %s", lexer->error);
+    fprintf(stderr, "lexer initialization: %s\n", lexer->error);
     lexer_close(lexer);
     return 1;
   }
@@ -114,7 +116,7 @@ int run_ast(char *filename) {
     return 2;
   }
   if (strlen(parser->error) != 0) {
-    LOG_ERROR("parsing error: %s", parser->error);
+    fprintf(stderr, "parser initialization: %s\n", parser->error);
     parser_close(parser);
     lexer_close(lexer);
     return 3;
@@ -122,7 +124,7 @@ int run_ast(char *filename) {
 
   ASTNode *parse_result = parser_parse(parser);
   if (parse_result == NULL) {
-    LOG_ERROR("ast failed: %s", parser->error);
+    fprintf(stderr, "parsing failed: %s\n", parser->error);
     parser_close(parser);
     lexer_close(lexer);
     return 4;
@@ -136,31 +138,76 @@ int run_ast(char *filename) {
   return 0;
 }
 
+typedef enum {
+  RUN,
+  AST,
+  LEX,
+} ProgramMode;
+
 int main(int argc, char **argv) {
-  // logger_set_level(LOG_LEVEL_DEBUG);
-  logger_set_level(LOG_LEVEL_INFO);
+  logger_set_level(LOG_LEVEL_OFF);
+  ProgramMode mode = RUN;
 
-  LOG_DEBUG("program started");
-
-  if (argc == 1) {
-    LOG_ERROR("file name missed");
+  int i;
+  for (i = 1; i < argc; i++) {
+    if (strcmp("--log-level", argv[i]) == 0) {
+      if (i + 1 >= argc) {
+        fprintf(stderr, "to few arguments, --log-level neads a value\n");
+        return 1;
+      }
+      const char* level = argv[i + 1];
+      if (strcmp("info", level) == 0)
+        logger_set_level(LOG_LEVEL_INFO);
+      else if (strcmp("debug", level) == 0)
+        logger_set_level(LOG_LEVEL_DEBUG);
+      else if (strcmp("warn", level) == 0)
+        logger_set_level(LOG_LEVEL_WARN);
+      else if (strcmp("error", level) == 0)
+        logger_set_level(LOG_LEVEL_ERROR);
+      else if (strcmp("fatal", level) == 0)
+        logger_set_level(LOG_LEVEL_FATAL);
+      else if (strcmp(argv[i], "off") != 0) {
+        fprintf(stderr, "wrong argument for --log-level, expected: debug, info, warn, error, fatal, off\n");
+        return 1;
+      }
+      i++;
+    } else if (strcmp("--ast", argv[i]) == 0){
+      mode = AST;
+    } else if (strcmp("--lex", argv[i]) == 0){
+      mode = LEX;
+    } else if (strcmp("--", argv[i]) == 0 && strlen(argv[i]) == 2) {
+      i++;
+      break;
+    } else {
+      break;
+    }
+  }
+  int last_param = i;
+  
+  if (last_param >= argc) {
+    fprintf(stderr, "file name missed\n");
     return 1;
   }
 
-  if (argc == 2) {
-    char *filename = argv[1];
-    return run_exec(filename);
+  const char *filename = argv[last_param];
+
+  FILE* src;
+  if (strcmp(filename, "-") == 0) {
+    src = stdin;
+  } else {
+    src = fopen(filename, "ra"); // read only as text
+    if (src == NULL) {
+      fprintf(stderr, "failed to open file %s: %s\n", filename, strerror(errno));
+      return 1;
+    }
   }
 
-  int rc = 1;
-  char *filename = argv[2];
-  if (!strcmp(argv[1], "run")) {
-    rc = run_exec(filename);
-  } else if (!strcmp(argv[1], "lex")) {
-    rc = run_lex(filename);
-  } else if (!strcmp(argv[1], "ast")) {
-    rc = run_ast(filename);
+  switch (mode) {
+    case RUN: return run_exec(src);
+    case LEX: return run_lex(src);
+    case AST: return run_ast(src);
+    default:
+      fprintf(stderr, "unknown mode\n");
+      return 1;
   }
-
-  return rc;
 }

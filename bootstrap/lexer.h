@@ -33,7 +33,7 @@ typedef enum LexState {
   LEX_UNDEF,
 } LexState;
 
-struct Lexer *lexer_new(char *);
+struct Lexer *lexer_new(FILE *);
 
 enum LexState lexer_next_token(struct Lexer *, struct Token **);
 

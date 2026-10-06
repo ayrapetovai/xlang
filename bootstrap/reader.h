@@ -17,7 +17,7 @@ typedef struct Reader {
   char error[128];
 } Reader;
 
-Reader *new_reader(char *);
+Reader *new_reader(FILE *);
 
 bool reader_getch(struct Reader *, char *);
 

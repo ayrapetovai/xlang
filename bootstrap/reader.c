@@ -1,11 +1,12 @@
 #include "reader.h"
 
+#include <assert.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-Reader* new_reader(char* filename) {
+Reader* new_reader(FILE* src) {
   struct Reader *reader = malloc(sizeof(Reader));
   if (reader == NULL) return NULL;
   reader->file = NULL;
@@ -16,13 +17,11 @@ Reader* new_reader(char* filename) {
   memset(reader->error, '\0', sizeof reader->error);
   memset(reader->unget_buf, '\0', sizeof reader->unget_buf);
 
-  FILE* f = fopen(filename, "ra"); // read only as text
-  if (f == NULL) {
-    sprintf(reader->error, "%s", strerror(errno));
+  if (src == NULL) {
+    sprintf(reader->error, "%s", "given file pointer is NULL");
     return reader;
   }
-
-  reader->file = f;
+  reader->file = src;
   return reader;
 }
 
@@ -70,6 +69,6 @@ void reader_ungetch(struct Reader* reader, char c) {
 
 void reader_close(struct Reader* reader) {
   if (reader == NULL) return;
-  if (reader->file != NULL) fclose(reader->file);
+  if (reader->file != NULL && reader->file != stdin) fclose(reader->file);
   free(reader);
 }

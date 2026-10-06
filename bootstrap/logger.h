@@ -8,7 +8,8 @@ typedef enum {
     LOG_LEVEL_INFO,
     LOG_LEVEL_WARN,
     LOG_LEVEL_ERROR,
-    LOG_LEVEL_FATAL
+    LOG_LEVEL_FATAL,
+    LOG_LEVEL_OFF,
 } LogLevel;
 
 void logger_set_level(LogLevel level);
