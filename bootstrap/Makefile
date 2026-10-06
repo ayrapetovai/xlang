@@ -5,7 +5,7 @@ CC      ?= cc
 CFLAGS  ?= -std=c23 -Wall -Wextra -Werror -O0 -g
 
 SAN     = -fsanitize=address,undefined -fno-omit-frame-pointer
-ASANF   = -std=c23 -Wall -Wextra -Werror -O1 -g $(SAN)
+ASANF   = -std=c23 -Wall -Wextra -Werror -Wno-format-overflow -O1 -g $(SAN)
 
 HDR     = ast.h tokens.h reader.h lexer.h logger.h parser.h exec.h
 SRC     = main.c ast.c lexer.c logger.c parser.c tokens.c exec.c reader.c 
@@ -30,8 +30,8 @@ tags: $(SRC) $(HDR)
 # a generated corpus compared against test/golden.sha256, and an invariant
 # that every legal line-split of an expression yields the joined form's AST.
 #
-#   make check        600 corpus inputs          ~7s
-#   make check-full   the whole corpus, 19404    ~3.5min
+#   make check        600 corpus inputs          ~11s
+#   make check-full   the whole corpus, 25106    ~3.5min
 #   make check-asan   the quick pass under ASan+UBSan
 #   make check-vs REF compare HEAD (or any ref) against the working tree
 #   make golden       rewrite golden.sha256 -- only when a change is intended

@@ -25,7 +25,12 @@ struct Lexer *lexer_new(char *filename) {
   memset(lexer->error, '\0', sizeof lexer->error);
   lexer->line = 1;
   lexer->col = 1;
-  lexer->reader = NULL; // set to NULL until fopen succeeds (error path safety)
+  lexer->reader = NULL;
+  lexer->steps = NULL;
+  lexer->steps_len = 0;
+  lexer->steps_cap = 0;
+  lexer->steps_pos = 0;
+  lexer->at_eof = false;
 
   struct Reader *reader = new_reader(filename);
   if (reader == NULL) {
@@ -39,6 +44,146 @@ struct Lexer *lexer_new(char *filename) {
     lexer->reader = reader;
 
   return lexer;
+}
+
+static bool lexer_log_grow(struct Lexer *lexer) {
+  if (lexer->steps_len < lexer->steps_cap) return true;
+
+  size_t new_cap = lexer->steps_cap == 0 ? 64 : lexer->steps_cap * 2;
+  struct LexStep *grown = realloc(lexer->steps, new_cap * sizeof *grown);
+  if (grown == NULL) {
+    sprintf(lexer->error, "out of memory growing the token log");
+    return false;
+  }
+
+  lexer->steps = grown;
+  lexer->steps_cap = new_cap;
+  return true;
+}
+
+static bool lexer_log_push(struct Lexer *lexer, struct Token *tok) {
+  if (!lexer_log_grow(lexer)) return false;
+
+  lexer->steps[lexer->steps_len].tok = tok;
+  lexer->steps[lexer->steps_len].failed = false;
+  lexer->steps[lexer->steps_len].line = lexer->line;
+  lexer->steps[lexer->steps_len].col = lexer->col;
+  lexer->steps_len += 1;
+  return true;
+}
+
+static void lexer_log_seal(struct Lexer *lexer, bool replayed) {
+  if (replayed) return;
+  assert(lexer->steps_len > 0);
+  lexer->steps[lexer->steps_len - 1].line = lexer->line;
+  lexer->steps[lexer->steps_len - 1].col = lexer->col;
+}
+
+static void lexer_log_mark_failed(struct Lexer *lexer) {
+  assert(lexer->steps_len > 0);
+  lexer->steps[lexer->steps_len - 1].failed = true;
+}
+
+// Append a token the Parser invents rather than lexes -- the newline a block
+// comment stands for -- so that a rewind replays it like any other.
+static enum LexState lexer_log_token(struct Lexer *lexer, struct Token **tok) {
+  if (!lexer_log_push(lexer, *tok)) {
+    if (*tok != NULL) free(*tok);
+    *tok = NULL;
+    return LEX_ERROR;
+  }
+  lexer->steps_pos = lexer->steps_len;
+  return LEX_OK;
+}
+
+size_t lexer_mark(const struct Lexer *lexer) {
+  return lexer->steps_pos;
+}
+
+void lexer_rewind_to(struct Lexer *lexer, size_t mark) {
+  assert(mark <= lexer->steps_len);
+  lexer->steps_pos = mark;
+}
+
+enum LexState lexer_next_significant(struct Lexer *lexer, struct Token **tok) {
+  assert(lexer != NULL);
+  *tok = NULL;
+  if (lexer->at_eof && lexer->steps_pos >= lexer->steps_len) {
+    assert(lexer->steps_len > 0);
+    *tok = lexer->steps[lexer->steps_len - 1].tok;
+    return LEX_EOF;
+  }
+
+  while (true) {
+    bool replayed = lexer->steps_pos < lexer->steps_len;
+    if (replayed) {
+      struct LexStep *step = &lexer->steps[lexer->steps_pos++];
+      *tok = step->tok;
+
+      // this line and col are not like in token, col points after the token
+      lexer->line = step->line;
+      lexer->col = step->col;
+
+      if (step->failed) return LEX_ERROR;
+
+      if ((*tok)->kind == TOK_UNDEF) { // the end-of-file token
+        lexer->at_eof = true;
+        return LEX_EOF;
+      }
+    } else {
+      enum LexState lex_state = lexer_next_token(lexer, tok);
+      if (lex_state == LEX_ERROR) {
+        if (*tok != NULL) free(*tok);
+        *tok = NULL;
+        return LEX_ERROR;
+      }
+      if (lex_state == LEX_EOF) {
+        lexer->at_eof = true;
+        if (lexer_log_token(lexer, tok) == LEX_ERROR) return LEX_ERROR;
+        lexer_log_seal(lexer, replayed);
+        return LEX_EOF;
+      }
+      if (lexer_log_token(lexer, tok) == LEX_ERROR) return LEX_ERROR;
+    }
+
+    if ((*tok)->kind == TOK_SLC_START) {
+      if (!replayed) {
+        if (lexer_skip_line(lexer) == LEX_ERROR) {
+          lexer_log_mark_failed(lexer);
+          return LEX_ERROR;
+        }
+        lexer_log_seal(lexer, replayed);
+      }
+      continue;
+    }
+
+    if ((*tok)->kind == TOK_MLC_START) {
+      if (!replayed) {
+        if (lexer_skip_until(lexer, "*/") == LEX_ERROR) {
+          lexer_log_mark_failed(lexer);
+          return LEX_ERROR;
+        }
+        struct Token *nl = token_new(TOK_NL, lexer->line, lexer->col);
+        if (lexer_log_token(lexer, &nl) == LEX_ERROR) return LEX_ERROR;
+        *tok = nl;
+      } else {
+        assert(lexer->steps_pos < lexer->steps_len);
+        *tok = lexer->steps[lexer->steps_pos++].tok;
+        assert((*tok)->kind == TOK_NL);
+        lexer->line = lexer->steps[lexer->steps_pos - 1].line;
+        lexer->col = lexer->steps[lexer->steps_pos - 1].col;
+      }
+      lexer_log_seal(lexer, replayed);
+      continue;
+    }
+
+    if ((*tok)->kind == TOK_SPACE) {
+      lexer_log_seal(lexer, replayed);
+      continue;
+    }
+    lexer_log_seal(lexer, replayed);
+    return LEX_OK;
+  }
 }
 
 enum LexState lexer_next_token(struct Lexer *lexer, struct Token **tok) {
@@ -242,6 +387,10 @@ enum LexState lexer_skip_until(struct Lexer *lexer, const char *anchor) {
 
 void lexer_close(struct Lexer *lexer) {
   if (lexer == NULL) return;
+
+  for (size_t i = 0; i < lexer->steps_len; i++) free(lexer->steps[i].tok);
+  free(lexer->steps);
+
   reader_close(lexer->reader);
   free(lexer);
 }

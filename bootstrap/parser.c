@@ -1,6 +1,5 @@
 #include "ast.h"
 #include "parser.h"
-#include "reader.h"
 #include "lexer.h"
 #include "logger.h"
 #include "tokens.h"
@@ -249,31 +248,20 @@ RULE( prog,
 static ParseResult parse_by_rule(struct Parser* parser, struct GrammarRule* rule);
 static bool parser_move_forward(struct Parser* parser);
 
-// A parse checkpoint captures everything the parser + lexer + reader need to
-// rewind after a failed production attempt (real backtracking).
+// A parse checkpoint captures everything needed to rewind after a failed
+// production attempt (real backtracking).
 typedef struct ParseCheckpoint {
-  size_t r_offset;
-  char r_unget[READER_UNGET_BUF_SIZE];
-  int lex_line;
-  int lex_col;
+  size_t lex_mark;
   struct Token* current_token;
 } ParseCheckpoint;
 
 static void parser_checkpoint(struct Parser* parser, struct ParseCheckpoint* chk) {
-  Reader* r = parser->lexer->reader;
-  chk->r_offset = reader_tell(r);
-  memcpy(chk->r_unget, r->unget_buf, sizeof r->unget_buf);
-  chk->lex_line = parser->lexer->line;
-  chk->lex_col = parser->lexer->col;
+  chk->lex_mark = lexer_mark(parser->lexer);
   chk->current_token = parser->current_token;
 }
 
 static void parser_restore(struct Parser* parser, const struct ParseCheckpoint* chk) {
-  Reader* r = parser->lexer->reader;
-  reader_rewind(r, chk->r_offset);
-  memcpy(r->unget_buf, chk->r_unget, sizeof r->unget_buf);
-  parser->lexer->line = chk->lex_line;
-  parser->lexer->col = chk->lex_col;
+  lexer_rewind_to(parser->lexer, chk->lex_mark);
   parser->current_token = chk->current_token;
 }
 
@@ -287,9 +275,6 @@ struct Parser* parser_new(struct Lexer *lexer) {
   parser->nl_probe_start = 0;
   parser->nl_probe_kind = TOK_UNDEF;
   parser->nl_probe_valid = false;
-  parser->token_pool = NULL;
-  parser->token_pool_size = 0;
-  parser->token_pool_cap = 0;
   memset(parser->error, '\0', sizeof(parser->error));
 
   if (lexer == NULL)
@@ -323,13 +308,6 @@ ASTNode *parser_parse(struct Parser *parser) {
 
 void parser_close(struct Parser* parser) {
   if (parser == NULL) return;
-
-  for (size_t i = 0; i < parser->token_pool_size; i++)
-    free(parser->token_pool[i]);
-  free(parser->token_pool);
-  parser->token_pool = NULL;
-  parser->token_pool_size = 0;
-
   free(parser);
 }
 
@@ -362,7 +340,7 @@ static bool expr_token_matches(struct Parser* parser, bool skip_new_line, enum T
   if (!skip_new_line || parser->current_token->kind != TOK_NL)
     return parser->current_token->kind == expected;
 
-  size_t start = reader_tell(parser->lexer->reader);
+  size_t start = lexer_mark(parser->lexer);
 
   if (parser->nl_probe_valid && parser->nl_probe_start == start && parser->nl_probe_kind != expected)
     return false;
@@ -376,7 +354,7 @@ static bool expr_token_matches(struct Parser* parser, bool skip_new_line, enum T
   if (parser->current_token->kind == expected) return true;
 
   // remember what the newlines hide, keyed by where the run starts: the next
-  // production retries this match at the same offset with a different token
+  // production retries this match at the same position with a different token
   parser->nl_probe_start = start;
   parser->nl_probe_kind = parser->current_token->kind;
   parser->nl_probe_valid = true;
@@ -501,57 +479,19 @@ production_cycle:
   };
 }
 
-// track every token so it can be freed once, at the end of parsing
-static bool parser_pool_push(struct Parser* parser, struct Token* tok) {
-  if (parser->token_pool_size == parser->token_pool_cap) {
-    size_t new_cap = parser->token_pool_cap == 0 ? 64 : parser->token_pool_cap * 2;
-    struct Token** grown = realloc(parser->token_pool, new_cap * sizeof *grown);
-    if (grown == NULL) return false;
-    parser->token_pool = grown;
-    parser->token_pool_cap = new_cap;
-  }
-  parser->token_pool[parser->token_pool_size++] = tok;
-  return true;
-}
-
-// Lexes the next significant token: skips spaces and single line comments, but
+// Lexes the next significant token: skips spaces and both comment forms, but
 // never a '\n'. Newlines separate statements and only expr_token_matches may
 // look through one, so they are always significant here.
+//
+// The Lexer owns the token list, so the token is borrowed, not freed here.
 static bool parser_move_forward(struct Parser* parser) {
-  while (true) {
-    struct Token* tok = NULL;
-    enum LexState lex_state = lexer_next_token(parser->lexer, &tok);
-    if (lex_state == LEX_ERROR) {
-      free(tok);
-      sprintf(parser->error, "parsing failed: %s", parser->lexer->error);
-      return false;
-    }
-
-    if (lex_state != LEX_EOF) {
-      // skip single line comment, but keep the '\n' that ends it
-      if (tok->kind == TOK_SLC_START) {
-        lexer_skip_line(parser->lexer);
-      } else if (tok->kind == TOK_MLC_START) {
-        lex_state = lexer_skip_until(parser->lexer, "*/");
-        free(tok);
-        if (lex_state == LEX_ERROR || lex_state == LEX_EOF) {
-          sprintf(parser->error, "parsing failed to skip: %s", parser->lexer->error);
-          return false;
-        }
-        tok = token_new(TOK_NL, parser->lexer->line, parser->lexer->col);
-      }
-
-      if (tok->kind == TOK_SPACE || tok->kind == TOK_SLC_START || tok->kind == TOK_MLC_START) {
-        free(tok);
-        continue;
-      }
-    }
-
-    if (!parser_pool_push(parser, tok)) {
-      free(tok); // out of memory
-      return false;
-    }
-    parser->current_token = tok;
-    return true;
+  struct Token* tok = NULL;
+  enum LexState lex_state = lexer_next_significant(parser->lexer, &tok);
+  if (lex_state == LEX_ERROR) {
+    sprintf(parser->error, "parsing failed: %s", parser->lexer->error);
+    return false;
   }
+
+  parser->current_token = tok;
+  return true;
 }
