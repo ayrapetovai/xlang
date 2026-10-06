@@ -1,0 +1,32 @@
+echo 1
+// a comment line that is reasonably long
+// a comment line that is reasonably long
+// a comment line that is reasonably long
+// a comment line that is reasonably long
+// a comment line that is reasonably long
+// a comment line that is reasonably long
+// a comment line that is reasonably long
+// a comment line that is reasonably long
+// a comment line that is reasonably long
+// a comment line that is reasonably long
+// a comment line that is reasonably long
+// a comment line that is reasonably long
+// a comment line that is reasonably long
+// a comment line that is reasonably long
+// a comment line that is reasonably long
+// a comment line that is reasonably long
+// a comment line that is reasonably long
+// a comment line that is reasonably long
+// a comment line that is reasonably long
+// a comment line that is reasonably long
+// a comment line that is reasonably long
+// a comment line that is reasonably long
+// a comment line that is reasonably long
+// a comment line that is reasonably long
+// a comment line that is reasonably long
+// a comment line that is reasonably long
+// a comment line that is reasonably long
+// a comment line that is reasonably long
+// a comment line that is reasonably long
+// a comment line that is reasonably long
++ 2

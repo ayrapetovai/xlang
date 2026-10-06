@@ -1,92 +1,482 @@
 # Expected behaviour for cases/*.x, checked by check.sh.
 #
-#   <file>  <rc>  <min-"stms">  <must-contain>
+#   === <name> rc=<expected exit status>
+#   --- out
+#   <exact expected stdout, omitted if empty>
+#   --- err
+#   <exact expected stderr, omitted if empty>
 #
-# rc 0 = parsed, 4 = rejected. "stms" appears once per statement in the AST
-# dump, so its count is the statement count. The must-contain field is the rest
-# of the line, so it may contain spaces; use "-" for none.
+# The case name is cases/<name>.x.
 #
-# A rejection case asserts the diagnostic text too, so that improving error
-# reporting (TODO: "parser's error messages are bad") shows up here as a
-# deliberate edit rather than a silent drift.
+# rc 0 = parsed, 4 = rejected. Nothing else is accepted: check.sh flags any
+# other status, including a crash (>= 128).
+#
+# --- out is the AST dump, pinned in full. "stms" appears once per statement,
+# so the shape of the dump *is* the expected parse tree; a change to the
+# grammar or the printer shows up here as a readable diff rather than a
+# changed hash.
+#
+# --- err is the diagnostic, pinned in full. Diagnostics go to stderr, so a
+# regression that moves them to stdout, or drops them, is caught as a channel
+# change and not just a text change.
+#
+# Everything is compared byte for byte. When a case's expectation changes it
+# must be edited by hand -- that edit is the review.
 
 # --- cont_: a '\n' inside an unfinished expression is whitespace -----------
-cases/cont_lead_op.x          0  1  block
-cases/cont_both_sides.x       0  1  block
-cases/cont_lead_and_trail.x   0  1  block
-cases/cont_blank_then_op.x    0  1  block
-cases/cont_chain.x            0  1  block
-cases/cont_mixed_ops.x        0  1  block
-cases/cont_trail_space.x      0  1  block
-cases/cont_comment_between.x  0  1  block
-cases/cont_comment_lead.x     0  1  block
-cases/cont_paren_lead_op.x    0  1  block
-cases/cont_paren_split.x      0  1  block
-cases/cont_paren_close.x      0  1  block
-cases/cont_paren_close_op.x   0  1  block
-cases/cont_echo_nl_num.x      0  1  block
-cases/cont_echo_nl_neg.x      0  1  block
-cases/cont_echo_nl_paren.x    0  1  block
-cases/cont_echo_nl_expr.x     0  1  block
-cases/cont_echo_blank.x       0  1  block
-cases/cont_echo_chain.x       0  1  block
+
+=== cont_lead_op rc=0
+--- out
+block
+  stms echo
+    expr +
+      val 1
+      val 2
+
+=== cont_both_sides rc=0
+--- out
+block
+  stms echo
+    expr +
+      val 1
+      val 2
+
+=== cont_lead_and_trail rc=0
+--- out
+block
+  stms echo
+    expr +
+      val 1
+      val 2
+
+=== cont_blank_then_op rc=0
+--- out
+block
+  stms echo
+    expr +
+      val 1
+      val 2
+
+=== cont_chain rc=0
+--- out
+block
+  stms echo
+    expr +
+      expr +
+        val 1
+        val 2
+      val 3
+
+=== cont_mixed_ops rc=0
+--- out
+block
+  stms echo
+    expr +
+      expr *
+        val 1
+        val 2
+      val 3
+
+=== cont_trail_space rc=0
+--- out
+block
+  stms echo
+    expr +
+      val 1
+      val 2
+
+=== cont_comment_between rc=0
+--- out
+block
+  stms echo
+    expr +
+      val 1
+      val 2
+
+=== cont_comment_lead rc=0
+--- out
+block
+  stms echo
+    expr +
+      val 1
+      val 2
+
+=== cont_paren_lead_op rc=0
+--- out
+block
+  stms echo
+    expr +
+      val 1
+      val 2
+
+=== cont_paren_split rc=0
+--- out
+block
+  stms echo
+    expr +
+      val 1
+      val 2
+
+=== cont_paren_close rc=0
+--- out
+block
+  stms echo
+    expr +
+      val 1
+      val 2
+
+=== cont_paren_close_op rc=0
+--- out
+block
+  stms echo
+    expr +
+      val 1
+      expr *
+        val 2
+        val 3
+
+=== cont_echo_nl_num rc=0
+--- out
+block
+  stms echo
+    val 1
+
+=== cont_echo_nl_neg rc=0
+--- out
+block
+  stms echo
+    uexpr -
+      val 1
+
+=== cont_echo_nl_paren rc=0
+--- out
+block
+  stms echo
+    val 1
+
+=== cont_echo_nl_expr rc=0
+--- out
+block
+  stms echo
+    expr +
+      val 1
+      val 2
+
+=== cont_echo_blank rc=0
+--- out
+block
+  stms echo
+    val 1
+
+=== cont_echo_chain rc=0
+--- out
+block
+  stms echo
+    expr *
+      uexpr -
+        val 1
+      val 2
 
 # --- sep_: a completed statement ends at the '\n' -------------------------
-cases/sep_nl.x                0  2  block
-cases/sep_blank.x             0  2  block
-cases/sep_three_blank.x       0  2  block
-cases/sep_semis.x             0  2  block
-cases/sep_semi_run.x          0  2  block
-cases/sep_semi_same.x         0  2  block
-cases/sep_lead_blank.x        0  1  block
-cases/sep_trail_semi.x        0  1  block
-cases/sep_echo_then_num.x     0  2  block
-cases/sep_comment_mid.x       0  1  block
+
+=== sep_nl rc=0
+--- out
+block
+  stms echo
+    val 1
+  stms echo
+    val 2
+
+=== sep_blank rc=0
+--- out
+block
+  stms echo
+    val 1
+  stms echo
+    val 2
+
+=== sep_three_blank rc=0
+--- out
+block
+  stms echo
+    val 1
+  stms echo
+    val 2
+
+=== sep_semis rc=0
+--- out
+block
+  stms echo
+    val 1
+  stms echo
+    val 2
+
+=== sep_semi_run rc=0
+--- out
+block
+  stms echo
+    val 1
+  stms echo
+    val 2
+
+=== sep_semi_same rc=0
+--- out
+block
+  stms echo
+    val 1
+  stms echo
+    val 2
+
+=== sep_lead_blank rc=0
+--- out
+block
+  stms echo
+    val 1
+
+=== sep_trail_semi rc=0
+--- out
+block
+  stms echo
+    val 1
+
+=== sep_echo_then_num rc=0
+--- out
+block
+  stms echo
+    val 1
+  stms echo
+    val 2
+
+=== sep_comment_mid rc=0
+--- out
+block
+  stms echo
+    val 1
 
 # --- edge_: degenerate but legal ------------------------------------------
-cases/edge_empty.x            0  0  block
-cases/edge_only_nl.x          0  0  block
-cases/edge_no_trailing_nl.x   0  1  block
-cases/edge_expr_no_nl.x       0  1  block
-cases/edge_lead_space.x       0  1  block
-cases/edge_lead_semi.x        0  1  block
+
+=== edge_empty rc=0
+--- out
+block
+
+=== edge_only_nl rc=0
+--- out
+block
+
+=== edge_no_trailing_nl rc=0
+--- out
+block
+  stms echo
+    val 1
+
+=== edge_expr_no_nl rc=0
+--- out
+block
+  stms echo
+    expr +
+      val 1
+      val 2
+
+=== edge_lead_space rc=0
+--- out
+block
+  stms echo
+    val 1
+
+=== edge_lead_semi rc=0
+--- out
+block
+  stms echo
+    val 1
 
 # --- err_: the grammar must reject these ----------------------------------
+
 # stmt ::= `echo` expr_prime, so a second operand with no operator is an error
-cases/err_num_nl_num.x        4  0  unexpected number literal
-cases/err_echo_two_nums.x     4  0  unexpected number literal
-cases/err_blank_then_num.x    4  0  unexpected number literal
-cases/err_three_nums.x        4  0  unexpected number literal
+
+=== err_num_nl_num rc=4
+--- err
+parsing failed: parsing error, unexpected number literal at line 2, col 1
+
+=== err_echo_two_nums rc=4
+--- err
+parsing failed: parsing error, unexpected number literal at line 3, col 1
+
+=== err_blank_then_num rc=4
+--- err
+parsing failed: parsing error, unexpected number literal at line 3, col 1
+
+=== err_three_nums rc=4
+--- err
+parsing failed: parsing error, unexpected number literal at line 1, col 8
+
 # `echo` with nothing to print: not an operand after the newline
-cases/err_echo_gap.x          4  0  unexpected echo
-cases/err_echo_star.x         4  0  unexpected echo
+
+=== err_echo_gap rc=4
+--- err
+parsing failed: parsing error, unexpected echo at line 1, col 1
+
+=== err_echo_star rc=4
+--- err
+parsing failed: parsing error, unexpected echo at line 1, col 1
+
 # an operator with no right-hand side
-cases/err_dangling_op.x       4  0  unexpected +
-cases/err_dangling_op_eof.x   4  0  unexpected +
+
+=== err_dangling_op rc=4
+--- err
+parsing failed: parsing error, unexpected + at line 1, col 8
+
+=== err_dangling_op_eof rc=4
+--- err
+parsing failed: parsing error, unexpected + at line 1, col 8
+
 # two statements with nothing between them
-cases/err_no_sep.x            4  0  unexpected echo
+
+=== err_no_sep rc=4
+--- err
+parsing failed: parsing error, unexpected echo at line 1, col 8
+
 # closing paren with nothing open; '=' ',' '.' '\' '@' are not in the grammar
-cases/err_paren_stray.x       4  0  unexpected )
-cases/err_assign.x            4  0  unexpected =
-cases/err_comma.x             4  0  unexpected identifier
-cases/err_method.x            4  0  unexpected .
-cases/err_backslash.x         4  0  unexpected identifier
-cases/err_at.x                4  0  unexpected identifier
+
+=== err_paren_stray rc=4
+--- err
+parsing failed: parsing error, unexpected ) at line 2, col 1
+
+=== err_assign rc=4
+--- err
+parsing failed: parsing error, unexpected = at line 2, col 1
+
+=== err_comma rc=4
+--- err
+parsing failed: parsing error, unexpected identifier at line 2, col 1
+
+=== err_method rc=4
+--- err
+parsing failed: parsing error, unexpected . at line 2, col 3
+
+=== err_backslash rc=4
+--- err
+parsing failed: parsing error, unexpected identifier at line 1, col 7
+
+=== err_at rc=4
+--- err
+parsing failed: parsing error, unexpected identifier at line 2, col 1
+
 # ':=' and '.' are not in the grammar yet (README examples use both)
-cases/err_define.x            4  0  unexpected identifier
+
+=== err_define rc=4
+--- err
+parsing failed: parsing error, unexpected identifier at line 1, col 1
+
 # --- mlc_: a /* */ comment is skipped by the parse path -------------------
+
 # parser.c calls lexer_skip_until(lexer, "*/") and then synthesises a TOK_NL,
+
 # so a block comment behaves like a blank line: it separates statements but
+
 # never continues an expression. These were rejections until that was wired in.
-cases/mlc_lead.x              0  1  block
-cases/mlc_inline.x            0  1  block
-cases/mlc_between.x           0  1  block
-cases/mlc_splits_stmt.x       0  2  block
-# an unterminated /* is still an error: the anchor is never reached
-cases/err_mlc_unterminated.x   4  0  parsing failed to skip
+
+=== mlc_lead rc=0
+--- out
+block
+  stms echo
+    val 1
+
+=== mlc_inline rc=0
+--- out
+block
+  stms echo
+    expr +
+      val 1
+      val 2
+
+=== mlc_between rc=0
+--- out
+block
+  stms echo
+    expr +
+      val 1
+      val 2
+
+=== mlc_splits_stmt rc=0
+--- out
+block
+  stms echo
+    val 1
+  stms echo
+    val 2
+
+# An unterminated /* is still an error: the anchor is never reached.
+
+#
+
+# Which message you get depends on where the /* sits. Here it leads the file, so
+
+# the skip fails inside the first statement production, that production is rolled
+
+# back, and parser->error is empty again by the time parser_parse reports -- hence
+
+# "reduce failed" rather than anything about the anchor.
+
+=== err_mlc_unterminated rc=4
+--- err
+parsing failed: parsing error, reduce failed
+
+# Mid-expression it is not inside a production that gets rolled back, so the
+
+# lexer's own message survives to the top. This is the one that says why.
+
+=== err_mlc_unterminated_mid rc=4
+--- err
+parsing failed: parsing error: skip failed to reach anchor */
+
 # TODO: CR is not whitespace in the lexer, so \r lexes as an identifier
-cases/err_crlf.x              4  0  unexpected identifier
-cases/err_crlf2.x             4  0  unexpected identifier
-cases/err_bare_cr.x           4  0  unexpected identifier
+
+=== err_crlf rc=4
+--- err
+parsing failed: parsing error, unexpected identifier at line 1, col 7
+
+=== err_crlf2 rc=4
+--- err
+parsing failed: parsing error, unexpected identifier at line 1, col 7
+
+=== err_bare_cr rc=4
+--- err
+parsing failed: parsing error, unexpected identifier at line 1, col 7
+
 # the ';' ends the statement, so a following operator cannot continue it
-cases/err_semi_then_op.x      4  0  unexpected +
+
+=== err_semi_then_op rc=4
+--- err
+parsing failed: parsing error, unexpected + at line 2, col 1
+
+# --- rewind_: lookahead longer than the reader's window -------------------
+
+# The parser checkpoints at offset 8, scans past 1024 bytes of comment to find
+
+# the '+', fails to match, and rewinds. reader_rewind()'s fast path only holds
+
+# while the target is inside the current buffer, so every rewind here used to
+
+# fall through to fseek and re-read from the file. The token list in the Lexer
+
+# makes the rewind an index assignment instead.
+
+=== rewind_past_window rc=0
+--- out
+block
+  stms echo
+    expr +
+      val 1
+      val 2
+
+=== rewind_past_window2 rc=0
+--- out
+block
+  stms echo
+    expr +
+      val 1
+      val 2
+  stms echo
+    expr *
+      val 3
+      val 4

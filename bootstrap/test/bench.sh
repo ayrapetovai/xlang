@@ -1,66 +1,100 @@
 #!/bin/sh
-# Time two bootstrap binaries over the same generated corpus. Used by
-# `make check-vs REF=...`.
+# Time two bootstrap binaries over one workload held in memory, and check that
+# they agree on it byte for byte. Used by `make check-vs REF=...`.
 #
 #   sh bench.sh <bin-a> <bin-b> <label-a> <label-b>
 #
-# Both binaries must already exist. The corpus is generated once and reused, so
-# the only difference measured is the compiler itself.
+# REP (default 20) repeats the workload per timed round; TIME_ROUNDS is fixed
+# at 3 below. Both binaries must already exist.
+#
+# This used to generate 25106 inputs onto disk (plus a "pairs" set) purely to
+# give the timing something to chew on, and then compare digests. The digests
+# are gone -- check.sh pins every case exactly -- and the corpus is now built
+# as a string here and piped in, so a benchmark run writes no files at all.
 
 set -u
-
-cd "$(dirname "$0")" || exit 1
+LC_ALL=C; export LC_ALL
 
 if [ "$#" -ne 4 ]; then
   echo "usage: sh bench.sh <bin-a> <bin-b> <label-a> <label-b>" >&2
   exit 2
 fi
 
-# Resolve to absolute paths: this script cd's into test/, and the caller may
-# well have passed a path relative to bootstrap/ -- notably "$(CURDIR)/bootstrap".
+# Resolve to absolute paths BEFORE cd'ing into test/, so that a path relative
+# to the caller's cwd (./bootstrap, "$(CURDIR)/bootstrap") still points at the
+# right file once we are in a different directory.
 A=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
 B=$(cd "$(dirname "$2")" && pwd)/$(basename "$2")
 LA=$3
 LB=$4
-WORK=.work/bench
+
+cd "$(dirname "$0")" || exit 1
 
 if [ ! -x "$A" ] || [ ! -x "$B" ]; then
   echo "bench.sh: both binaries must exist and be executable" >&2
+  echo "  A=$A" >&2
+  echo "  B=$B" >&2
   exit 2
 fi
 
-rm -rf "$WORK"
-mkdir -p "$WORK/corpus" "$WORK/pairs"
+# The workload: a multi-line block comment to exercise the skip path, then 400
+# statements with nested parens, mixed operators and a trailing comment -- a
+# few hundred tokens deep, so it crosses the lexer's read window rather than
+# sitting inside one. Held in a variable and re-piped per run.
+W=$(awk 'BEGIN {
+  print "/* a block comment"
+  print "   over a few lines */"
+  for (i = 0; i < 400; i++)
+    printf "echo (1 + 2) * (3 - 4) - %d + %d // expr %d\n", i, i * 2, i
+}')
+lines=$(printf '%s\n' "$W" | wc -l)
+echo "workload: $lines lines, ast+lex, both directions"
 
-awk -v out="$WORK/corpus" -v snippets=snippets -v mode=corpus -v n=0 \
-    -f gen.awk || exit 1
-awk -v out="$WORK/pairs" -v snippets=snippets -v mode=pairs \
-    -f gen.awk || exit 1
-
-n=0
-for d in corpus pairs; do
-  n=$((n + $(ls "$WORK/$d" | wc -l)))
+# --- agreement ------------------------------------------------------------
+# stdout and stderr are captured in separate runs rather than merged: merging
+# them would compare the interleaving of two differently-buffered streams,
+# which is noise. Any difference here is a real behavioural difference between
+# the two builds and is reported before any timing, because a speedup that
+# comes from doing less work is not a speedup.
+agree=1
+for mode in ast lex; do
+  a_out=$(printf '%s\n' "$W" | "$A" "--$mode" - 2>/dev/null); a_rc=$?
+  a_err=$(printf '%s\n' "$W" | "$A" "--$mode" - 2>&1 1>/dev/null)
+  b_out=$(printf '%s\n' "$W" | "$B" "--$mode" - 2>/dev/null); b_rc=$?
+  b_err=$(printf '%s\n' "$W" | "$B" "--$mode" - 2>&1 1>/dev/null)
+  if [ "$a_rc" -ne "$b_rc" ]; then
+    echo "  DIFFERS --$mode: exit status $LA=$a_rc $LB=$b_rc"
+    agree=0
+  fi
+  if [ "$a_out" != "$b_out" ]; then
+    echo "  DIFFERS --$mode: stdout ($LA=$(printf '%s' "$a_out" | wc -c) bytes, $LB=$(printf '%s' "$b_out" | wc -c) bytes)"
+    agree=0
+  fi
+  if [ "$a_err" != "$b_err" ]; then
+    echo "  DIFFERS --$mode: stderr ($LA=[$a_err] $LB=[$b_err])"
+    agree=0
+  fi
 done
-echo "corpus: $n inputs, modes ast+lex"
+if [ "$agree" -eq 1 ]; then
+  echo "agreement: identical stdout, stderr and exit status in both modes"
+fi
 
-# run <binary>
-#
-# Debug-level tracing is filtered for the same reason check.sh strips it: the
-# timestamps would otherwise dominate the measurement, and a build with a
-# different log level is not comparable at all.
+# --- timing ---------------------------------------------------------------
+# run <binary>: both modes, REP times, output discarded. The printf that
+# supplies stdin is the same cost on both sides, and the workload is large
+# enough that the compiler dominates it. One pass is ~20ms, which is too short
+# to time against a scheduler tick, hence the repetition.
+REP=${REP:-20}
 run() {
-  for mode in ast lex; do
-    for f in "$WORK/corpus"/*.x "$WORK/pairs"/*.x; do
-      "$1" "$mode" "$f" 2>/dev/null </dev/null \
-        | grep -avE '^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:' \
-        > /dev/null
+  i=0
+  while [ "$i" -lt "$REP" ]; do
+    for mode in ast lex; do
+      printf '%s\n' "$W" | "$1" "--$mode" - >/dev/null 2>&1
     done
+    i=$((i + 1))
   done
 }
 
-# Three rounds each, alternating, so a warm cache or a busy machine biases both
-# sides roughly equally rather than whichever ran first.
-#
 # POSIX `time` writes "real<TAB>0m12.345s", so the value is parsed back out of
 # that rather than read from $SECONDS (not in POSIX sh) or TIMEFMT (a zsh/ksh
 # extension). /usr/bin/time is not installed here either.
@@ -103,6 +137,6 @@ awk -v a="$t_a" -v b="$t_b" -v la="$LA" -v lb="$LB" 'BEGIN{
 
 echo
 echo "note: a large jump here is worth suspecting before it is believed --"
-echo "      check that both builds use the same log level and the same"
-echo "      compiler flags (make check-vs passes the working-tree main.c to"
-echo "      both sides for exactly this reason)."
+echo "      both builds must use the same compiler flags and the same log"
+echo "      level, and neither side may have failed the agreement check above."
+exit $((1 - agree))
