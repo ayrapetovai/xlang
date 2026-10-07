@@ -14,8 +14,13 @@
 
 static Token *process_word(size_t line, size_t col, char *buf, size_t buf_size);
 static bool could_be_operator(char *buf, size_t buf_size, char next);
+static void build_ranges(void);
 
 // public methods
+
+#define RESERVED_WORD_RANGE_LEN 256
+typedef struct { unsigned short start, end; } Range;
+static Range chr_range[RESERVED_WORD_RANGE_LEN];            // indexed by (unsigned char)buf[0]
 
 struct Lexer *lexer_new(FILE *src) {
   struct Lexer *lexer = malloc(sizeof(Lexer));
@@ -42,6 +47,7 @@ struct Lexer *lexer_new(FILE *src) {
   } else
     lexer->reader = reader;
 
+  build_ranges();
   return lexer;
 }
 
@@ -395,39 +401,47 @@ void lexer_close(struct Lexer *lexer) {
 }
 
 Token *process_word(size_t line, size_t col, char *buf, size_t buf_size) {
-  int found_word_idx = -1;
-  Token *tok;
-  for (size_t i = 0; i < TOKEN_KEYWORDS_COUNT; i++) {
-    if (strcmp(buf, TOKEN_KEYWORDS[i].letters) == 0) {
-      found_word_idx = i;
-      if (buf_size > TOKEN_KEYWORDS[i].len) break;
+  unsigned short c = (unsigned char)buf[0];
+  if (c < RESERVED_WORD_RANGE_LEN) {
+    for (size_t i = chr_range[c].start; i < chr_range[c].end; i++) {
+      const TokenDef *d = &TOKEN_KEYWORDS[i];
+      if (d->len < buf_size) break;                          // sorted desc: nothing later can match
+      if (d->len == buf_size && memcmp(buf, d->letters, buf_size) == 0) {
+        if (d->kind == TOK_TRUE || d->kind == TOK_FALSE)
+          return token_new_v(TOK_BOOL_L, line, col, buf, buf_size);
+        else
+          return token_new(d->kind, line, col);
+      }
     }
   }
-  if (found_word_idx < 0) {
-    // word is not found in keywrds, it is an identifier
-    tok = token_new_v(TOK_ID, line, col, buf, buf_size);
-  } else {
-    TokenKind kind = TOKEN_KEYWORDS[found_word_idx].kind;
-    if (kind == TOK_TRUE || kind == TOK_FALSE)
-      tok = token_new_v(TOK_BOOL_L, line, col, buf, buf_size);
-    else
-      tok = token_new(kind, line, col);
-  }
-  return tok;
+  return token_new_v(TOK_ID, line, col, buf, buf_size);
 }
 
 bool could_be_operator(char *buf, size_t buf_size, char next) {
-  char tmp[8] = {0}; // now max size of operator is 4 chars
+  char tmp[8] = {0}; // now max size of operator is 4 chars + 1 for \0
   memcpy(tmp, buf, buf_size);
   tmp[buf_size] = next;
+  size_t tmp_size = buf_size + 1;
 
-  for (size_t i = 0; i < TOKEN_KEYWORDS_COUNT; i++) {
-    TokenKind reserved_word_kind = TOKEN_KEYWORDS[i].kind;
-    if (TOK_OPERATOR_BEGIN < reserved_word_kind && reserved_word_kind < TOK_OPERATOR_END)
-      if (strcmp(tmp, TOKEN_KEYWORDS[i].letters) == 0) {
-        return true;
+  unsigned short c = (unsigned char)tmp[0];
+  if (c < RESERVED_WORD_RANGE_LEN) {
+    for (size_t i = chr_range[c].start; i < chr_range[c].end; i++) {
+      const TokenDef *d = &TOKEN_KEYWORDS[i];
+      if (d->len < tmp_size) break;
+      if (d->len == tmp_size && memcmp(tmp, d->letters, tmp_size) == 0) {
+        return TOK_OPERATOR_BEGIN < d->kind && d->kind < TOK_OPERATOR_END;
       }
+    }
   }
   return false;
+}
+
+static void build_ranges(void) {
+  for (size_t i = 0; i < RESERVED_WORD_RANGE_LEN; i++) { chr_range[i].start = TOKEN_KEYWORDS_COUNT; chr_range[i].end = 0; }
+  for (size_t i = 0; i < TOKEN_KEYWORDS_COUNT; i++) {
+    size_t c = (unsigned char)TOKEN_KEYWORDS[i].letters[0];
+    if (chr_range[c].start > i) chr_range[c].start = i;
+    if (chr_range[c].end   < i + 1) chr_range[c].end = i + 1;
+  }
 }
 

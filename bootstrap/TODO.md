@@ -1,2 +1,1 @@
-- Lexer searches for reserved word the inefficient way.
 - Add `Span` to ASTNode with line (and end line?) and col of the corresponding token (for error reports).

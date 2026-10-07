@@ -4,7 +4,7 @@
 #   sh check.sh          cases + stdin + properties
 #   VERBOSE=1            also print the actual block of every failing case
 #
-# Five layers, and none of them reads a stored digest of compiler output:
+# Six layers, and none of them reads a stored digest of compiler output:
 #
 #   1. cases        every cases/*.x against expect.txt -- rc, exact stdout,
 #                   exact stderr. This is the only layer that says what the
@@ -21,6 +21,12 @@
 #                   and invisible in front of a real statement.
 #   5. completeness cases/ and expect.txt must agree 1:1, so neither can gain
 #                   a silent extra.
+#   6. reserved     every reserved spelling in tokens.c lexes as itself and
+#                   every near-miss (kw+x, kw+8, _kw, Kw) lexes as an
+#                   identifier -- the sort order, the length field and the
+#                   first-character buckets pinned by one round trip. The
+#                   spellings are read out of the source, so a new keyword is
+#                   covered the moment it lands.
 #
 # Cross-version regression detection is deliberately not here: that is
 # `make check-vs REF=<ref>`, which runs this same suite against a ref build.
@@ -134,6 +140,19 @@ space_offsets() {
       in_line = 0
     }
   ' "$1"
+}
+
+# reserved_spellings: the raw spelling of every TOKEN_KEYWORDS entry, as the C
+# source spells it, so the table under test is the table being read -- there is
+# no second copy to keep in sync. "\n" comes out as the two bytes backslash+n,
+# which is also how token_kind_to_string prints that token, and printf '%b'
+# turns it back into a newline on the way to the lexer.
+reserved_spellings() {
+  awk '
+    /^const TokenDef TOKEN_KEYWORDS/ { t = 1 }
+    t && /TOKDEF\(/ { if (match($0, /"[^"]*"/)) print substr($0, RSTART + 1, RLENGTH - 2) }
+    t && /^};/ { exit }
+  ' ../tokens.c
 }
 
 echo "== completeness =="
@@ -325,6 +344,88 @@ while IFS= read -r line || [ -n "$line" ]; do
   fi
 done < snippets/comments.txt
 echo "  $n_stmt statements, $n_expr expressions, $n_cmt comments checked twice"
+
+echo "== reserved words =="
+# The classification table end to end: every reserved spelling must lex as
+# itself, and every near-miss must lex as an identifier. This is the only
+# layer that touches `if`, `>>>=` and the rest of the table -- without it a
+# mis-sorted table, a wrong length field or a broken first-character bucket is
+# invisible, because the cases only ever use `echo`. Expectations are derived,
+# not stored: a spelling round-trips (token_kind_to_string answers with the
+# spelling itself) unless the language says otherwise -- see expected_name.
+n_spelling=0
+n_dead=0
+
+# Entries the lexer can never produce. WS_OP grows its buffer only while
+# buf+next is a table entry and ".." is not one, so the second dot never
+# joins; the parser has no rule for TOK_RANGE_LE either. Kept as a record:
+# if either starts lexing as itself, this list must shrink, and the check
+# below fails until it does.
+KNOWN_DEAD='..=
+..<'
+
+# The three places where a token's name is not its spelling.
+expected_name() {
+  case "$1" in
+    ' ')        printf 'space\n' ;;            # named for its role, not its byte
+    true|false) printf 'boolean literal\n' ;;  # remapped to TOK_BOOL_L
+    *)          printf '%s\n' "$1" ;;
+  esac
+}
+
+reserved_spellings > "$WORK/spellings"
+while IFS= read -r spelling; do
+  n_spelling=$((n_spelling + 1))
+  line1=$(printf '%b' "$spelling" | "$BIN" --lex - 2>"$ERRF" | sed -n '1p')
+  got=$(printf '%s\n' "$line1" | sed -e 's/^kind= *[0-9]*: *//' -e 's/, value=.*$//')
+  want=$(expected_name "$spelling")
+
+  if printf '%s\n' "$KNOWN_DEAD" | grep -qxF -- "$spelling"; then
+    n_dead=$((n_dead + 1))
+    if [ "$got" = "$want" ]; then
+      note_fail "reserved: '$spelling' now lexes as itself, remove it from KNOWN_DEAD"
+    fi
+    continue
+  fi
+  if [ "$got" != "$want" ]; then
+    note_fail "reserved: '$spelling' lexed as '$got', expected '$want'"
+    [ "$VERBOSE" = "1" ] && printf '%s\n' "$line1" | sed 's/^/    token /'
+  fi
+done < "$WORK/spellings"
+if [ "$n_spelling" -eq 0 ]; then
+  note_fail "reserved: no spellings extracted from ../tokens.c"
+fi
+
+# Near misses as one batch: every spelling grown by a letter or a digit,
+# prefixed with _ and capitalized must be an identifier -- `ifx` is not `if`,
+# `True` is not `true`. Word tokens never span a line and no word begins a
+# comment, so all of them fit in one stdin run and reduce to one property:
+# every token that is not the joining newline is an identifier.
+words=$(reserved_spellings | grep -E '^[a-z]+$')
+n_words=$(printf '%s\n' "$words" | grep -c .)
+n_miss=$((n_words * 4))
+if [ "$n_words" -eq 0 ]; then
+  note_fail "reserved: no word spellings found in ../tokens.c"
+else
+  miss=$(printf '%s\n' "$words" | awk '{
+      print $0 "x"; print $0 "8"; print "_" $0
+      print toupper(substr($0, 1, 1)) substr($0, 2)
+    }' | "$BIN" --lex - 2>"$ERRF" | awk -v want="$n_miss" '
+    {
+      if (match($0, /^kind= *[0-9]+: +/)) {
+        name = substr($0, RLENGTH + 1); sub(/, value=.*$/, "", name)
+        if (name == "\\n") next
+        n++
+        if (name != "identifier") { print "  token " name " is not an identifier"; bad++ }
+      } else { print "  unparseable token line: " $0; bad++ }
+    }
+    END { if (n != want) { print "  expected " want " identifiers, saw " n; bad++ } }')
+  if [ -n "$miss" ]; then
+    note_fail "reserved: a near-miss did not lex as an identifier"
+    printf '%s\n' "$miss"
+  fi
+fi
+echo "  $n_spelling spellings, $n_miss near-misses, $n_dead known-dead"
 
 echo
 if [ "$fails" -eq 0 ]; then
