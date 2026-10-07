@@ -175,6 +175,8 @@ int main(int argc, char **argv) {
       mode = AST;
     } else if (strcmp("--lex", argv[i]) == 0){
       mode = LEX;
+    } else if (strcmp("--run", argv[i]) == 0){
+      mode = RUN;
     } else if (strcmp("--", argv[i]) == 0 && strlen(argv[i]) == 2) {
       i++;
       break;
