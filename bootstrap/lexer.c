@@ -12,7 +12,6 @@
 
 // private functions
 
-static bool strcmplen(const char *s, const char *t, size_t *size);
 static Token *process_word(size_t line, size_t col, char *buf, size_t buf_size);
 static bool could_be_operator(char *buf, size_t buf_size, char next);
 
@@ -395,23 +394,13 @@ void lexer_close(struct Lexer *lexer) {
   free(lexer);
 }
 
-bool strcmplen(const char *s, const char *t, size_t *size) {
-  const char *t_start = t;
-  while (*s != '\0' && *t != '\0' && *s == *t) { s++; t++; }
-  bool are_equal = *s == '\0' && *t == '\0';
-  while (*t != '\0') t++;
-  *size = t - t_start;
-  return are_equal;
-}
-
 Token *process_word(size_t line, size_t col, char *buf, size_t buf_size) {
   int found_word_idx = -1;
   Token *tok;
   for (size_t i = 0; i < TOKEN_KEYWORDS_COUNT; i++) {
-    size_t keyword_len;
-    if (strcmplen(buf, TOKEN_KEYWORDS[i].letters, &keyword_len)) {
+    if (strcmp(buf, TOKEN_KEYWORDS[i].letters) == 0) {
       found_word_idx = i;
-      if (buf_size > keyword_len) break;
+      if (buf_size > TOKEN_KEYWORDS[i].len) break;
     }
   }
   if (found_word_idx < 0) {

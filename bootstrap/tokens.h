@@ -126,6 +126,7 @@ typedef enum TokenKind {
 
 typedef struct TokenDef {
   enum TokenKind kind;
+  size_t len;
   const char *letters;
 } TokenDef;
 
