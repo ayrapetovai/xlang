@@ -148,6 +148,8 @@ const char *token_kind_to_string(enum TokenKind token_kind) {
     return "number literal";
   case TOK_STRING_L:
     return "string literal";
+  case TOK_BOOL_L:
+    return "boolean literal";
   case TOK_INTERFACE:
     return "interface";
   case TOK_CONTINUE:
@@ -167,7 +169,7 @@ const char *token_kind_to_string(enum TokenKind token_kind) {
   case TOK_RETURN:
     return "return";
   case TOK_FALSE:
-    return "false";
+    return "false"; // unreachable, TOK_BOOL_L instead
   case TOK_BYTES:
     return "bytes";
   case TOK_MATCH:
@@ -209,7 +211,7 @@ const char *token_kind_to_string(enum TokenKind token_kind) {
   case TOK_VOID:
     return "void";
   case TOK_TRUE:
-    return "true";
+    return "true"; // unreachable, TOK_BOOL_L instead
   case TOK_UINT:
     return "uint";
   case TOK_TRY:

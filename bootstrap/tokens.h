@@ -9,6 +9,7 @@ typedef enum TokenKind {
   // literals
   TOK_NUMBER_L, // int literal 123
   TOK_STRING_L, // string literal "..."
+  TOK_BOOL_L,   // boolean literal true, false
 
   // reserved words
   TOK_INTERFACE,

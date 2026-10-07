@@ -418,13 +418,17 @@ Token *process_word(size_t line, size_t col, char *buf, size_t buf_size) {
     // word is not found in keywrds, it is an identifier
     tok = token_new_v(TOK_ID, line, col, buf, buf_size);
   } else {
-    tok = token_new(TOKEN_KEYWORDS[found_word_idx].kind, line, col);
+    TokenKind kind = TOKEN_KEYWORDS[found_word_idx].kind;
+    if (kind == TOK_TRUE || kind == TOK_FALSE)
+      tok = token_new_v(TOK_BOOL_L, line, col, buf, buf_size);
+    else
+      tok = token_new(kind, line, col);
   }
   return tok;
 }
 
 bool could_be_operator(char *buf, size_t buf_size, char next) {
-  char tmp[32] = {};
+  char tmp[8] = {0}; // now max size of operator is 4 chars
   memcpy(tmp, buf, buf_size);
   tmp[buf_size] = next;
 
