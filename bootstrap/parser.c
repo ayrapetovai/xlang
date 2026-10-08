@@ -75,6 +75,25 @@ struct GrammarRule {
 //
 // grammar_2 ...
 //
+static void* reduce_if_expr_then_stmt_else_stmt(size_t argc, void* argv[]) {
+  assert(argc == 5);
+  return node_if_new(argv[0], argv[2], argv[4]);
+}
+
+static void* reduce_if_expr_then_stmt(size_t argc, void* argv[]) {
+  assert(argc == 3);
+  return node_if_new(argv[0], argv[2], NULL);
+}
+
+static void* reduce_if_expr_braced_block_else_braced_block(size_t argc, void* argv[]) {
+  assert(argc == 4);
+  return node_if_new(argv[0], argv[1], argv[3]);
+}
+
+static void* reduce_if_expr_braced_block(size_t argc, void* argv[]) {
+  assert(argc == 2);
+  return node_if_new(argv[0], argv[1], NULL);
+}
 
 static void* reduce_bool_l(size_t argc, void* argv[]) {
   assert(argc == 1);
@@ -157,6 +176,11 @@ static void* reduce_empty(size_t argc, void* []) {
   return NULL;
 }
 
+static void* reduce_peek_second(size_t argc, void* argv[]) {
+  assert(argc == 2);
+  return argv[1];
+}
+
 static void* reduce_signle_ntrm(size_t argc, void* argv[]) {
   assert(argc == 1);
   return argv[0];
@@ -168,6 +192,15 @@ static void* reduce_tripple_ntrm(size_t argc, void* argv[]) {
 }
 
 struct GrammarRule expr_prime;
+struct GrammarRule braced_block;
+struct GrammarRule stmt;
+
+RULE_EXPR(if_tail,
+  PROD_L( NTRM(expr_prime), TERM(TOK_THEN),     NTRM(expr_prime), TERM(TOK_ELSE), NTRM(expr_prime), REDUCE(reduce_if_expr_then_stmt_else_stmt) ),
+  PROD_L( NTRM(expr_prime), TERM(TOK_THEN),     NTRM(stmt),                             REDUCE(reduce_if_expr_then_stmt) ),
+  PROD_L( NTRM(expr_prime), NTRM(braced_block), TERM(TOK_ELSE), NTRM(braced_block),     REDUCE(reduce_if_expr_braced_block_else_braced_block) ),
+  PROD_L( NTRM(expr_prime), NTRM(braced_block),                                         REDUCE(reduce_if_expr_braced_block) ),
+)
 
 //**************************************************************
 // expression :: arithmetics, logics, if, match, array access and funcfion calls
@@ -175,6 +208,7 @@ RULE_EXPR( expr_factor,
   PROD_R( TERM(TOK_NUMBER_L),                                     REDUCE(reduce_number_l) ),
   PROD_R( TERM(TOK_BOOL_L),                                       REDUCE(reduce_bool_l) ),
   PROD_R( TERM(TOK_LPAREN), NTRM(expr_prime), TERM(TOK_RPAREN),   REDUCE(reduce_tripple_ntrm) ),
+  PROD_R( TERM(TOK_IF), NTRM(if_tail),                            REDUCE(reduce_peek_second), )
 )
 
 RULE_EXPR( expr_unary,
@@ -213,6 +247,7 @@ RULE( stmt_optseps,
 
 RULE( stmt,
   PROD_R( TERM(TOK_ECHO), NTRM(expr_prime),                       REDUCE(reduce_echo_expr) ),
+  PROD_R( TERM(TOK_IF), NTRM(if_tail),                            REDUCE(reduce_peek_second) ),
 )
 
 RULE( stmts,
@@ -223,6 +258,11 @@ RULE( stmts,
 
 RULE( block,
   PROD_R( NTRM(stmt_optseps), NTRM(stmts), NTRM(stmt_optseps),    REDUCE(reduce_tripple_ntrm) ),
+)
+
+RULE( braced_block,
+  PROD_L( TERM(TOK_LBRACE), NTRM(block), TERM(TOK_RBRACE),        REDUCE(reduce_tripple_ntrm) ),
+  PROD_L( TERM(TOK_LBRACE), NTRM(stmt_optseps), TERM(TOK_RBRACE), REDUCE(reduce_empty_block) ),
 )
 
 //**************************************************************
@@ -263,6 +303,8 @@ struct Parser* parser_new(struct Lexer *lexer) {
   parser->nl_probe_start = 0;
   parser->nl_probe_kind = TOK_UNDEF;
   parser->nl_probe_valid = false;
+  parser->deepest_tok = NULL;
+  parser->deepest_mark = 0;
   memset(parser->error, '\0', sizeof(parser->error));
 
   if (lexer == NULL)
@@ -282,15 +324,17 @@ ASTNode *parser_parse(struct Parser *parser) {
 
   struct Token *rest = parser->current_token;
   if (rest != NULL && rest->kind != TOK_UNDEF) {
+    // prefer the deepest point reached over the rolled-back position
+    // becase parser have failed at the deepest point
+    struct Token *err_tok = parser->deepest_tok ? parser->deepest_tok : rest;
     if (strlen(parser->lexer->error) > 0)
       sprintf(parser->error, "parsing error: %s", parser->lexer->error);
     else
       sprintf(parser->error, "parsing error, unexpected %s at line %zu, col %zu",
-            token_kind_to_string(rest->kind), rest->line, rest->col);
+            token_kind_to_string(err_tok->kind), err_tok->line, err_tok->col);
     node_free(reduce_result.result);
     return NULL;
   }
-
   return reduce_result.result;
 }
 
@@ -481,5 +525,10 @@ static bool parser_move_forward(struct Parser* parser) {
   }
 
   parser->current_token = tok;
+  size_t mark = lexer_mark(parser->lexer);
+  if (mark > parser->deepest_mark) {
+    parser->deepest_mark = mark;
+    parser->deepest_tok = tok;
+  }
   return true;
 }

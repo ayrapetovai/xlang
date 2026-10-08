@@ -16,8 +16,14 @@ int exec(const ASTNode* n) {
     break;
     case NODE_STMT:
       switch (n->info.stmt.stmt_tok) {
+        case TOK_IF:
+          if (exec(n->info.stmt.iff.cond))
+            return exec(n->info.stmt.iff.then_arm);
+          else
+            return exec(n->info.stmt.iff.else_arm);
         case TOK_ECHO:
           printf("%d\n", exec(n->info.stmt.echo.expr));
+          return 0;
           break;
         default: assert(false);
       }

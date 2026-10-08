@@ -27,6 +27,7 @@ static void inner_ast_dump(const ASTNode *n, bool colored, int depth) {
 
   print_indents(depth);
 
+  const char* s;
   switch (n->kind) {
     case NODE_BLOCK:
       printf("block\n");
@@ -35,35 +36,45 @@ static void inner_ast_dump(const ASTNode *n, bool colored, int depth) {
       }
     break;
     case NODE_STMT:
-      const char* s1;
-      if (colored) s1 = "stmt " GREEN_TEXT("%s\n");
-      else s1 = "stms %s\n";
-      printf(s1, token_kind_to_string(n->info.stmt.stmt_tok));
+      if (colored) s = "stmt " GREEN_TEXT("%s\n");
+      else s = "stms %s\n";
+      printf(s, token_kind_to_string(n->info.stmt.stmt_tok));
       switch (n->info.stmt.stmt_tok) {
+        case TOK_IF:
+          print_indents(depth + 1);
+          printf("cond\n");
+          inner_ast_dump(n->info.stmt.iff.cond, colored, depth + 2);
+          print_indents(depth + 1);
+          printf("then\n");
+          inner_ast_dump(n->info.stmt.iff.then_arm, colored, depth + 2);
+          if (n->info.stmt.iff.else_arm != NULL) {
+            print_indents(depth + 1);
+            printf("else\n");
+            inner_ast_dump(n->info.stmt.iff.else_arm, colored, depth + 2);
+          }
+        break;
         case TOK_ECHO: inner_ast_dump(n->info.stmt.echo.expr, colored, depth + 1); break;
         default: assert(false);
       }
     break;
     case NODE_EXPR:
-      const char* s2;
-      if (colored) s2 = "expr " RED_TEXT("%s\n");
-      else s2 = "expr %s\n";
-      printf(s2, token_kind_to_string(n->info.expr.op_tok));
+      if (colored) s = "expr " RED_TEXT("%s\n");
+      else s = "expr %s\n";
+      printf(s, token_kind_to_string(n->info.expr.op_tok));
       inner_ast_dump(n->info.expr.op1, colored, depth + 1);
       inner_ast_dump(n->info.expr.op2, colored, depth + 1);
     break;
     case NODE_UEXPR:
-      const char* s3;
-      if (colored) s3 = "uexpr " RED_TEXT("%s\n");
-      else s3 = "uexpr %s\n";
-      printf(s3, token_kind_to_string(n->info.uexpr.op_tok));
+      const char* s;
+      if (colored) s = "uexpr " RED_TEXT("%s\n");
+      else s = "uexpr %s\n";
+      printf(s, token_kind_to_string(n->info.uexpr.op_tok));
       inner_ast_dump(n->info.uexpr.op, colored, depth + 1);
     break;
     case NODE_VALUE:
-      const char* s4;
-      if (colored) s4 = "val " RED_TEXT("%s\n");
-      else s4 = "val %s\n";
-      printf(s4, n->info.val.value);
+      if (colored) s = "val " RED_TEXT("%s\n");
+      else s = "val %s\n";
+      printf(s, n->info.val.value);
     break;
     default:
     assert(false);
@@ -90,6 +101,11 @@ void node_free(ASTNode *n) {
     break;
     case NODE_STMT:
       switch (n->info.stmt.stmt_tok) {
+        case TOK_IF:
+          node_free(n->info.stmt.iff.cond);
+          node_free(n->info.stmt.iff.else_arm);
+          node_free(n->info.stmt.iff.then_arm);
+        break;
         case TOK_ECHO: node_free(n->info.stmt.echo.expr); break;
         default: assert(false);
       }
@@ -138,6 +154,15 @@ ASTNode *node_uexpr_new(TokenKind kind, ASTNode *expr) {
     .op = expr,
   };
   expr->parent = n;
+  return n;
+}
+
+ASTNode *node_if_new(ASTNode *cond, ASTNode *then_arm, ASTNode *else_arm) {
+  ASTNode *n = node_new(NODE_STMT);
+  n->info.stmt.stmt_tok = TOK_IF;
+  n->info.stmt.iff.cond = cond;
+  n->info.stmt.iff.then_arm = then_arm;
+  n->info.stmt.iff.else_arm = else_arm;
   return n;
 }
 

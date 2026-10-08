@@ -6,7 +6,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 
-typedef enum NodeKind {
+typedef enum {
   NODE_EXPR,
   NODE_UEXPR,
   NODE_VALUE,
@@ -15,7 +15,7 @@ typedef enum NodeKind {
   NODE_BLOCK,
 } NodeKind;
 
-typedef enum ValueKind {
+typedef enum {
   VK_INTEGER,
   VK_FLOAT,
   VK_STRING,
@@ -23,31 +23,35 @@ typedef enum ValueKind {
   VK_BOOL,
 } ValueKind;
 
-typedef struct InfoFunDef {
+typedef struct {
 
 } InfoFunDef;
 
-typedef struct InfoExpr {
+typedef struct {
   TokenKind op_tok;     // +, -, /, *, == ...
   struct ASTNode *op1;  // expr or value
   struct ASTNode *op2;  // expr or value
 } InfoExpr;
 
-typedef struct InfoUExpr {
+typedef struct {
   TokenKind op_tok;    // -x, *p, &p, ++i, i++
   struct ASTNode *op;  // expr or value
 } InfoUExpr;
 
-typedef struct InfoValue {
+typedef struct {
   ValueKind kind;     // integer, string, float
   const char* value;  // "123", "abc", "3.14"
 } InfoValue;
+
+typedef struct {
+  struct ASTNode *cond, *then_arm, *else_arm;
+} InfoStmtIf;
 
 typedef struct InfoStmt {
   TokenKind stmt_tok; // :=, if, echo, loop, match, select, func
   union {
     struct { struct ASTNode *expr; } echo;               // `echo` expr
-    struct { struct ASTNode *cond, *then, *else_; } if_; // `if` expr block(*) `else` block(*); `if` expr `then` block(1) `else` block(1)
+    struct { struct ASTNode *cond, *then_arm, *else_arm; } iff; // `if` expr block(*) `else` block(*); `if` expr `then` block(1) `else` block(1)
     struct {
       const char* name;      // function name
       size_t param_len;
@@ -67,11 +71,11 @@ typedef struct ASTNode {
   struct ASTNode *parent;
   NodeKind kind;
   union {
-    struct InfoExpr expr;
-    struct InfoUExpr uexpr;
-    struct InfoStmt stmt;
-    struct InfoValue val;
-    struct InfoBlock block;
+    InfoExpr expr;
+    InfoUExpr uexpr;
+    InfoStmt stmt;
+    InfoValue val;
+    InfoBlock block;
     // ...
   } info;
 } ASTNode;
@@ -86,6 +90,7 @@ ASTNode *node_new(NodeKind kind);
 ASTNode *node_value_new(ValueKind kind, const char *str_reprentation);
 ASTNode *node_expr_new(TokenKind kind, ASTNode *left_expr, ASTNode *right_expr);
 ASTNode *node_uexpr_new(TokenKind kind, ASTNode *expr);
+ASTNode *node_if_new(ASTNode *cond, ASTNode *then_arm, ASTNode *else_arm);
 ASTNode *node_stmt_echo_new(TokenKind kind, ASTNode *expr);
 ASTNode *node_block_new();
 void node_block_append(ASTNode *block, ASTNode *stmt);
