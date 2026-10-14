@@ -9,35 +9,35 @@
 
 static inline VMStackSlot pop_slot(VMEngine *vm) {
   if (vm->stopped) return 0;
-  if (vm->sp == 0) {
+  if (vm->sp <= vm->stack) {
     vm->stopped = true;
     snprintf(vm->error, sizeof(vm->error), "stack pointer underflow");
     return 0;
   }
   vm->sp -= 1;
-  return *(VMStackSlot*)(vm->stack + vm->sp);
+  return *vm->sp;
 }
 
 static inline void push_slot(VMEngine *vm, VMStackSlot x) {
   if (vm->stopped) return;
-  if (vm->sp >= vm->stack_len) {
+  if (vm->sp >= vm->stack_end) {
     vm->stopped = true;
     snprintf(vm->error, sizeof(vm->error), "stack pointer overflow");
     return;
   }
 
-  *(VMStackSlot*)(vm->stack + vm->sp) = x;
+  *vm->sp = x;
   vm->sp += 1;
 }
 
 static void exec_push(VMEngine *vm) {
-  if (vm->ip + sizeof(VMStackSlot) > vm->code_len) {
+  VMStackSlot operand;
+  if ((size_t)(vm->code_end - vm->ip) < sizeof operand) { 
     vm->stopped = true;
     snprintf(vm->error, sizeof(vm->error), "instruction pointer overflow");
     return;
   }
-  uint64_t operand;
-  memcpy(&operand, vm->code + vm->ip, sizeof operand);
+  memcpy(&operand, vm->ip, sizeof operand);
   push_slot(vm, operand);
   if (vm->stopped) return;
   vm->ip += sizeof(operand);
@@ -70,7 +70,7 @@ static void exec_div(VMEngine *vm) {
   int64_t op1 = pop_slot(vm);
   if (vm->stopped) return;
   if (op1 == 0) {
-    size_t where = vm->sp;
+    size_t where = vm->sp - vm->stack;
     push_slot(vm, op1);
     vm->stopped = true;
     snprintf(vm->error, sizeof(vm->error), "division by zero, operand at stack offset %zu is 0", where);
@@ -88,13 +88,13 @@ static void exec_dup(VMEngine *vm) {
 }
 
 static void exec_const(VMEngine *vm) {
-  if (vm->ip + sizeof(uint64_t) > vm->code_len) {
+  uint64_t offset;
+  if ((size_t)(vm->code_end - vm->ip) < sizeof offset) { 
     vm->stopped = true;
     snprintf(vm->error, sizeof(vm->error), "instruction pointer overflow");
     return;
   }
-  uint64_t offset;
-  memcpy(&offset, vm->code + vm->ip, sizeof offset);
+  memcpy(&offset, vm->ip, sizeof offset);
   if (offset + sizeof(uint64_t) > vm->pool_len) {
     vm->stopped = true;
     snprintf(vm->error, sizeof(vm->error), "constant pool offset overflow");
@@ -108,13 +108,13 @@ static void exec_const(VMEngine *vm) {
 }
 
 static void exec_consta(VMEngine *vm) {
-  if (vm->ip + sizeof(size_t) > vm->code_len) {
+  size_t offset;
+  if ((size_t)(vm->code_end - vm->ip) < sizeof offset) { 
     vm->stopped = true;
     snprintf(vm->error, sizeof(vm->error), "instruction pointer overflow");
     return;
   }
-  size_t offset;
-  memcpy(&offset, vm->code + vm->ip, sizeof offset);
+  memcpy(&offset, vm->ip, sizeof offset);
   if (offset + sizeof(size_t) > vm->pool_len) {
     vm->stopped = true;
     snprintf(vm->error, sizeof(vm->error), "constant pool offset overflow");
@@ -178,10 +178,10 @@ static const Executor command_excutors[BC_END_OF_ENUM] = {
 };
 
 VMEngine *vm_new(size_t pool_len, size_t code_len, size_t stack_len) {
-  const size_t align = _Alignof(uint64_t);
+  const size_t align = _Alignof(VMStackSlot);
   const size_t pool_bytes  = pool_len  * sizeof(uint8_t);
-  const size_t code_bytes  = code_len  * sizeof(uint8_t);
-  const size_t stack_bytes = stack_len * sizeof(uint64_t);
+  const size_t code_bytes  = code_len  * sizeof(VMCodeSlot);
+  const size_t stack_bytes = stack_len * sizeof(VMStackSlot);
 
   VMEngine *vm = malloc(sizeof(VMEngine) + pool_bytes + code_bytes
                         + align + stack_bytes);
@@ -191,36 +191,36 @@ VMEngine *vm_new(size_t pool_len, size_t code_len, size_t stack_len) {
   memset(vm, 0, sizeof(VMEngine));
 
   vm->pool_len  = pool_len;
-  vm->code_len  = code_len;
-  vm->stack_len = stack_len;
 
   uint8_t *p = (uint8_t*)vm + sizeof(VMEngine);
   vm->pool = p; p += pool_bytes;
   vm->code = p; p += code_bytes;
+  vm->code_end  = vm->code + code_len;
   uintptr_t stack_addr = ((uintptr_t)p + (align - 1)) & ~(uintptr_t)(align - 1);
   vm->stack = (VMStackSlot*)stack_addr;
+  vm->stack_end = vm->stack + stack_len;
 
-  vm->sp = 0;
-  vm->sfp = 0;
-  vm->ip = 0;
-  vm->add_code_idx = 0;
+  vm->sp = vm->stack;
+  vm->sfp = NULL;
+  vm->ip = vm->code;
+  vm->add_code_ptr = vm->code;
 
-  memset(vm->code, 0, vm->code_len);
+  memset(vm->code, 0, code_len);
 
   return vm;
 }
 
 void vm_add_command(VMEngine *vm, VMCommand cmd) {
-  assert(vm != NULL);
-  if (vm->add_code_idx + 1 + cmd.op_len * sizeof(uint64_t) > vm->code_len) {
+  assert(vm != NULL && cmd.op_len <= 2);
+  if (vm->add_code_ptr + 1 + cmd.op_len * sizeof(uint64_t) > vm->code_end) {
     vm->stopped = true;
     snprintf(vm->error, sizeof(vm->error), "failed to add command: code overflow");
     return;
   }
-  vm->code[vm->add_code_idx++] = cmd.kind;
+  *vm->add_code_ptr++ = cmd.kind;
   for (size_t i = 0; i < cmd.op_len; i++) {
-    memcpy(vm->code + vm->add_code_idx, &cmd.ops[i], sizeof cmd.ops[i]);
-    vm->add_code_idx += sizeof(cmd.ops[0]);
+    memcpy(vm->add_code_ptr, &cmd.ops[i], sizeof cmd.ops[i]);
+    vm->add_code_ptr += sizeof(cmd.ops[0]);
   }
 }
 
@@ -251,12 +251,11 @@ VMState vm_execute(VMEngine *vm, size_t steps) {
   assert(vm != NULL);
   size_t step = 0;
   while (step < steps && !vm->stopped) {
-    const size_t ip = vm->ip;
-    if (ip >= vm->code_len) {
+    if (vm->ip >= vm->code_end) {
       snprintf(vm->error, sizeof(vm->error), "instruction pointer overflow");
       return VM_STATE_ERROR;
     }
-    BCCommandKind command_kind = (BCCommandKind) vm->code[ip];
+    BCCommandKind command_kind = *(BCCommandKind*)vm->ip;
     vm->ip += sizeof(BCCommandKind);
     if (command_kind >= BC_END_OF_ENUM) {
       snprintf(vm->error, sizeof(vm->error), "unknown command %d", command_kind);

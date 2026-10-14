@@ -49,20 +49,23 @@ typedef struct {
 
 // never could be less then 64bits, it stores addresses
 typedef uint64_t VMStackSlot;
+typedef uint8_t  VMCodeSlot;
 //typedef uint64_t VMOffset;
 
 typedef struct {
   size_t pool_len;        // count elements, not bytes
   uint8_t *pool;          // storage for strings
   size_t add_pool_idx;    // index of the first free place in pool of constants
-  size_t code_len;        // count elements, not bytes
-  uint8_t *code;          // instructions
-  size_t add_code_idx;    // index the the first free palce for the next command to add
-  size_t stack_len;       // count elements, not bytes
+
+  VMCodeSlot *code_end;   // the upped bound for instruction pointer
+  VMCodeSlot *code;       // instructions
+  VMCodeSlot *ip;         // instruction pointer, grows up, pints to the code
+  VMCodeSlot *add_code_ptr;  // pointer to the first free palce for the next command to add
+
+  VMStackSlot *stack_end; // the upper bound on the stack pointer
   VMStackSlot *stack;     // function frames with slots and temporary operands
-  size_t sp;              // stack pointer, grows up, points to the operand stack
-  size_t sfp;             // stack frame pointer, grows up, pionts to the operand stack
-  size_t ip;              // instruction pointer, grows up, pints to the code
+  VMStackSlot *sp;        // stack pointer, grows up, points to the operand stack
+  VMStackSlot *sfp;       // stack frame pointer, grows up, pionts to the operand stack
   bool stopped;           // if true the vm can operate no longer
   char error[1024];       // filled with message if error occured in runtime
 } VMEngine;
