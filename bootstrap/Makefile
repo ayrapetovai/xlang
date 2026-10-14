@@ -16,6 +16,9 @@ bootstrap: $(SRC) $(HDR)
 bootstrap-asan: $(SRC) $(HDR)
 	$(CC) $(ASANF) -o $@ $(SRC) -lm
 
+vm_test: vm.h vm.c vm_test.c
+	gcc -std=c23 -Wall -Wextra -Werror -Wcast-align=strict -O0 -g vm.c vm_test.c -o vm_test
+
 clean:
 	rm -f bootstrap bootstrap-asan
 	rm -rf test/.work
@@ -53,3 +56,4 @@ check-vs: bootstrap
 	[ $$a -eq 0 ] && [ $$b -eq 0 ] && [ $$c -eq 0 ]
 
 .PHONY: clean tags check check-asan check-vs
+
