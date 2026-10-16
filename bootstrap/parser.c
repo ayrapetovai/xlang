@@ -39,7 +39,7 @@ struct ProdNode {
   };
 } ProdNode;
 
-#define PRODUCTIONS_MAX    10
+#define PRODUCTIONS_MAX       10
 #define PRODUCTION_MAX_LENGTH 10
 
 struct Production {
@@ -93,6 +93,13 @@ static void* reduce_if_expr_braced_block_else_braced_block(size_t argc, void* ar
 static void* reduce_if_expr_braced_block(size_t argc, void* argv[]) {
   assert(argc == 2);
   return node_if_new(argv[0], argv[1], NULL);
+}
+
+static void *reduce_id(size_t argc, void* argv[]) {
+  assert(argc == 1);
+  Token *tok = argv[0];
+  assert(tok->kind == TOK_ID);
+  return node_id_new(tok->value);
 }
 
 static void* reduce_bool_l(size_t argc, void* argv[]) {
@@ -156,6 +163,21 @@ static void* reduce_stmt(size_t argc, void* argv[]) {
   return block;
 }
 
+static void* reduce_id_define_expr(size_t argc, void* argv[]) {
+  assert(argc == 3);
+  Token *id_tok = argv[0];
+  Token *define_tok = argv[1];
+  assert(id_tok->kind == TOK_ID && define_tok->kind == TOK_DEFINE);
+  return node_definition_new(node_id_new(id_tok->value), argv[2]);
+}
+
+static void* reduce_expr_assign_expr(size_t argc, void* argv[]) {
+  assert(argc == 3);
+  Token *define_tok = argv[1];
+  assert(define_tok->kind == TOK_ASSIGN);
+  return node_assignment_new(argv[0], argv[2]);
+}
+
 static void* reduce_empty_block(size_t argc, void* []) {
   assert(argc == 0);
   return node_block_new();
@@ -208,7 +230,8 @@ RULE_EXPR( expr_factor,
   PROD_R( TERM(TOK_NUMBER_L),                                     REDUCE(reduce_number_l) ),
   PROD_R( TERM(TOK_BOOL_L),                                       REDUCE(reduce_bool_l) ),
   PROD_R( TERM(TOK_LPAREN), NTRM(expr_prime), TERM(TOK_RPAREN),   REDUCE(reduce_tripple_ntrm) ),
-  PROD_R( TERM(TOK_IF), NTRM(if_tail),                            REDUCE(reduce_peek_second), )
+  PROD_R( TERM(TOK_IF), NTRM(if_tail),                            REDUCE(reduce_peek_second) ),
+  PROD_R( TERM(TOK_ID),                                           REDUCE(reduce_id) ),
 )
 
 RULE_EXPR( expr_unary,
@@ -217,15 +240,15 @@ RULE_EXPR( expr_unary,
 )
 
 RULE_EXPR( expr_term,
-  PROD_L( NTRM(expr_unary), TERM(TOK_STAR),  NTRM(expr_unary),    REDUCE(reduce_expr_op_expr), ),
-  PROD_L( NTRM(expr_unary), TERM(TOK_SLASH), NTRM(expr_unary),    REDUCE(reduce_expr_op_expr), ),
-  PROD_R( NTRM(expr_unary),                                       REDUCE(reduce_signle_ntrm), ),
+  PROD_L( NTRM(expr_unary), TERM(TOK_STAR),  NTRM(expr_unary),    REDUCE(reduce_expr_op_expr) ),
+  PROD_L( NTRM(expr_unary), TERM(TOK_SLASH), NTRM(expr_unary),    REDUCE(reduce_expr_op_expr) ),
+  PROD_R( NTRM(expr_unary),                                       REDUCE(reduce_signle_ntrm) ),
 )
 
 RULE_EXPR( expr_prime,
-  PROD_L( NTRM(expr_term), TERM(TOK_PLUS),  NTRM(expr_term),      REDUCE(reduce_expr_op_expr), ),
-  PROD_L( NTRM(expr_term), TERM(TOK_MINUS), NTRM(expr_term),      REDUCE(reduce_expr_op_expr), ),
-  PROD_R( NTRM(expr_term),                                        REDUCE(reduce_signle_ntrm), ),
+  PROD_L( NTRM(expr_term), TERM(TOK_PLUS),  NTRM(expr_term),      REDUCE(reduce_expr_op_expr) ),
+  PROD_L( NTRM(expr_term), TERM(TOK_MINUS), NTRM(expr_term),      REDUCE(reduce_expr_op_expr) ),
+  PROD_R( NTRM(expr_term),                                        REDUCE(reduce_signle_ntrm) ),
 )
 
 //**************************************************************
@@ -246,8 +269,11 @@ RULE( stmt_optseps,
 )
 
 RULE( stmt,
-  PROD_R( TERM(TOK_ECHO), NTRM(expr_prime),                       REDUCE(reduce_echo_expr) ),
-  PROD_R( TERM(TOK_IF), NTRM(if_tail),                            REDUCE(reduce_peek_second) ),
+  PROD_R( TERM(TOK_ECHO), NTRM(expr_prime),                                        REDUCE(reduce_echo_expr) ),
+  PROD_R( TERM(TOK_IF), NTRM(if_tail),                                             REDUCE(reduce_peek_second) ),
+  PROD_R( TERM(TOK_ID), TERM(TOK_DEFINE), NTRM(expr_prime),                        REDUCE(reduce_id_define_expr) ),
+  PROD_R( NTRM(expr_prime), TERM(TOK_ASSIGN), NTRM(expr_prime),                    REDUCE(reduce_expr_assign_expr) ),
+  // PROD_R( TERM(TOK_ID), NTRM(type_expr), TERM(TOK_ASSIGN), NTRM(expr_prime),       REDUCE(reduce_id_types_expr_assign_expr) ),
 )
 
 RULE( stmts,

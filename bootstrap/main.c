@@ -55,7 +55,7 @@ int run_exec(FILE* src) {
   parser_close(parser);
   lexer_close(lexer);
 
-  ExecMachine *em = exec_new(100);
+  ExecMachine *em = exec_new(100, 100);
   EMState es = exec_run(em, parse_result);
   if (es != EMS_SUCCESS) {
     fprintf(stderr, "execution failed: %s\n", em->error);

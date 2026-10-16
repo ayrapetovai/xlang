@@ -7,9 +7,6 @@
 #include <unistd.h>
 #include <string.h>
 
-#define RED_TEXT(s) "\033[31m" s "\033[0m"
-#define GREEN_TEXT(s) "\033[32m" s "\033[0m"
-
 ASTNode *node_new(NodeKind kind) {
   ASTNode *n = malloc(sizeof *n);
   assert(n != NULL);
@@ -17,17 +14,20 @@ ASTNode *node_new(NodeKind kind) {
   return n;
 }
 
-static void print_indents(int count) {
-  for (int i = 0; i < count; i++)
-    printf("  ");
-}
-
 static void inner_ast_dump(const ASTNode *n, bool colored, int depth) {
   if (n == NULL) return;
 
-  print_indents(depth);
-
   const char* s;
+
+  #define RED_TEXT(s) "\033[31m" s "\033[0m"
+  #define GREEN_TEXT(s) "\033[32m" s "\033[0m"
+
+  // d is a string literal, TEXT_COLOR is a name of a macro
+  #define PRINT_INDENTS(count) for (int indents_i = 0; indents_i < (count); indents_i++) printf("  ")
+  #define PRINT_DESC(d, TEXT_COLOR) if (colored) s = d TEXT_COLOR("%s\n"); else s = d "%s\n"
+
+  PRINT_INDENTS(depth);
+
   switch (n->kind) {
     case NODE_BLOCK:
       printf("block\n");
@@ -36,49 +36,62 @@ static void inner_ast_dump(const ASTNode *n, bool colored, int depth) {
       }
     break;
     case NODE_STMT:
-      if (colored) s = "stmt " GREEN_TEXT("%s\n");
-      else s = "stms %s\n";
+      PRINT_DESC("stmt ", GREEN_TEXT);
       printf(s, token_kind_to_string(n->info.stmt.stmt_tok));
       switch (n->info.stmt.stmt_tok) {
         case TOK_IF:
-          print_indents(depth + 1);
+          PRINT_INDENTS(depth + 1);
           printf("cond\n");
           inner_ast_dump(n->info.stmt.iff.cond, colored, depth + 2);
-          print_indents(depth + 1);
+          PRINT_INDENTS(depth + 1);
           printf("then\n");
           inner_ast_dump(n->info.stmt.iff.then_arm, colored, depth + 2);
           if (n->info.stmt.iff.else_arm != NULL) {
-            print_indents(depth + 1);
+            PRINT_INDENTS(depth + 1);
             printf("else\n");
             inner_ast_dump(n->info.stmt.iff.else_arm, colored, depth + 2);
           }
         break;
         case TOK_ECHO: inner_ast_dump(n->info.stmt.echo.expr, colored, depth + 1); break;
+        case TOK_DEFINE:
+          inner_ast_dump(n->info.stmt.define.id, colored, depth + 1);
+          inner_ast_dump(n->info.stmt.define.type_expr, colored, depth + 1);
+          inner_ast_dump(n->info.stmt.define.expr, colored, depth + 1);
+        break;
+        case TOK_ASSIGN:
+          inner_ast_dump(n->info.stmt.assign.lexpr, colored, depth + 1);
+          inner_ast_dump(n->info.stmt.assign.expr, colored, depth + 1);
+        break;
         default: assert(false);
       }
     break;
     case NODE_EXPR:
-      if (colored) s = "expr " RED_TEXT("%s\n");
-      else s = "expr %s\n";
+      PRINT_DESC("expr ", RED_TEXT);
       printf(s, token_kind_to_string(n->info.expr.op_tok));
       inner_ast_dump(n->info.expr.op1, colored, depth + 1);
       inner_ast_dump(n->info.expr.op2, colored, depth + 1);
     break;
     case NODE_UEXPR:
       const char* s;
-      if (colored) s = "uexpr " RED_TEXT("%s\n");
-      else s = "uexpr %s\n";
+      PRINT_DESC("uexpr ", RED_TEXT);
       printf(s, token_kind_to_string(n->info.uexpr.op_tok));
       inner_ast_dump(n->info.uexpr.op, colored, depth + 1);
     break;
     case NODE_VALUE:
-      if (colored) s = "val " RED_TEXT("%s\n");
-      else s = "val %s\n";
+      PRINT_DESC("val ", RED_TEXT);
       printf(s, n->info.val.value);
+    break;
+    case NODE_ID:
+      PRINT_DESC("id ", RED_TEXT);
+      printf(s, n->info.id.value);
     break;
     default:
     assert(false);
   }
+  #undef RED_TEXT
+  #undef GREEN_TEXT
+  #undef PRINT_DESC
+  #undef PRINT_INDENTS
 }
 
 void ast_dump(const ASTNode *n) {
@@ -98,7 +111,7 @@ void node_free(ASTNode *n) {
         node_free(n->info.block.stmts[i]);
       }
       free(n->info.block.stmts);
-    break;
+      break;
     case NODE_STMT:
       switch (n->info.stmt.stmt_tok) {
         case TOK_IF:
@@ -107,23 +120,38 @@ void node_free(ASTNode *n) {
           node_free(n->info.stmt.iff.then_arm);
         break;
         case TOK_ECHO: node_free(n->info.stmt.echo.expr); break;
+        case TOK_DEFINE:
+          node_free(n->info.stmt.define.id);
+          node_free(n->info.stmt.define.type_expr);
+          node_free(n->info.stmt.define.expr);
+          break;
+        case TOK_ASSIGN:
+          node_free(n->info.stmt.assign.lexpr);
+          node_free(n->info.stmt.assign.expr);
+          break;
         default: assert(false);
       }
-    break;
+      break;
     case NODE_EXPR:
       node_free(n->info.expr.op1);
       node_free(n->info.expr.op2);
-    break;
+      break;
     case NODE_UEXPR:
-      node_free(n->info.uexpr.op);
-    break;
+      node_free(n->info.uexpr.op); break;
     case NODE_VALUE:
-      free((void*) n->info.val.value);
-    break;
+      free((void*) n->info.val.value); break;
+    case NODE_ID:
+      free(n->info.id.value); break;
     default:
     assert(false);
   }
   free(n);
+}
+
+ASTNode *node_id_new(const char* value) {
+  ASTNode *n = node_new(NODE_ID);
+  n->info.id.value = strdup(value);
+  return n;
 }
 
 ASTNode *node_value_new(ValueKind kind, const char *v) {
@@ -172,6 +200,31 @@ ASTNode *node_stmt_echo_new(TokenKind kind, ASTNode *expr) {
     .stmt_tok = kind,
     .echo.expr = expr,
   };
+  expr->parent = n;
+  return n;
+}
+
+ASTNode *node_definition_new(ASTNode *id_node, ASTNode *expr) {
+  ASTNode *n = node_new(NODE_STMT);
+  n->info.stmt = (InfoStmt) {
+    .stmt_tok = TOK_DEFINE,
+    .define.id = id_node,
+    .define.type_expr = NULL,
+    .define.expr = expr,
+  };
+  expr->parent = n;
+  id_node->parent = n;
+  return n;
+}
+
+ASTNode *node_assignment_new(ASTNode *lexpr, ASTNode *expr) {
+  ASTNode *n = node_new(NODE_STMT);
+  n->info.stmt = (InfoStmt) {
+    .stmt_tok = TOK_ASSIGN,
+    .assign.lexpr = lexpr,
+    .assign.expr = expr,
+  };
+  lexpr->parent = n;
   expr->parent = n;
   return n;
 }

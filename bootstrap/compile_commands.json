@@ -134,5 +134,22 @@
     ],
     "directory": "/home/artem/code/lang/bootstrap",
     "output": "bootstrap"
+  },
+  {
+    "file": "map.c",
+    "arguments": [
+      "/usr/bin/cc",
+      "-std=c23",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-O0",
+      "-g",
+      "-o",
+      "bootstrap",
+      "map.c"
+    ],
+    "directory": "/home/artem/code/lang/bootstrap",
+    "output": "bootstrap"
   }
 ]
