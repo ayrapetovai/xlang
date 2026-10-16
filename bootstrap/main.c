@@ -55,9 +55,15 @@ int run_exec(FILE* src) {
   parser_close(parser);
   lexer_close(lexer);
 
-  int rc = exec(parse_result);
+  ExecMachine *em = exec_new(100);
+  EMState es = exec_run(em, parse_result);
+  if (es != EMS_SUCCESS) {
+    fprintf(stderr, "execution failed: %s\n", em->error);
+  }
+
+  exec_free(em);
   node_free(parse_result);
-  return rc;
+  return es == EMS_ERROR;
 }
 
 int run_lex(FILE* src) {

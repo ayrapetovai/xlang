@@ -2,7 +2,31 @@
 #define EXEC_H
 
 #include "ast.h"
+#include <inttypes.h>
 
-int exec(const struct ASTNode* root);
+typedef uint64_t EMStackSlot;
+
+// typedef struct {
+//   EMStackSlot *slots;
+// } EMStackFrame;
+
+typedef enum {
+  EMS_SUCCESS,
+  EMS_ERROR,
+} EMState;
+
+typedef struct {
+  EMStackSlot  *stack_end; // end of stack address space, stack pinter cannot not be greater than this
+  EMStackSlot  *stack;     // operand stack address space
+  EMStackSlot  *sp;        // stack pointer, defines the free space to push next operand
+  EMStackSlot  *fp;        // frame pointer, defines where the currnet function's slots begin
+  char error[1024];        // memory for error messages
+} ExecMachine;
+
+ExecMachine *exec_new(size_t stack_slots);
+
+EMState exec_run(ExecMachine *em, const ASTNode* root);
+
+void exec_free(ExecMachine *em);
 
 #endif
