@@ -3,12 +3,6 @@
 #include <stdint.h>
 #include <stdio.h>
 
-void print_cstring(VMEngine *vm) {
-  static const char *s = "abc";
-  vm_add_command(vm, (VMCommand){BC_PUSH,  1, {(uint64_t)(uintptr_t)s}});
-  vm_add_command(vm, (VMCommand){BC_ECHOS, 0, {}});
-}
-
 void print_sum_of_two_integers(VMEngine *vm) {
   // echo (!51 + 5)
   vm_add_command(vm, (VMCommand){BC_PUSH,  1, {51}});
@@ -31,7 +25,6 @@ int main() {
   VMEngine *vm = vm_new(1024, 1024, 1024);
   if (vm == NULL) return 1;
 
-  print_cstring(vm);
   print_sum_of_two_integers(vm);
   print_string(vm);
 

@@ -19,10 +19,10 @@ typedef enum : uint8_t {
   BC_DIV,
   BC_DUP,                        // duplicates value on the operand stack and pushes it back
 
-  BC_CALL,                       // pushes return address on the operand stack and transfers execution
-  BC_RETURN,                     // removes chck if all owned variables are destoryed and transfers execution
+  BC_CALL,                       // <slot_count> <address> ; pushes return address on the operand stack, fills stack frame pointer and transfers execution to address
+  BC_RETURN,                     // operates on the stack frame pointer, transferes exection to the return address
   BC_JUMP,                       // <offset> ; unconditional transfer of execution
-  BC_JUMPF,                      //          ; jump if false is on the top of the stack, pop operand before jump
+  BC_JUMPF,                      //          ; jump if false is on the top of the stack, pops operand before jump
   BC_LOAD,                       // <slot>   ; borrow slot x onto the operand stack
   BC_LOAD_FIELD,                 // <slot> <offset> ; laods the address of the value of a field of a structure
   BC_STORE,                      // <slot>   ; move the result from the operand stack into slot
@@ -32,8 +32,8 @@ typedef enum : uint8_t {
   BC_PUSH,                       // <uint64> ; pushes value on the operand stack
   BC_MAKE,                       // <slot> <kind> ; create a new owned value in a slot
   BC_MOVE,                       // <slot1> <slot2> transfer ownership from slot1 to slot2, invalidate slot1
-  BC_DROP,                       // <slot>   ; destroy slot's value, mark the slot DROPPED
-  BC_END_OF_ENUM
+  BC_DROP,                       // <slot>   ; destroy the stack frame slot's value
+  BC_ENUM_SIZE
 } BCCommandKind;
 
 typedef struct {
@@ -42,32 +42,35 @@ typedef struct {
   uint64_t ops[2];
 } VMCommand;
 
-typedef struct {
-  uint64_t *slots;
-  uint64_t ret_addr;
-} VMFrame;
-
-// never could be less then 64bits, it stores addresses
+// never could be less then 64bits, it stores 64bits addresses
 typedef uint64_t VMStackSlot;
 typedef uint8_t  VMCodeSlot;
 //typedef uint64_t VMOffset;
 
 typedef struct {
-  size_t pool_len;        // count elements, not bytes
-  uint8_t *pool;          // storage for strings
-  size_t add_pool_idx;    // index of the first free place in pool of constants
+  VMStackSlot *slots;
+  VMCodeSlot *ret_addr;
+} VMFrame;
 
-  VMCodeSlot *code_end;   // the upped bound for instruction pointer
-  VMCodeSlot *code;       // instructions
-  VMCodeSlot *ip;         // instruction pointer, grows up, pints to the code
+typedef struct {
+  size_t pool_len;           // count elements, not bytes
+  uint8_t *pool;             // storage for strings
+  size_t add_pool_idx;       // index of the first free place in pool of constants
+
+  VMCodeSlot *code_end;      // the upped bound for instruction pointer
+  VMCodeSlot *code;          // instructions
+  VMCodeSlot *ip;            // instruction pointer, grows up, pints to the code
   VMCodeSlot *add_code_ptr;  // pointer to the first free palce for the next command to add
 
-  VMStackSlot *stack_end; // the upper bound on the stack pointer
-  VMStackSlot *stack;     // function frames with slots and temporary operands
-  VMStackSlot *sp;        // stack pointer, grows up, points to the operand stack
-  VMStackSlot *sfp;       // stack frame pointer, grows up, pionts to the operand stack
-  bool stopped;           // if true the vm can operate no longer
-  char error[1024];       // filled with message if error occured in runtime
+  VMStackSlot *stack_end;    // the upper bound on the stack pointer
+  VMStackSlot *stack;        // function frames with slots and temporary operands
+  VMStackSlot *sp;           // stack pointer, grows up, points to the operand stack
+  VMFrame      sfp;          // stack frame pointer, grows up, pionts to the operand stack
+
+  VMCodeSlot *entry_point;   // execution must start from here
+
+  bool stopped;              // if true the vm can operate no longer
+  char error[1024];          // filled with message if error occured in runtime
 } VMEngine;
 
 typedef enum {
@@ -90,6 +93,8 @@ void      vm_add_command(VMEngine *vm, VMCommand cmd);
 
 // returns the offset of the string in pool
 size_t    vm_add_string(VMEngine *vm, const char *s, size_t len);
+
+VMCodeSlot *vm_add_function(VMEngine *vm);
 
 VMState   vm_execute(VMEngine *vm, size_t steps);
 

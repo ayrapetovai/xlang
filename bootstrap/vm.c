@@ -160,7 +160,7 @@ static void exec_echos(VMEngine *vm) {
 }
 
 typedef void(*Executor)(VMEngine*);
-static const Executor command_excutors[BC_END_OF_ENUM] = {
+static const Executor command_excutors[BC_ENUM_SIZE] = {
   // TODO assert all cellas are filled
   [BC_PUSH]   = exec_push,
   [BC_NOT]    = exec_not,
@@ -201,9 +201,10 @@ VMEngine *vm_new(size_t pool_len, size_t code_len, size_t stack_len) {
   vm->stack_end = vm->stack + stack_len;
 
   vm->sp = vm->stack;
-  vm->sfp = NULL;
+  vm->sfp = (VMFrame){};
   vm->ip = vm->code;
   vm->add_code_ptr = vm->code;
+  vm->entry_point = vm->code;
 
   memset(vm->code, 0, code_len);
 
@@ -249,6 +250,7 @@ size_t vm_add_string(VMEngine *vm, const char *s, size_t len) {
 
 VMState vm_execute(VMEngine *vm, size_t steps) {
   assert(vm != NULL);
+  vm->ip = vm->entry_point;
   size_t step = 0;
   while (step < steps && !vm->stopped) {
     if (vm->ip >= vm->code_end) {
@@ -257,7 +259,7 @@ VMState vm_execute(VMEngine *vm, size_t steps) {
     }
     BCCommandKind command_kind = *(BCCommandKind*)vm->ip;
     vm->ip += sizeof(BCCommandKind);
-    if (command_kind >= BC_END_OF_ENUM) {
+    if (command_kind >= BC_ENUM_SIZE) {
       snprintf(vm->error, sizeof(vm->error), "unknown command %d", command_kind);
       return VM_STATE_ERROR;
     }
