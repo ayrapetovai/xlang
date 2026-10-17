@@ -49,7 +49,7 @@ ExecMachine *exec_new(size_t stack_slots, size_t task_slots) {
     free(em);
     return NULL;
   }
-  em->ttop = 0;
+  em->to = 0;
   em->task_slots = task_slots;
   em->tasks = malloc(em->task_slots * sizeof(EMTask));         // work stack; size = AST depth/node count
   if (em->tasks == NULL) {
@@ -62,19 +62,19 @@ ExecMachine *exec_new(size_t stack_slots, size_t task_slots) {
 }
 
 static inline void push_task(ExecMachine *em, const ASTNode *n, EMReduceType r) {
-    if (em->ttop >= em->task_slots) {
+    if (em->to >= em->task_slots) {
       snprintf(em->error, sizeof(em->error), "task stack overflow");
       longjmp(em->catch, 1);
     }
-    em->tasks[em->ttop++] = (EMTask){ n, r };
+    em->tasks[em->to++] = (EMTask){ n, r };
 }
 
 static inline EMTask pop_task(ExecMachine *em) {
-    if (em->ttop == 0){
+    if (em->to == 0){
       snprintf(em->error, sizeof(em->error), "task stack underflow");
       longjmp(em->catch, 1);
     }
-    return em->tasks[--em->ttop];
+    return em->tasks[--em->to];
 }
 
 static inline void scope_push_new(ExecMachine *em) {
@@ -216,7 +216,7 @@ EMState exec_run(ExecMachine *em, const ASTNode *root) {
 
   push_task(em, root, EMR_EVAL);
 
-  while (em->ttop > 0) {
+  while (em->to > 0) {
     EMTask t = pop_task(em);
     const ASTNode *n = t.node;
 
