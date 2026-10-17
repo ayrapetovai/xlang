@@ -133,36 +133,6 @@ static void* reduce_echo_expr(size_t argc, void* argv[]) {
   return node_stmt_echo_new(echo_tok->kind, argv[1]);
 }
 
-static void* reduce_stmt_sep_stmts(size_t argc, void* argv[]) {
-  assert(argc == 3);
-  ASTNode *stmt = argv[0];
-  assert(stmt->kind == NODE_STMT);
-  ASTNode *stmt_or_block = argv[2];
-
-  ASTNode *block;
-  if (stmt_or_block->kind == NODE_STMT) {
-    block = node_block_new();
-    node_block_append(block, stmt);
-    node_block_append(block, stmt_or_block); // push back
-  } else if (stmt_or_block->kind == NODE_BLOCK) {
-    block = stmt_or_block;
-    node_block_prepend(block, stmt);         // push front
-  } else {
-    assert(false);
-  }
-  return block;
-}
-
-static void* reduce_stmt(size_t argc, void* argv[]) {
-  assert(argc == 1);
-  ASTNode *stmt = (ASTNode*) argv[0];
-  assert(stmt->kind == NODE_STMT);
-
-  ASTNode *block = node_block_new();
-  node_block_append(block, stmt);
-  return block;
-}
-
 static void* reduce_id_define_expr(size_t argc, void* argv[]) {
   assert(argc == 3);
   Token *id_tok = argv[0];
@@ -176,6 +146,14 @@ static void* reduce_expr_assign_expr(size_t argc, void* argv[]) {
   Token *define_tok = argv[1];
   assert(define_tok->kind == TOK_ASSIGN);
   return node_assignment_new(argv[0], argv[2]);
+}
+
+static void* reduce_stmt_rest(size_t argc, void* argv[]) {
+  assert(argc == 2);
+  ASTNode *stmt = argv[0], *rest = argv[1];
+  assert(stmt->kind == NODE_STMT && rest->kind == NODE_BLOCK);
+  node_block_prepend(rest, stmt);
+  return rest;
 }
 
 static void* reduce_empty_block(size_t argc, void* []) {
@@ -215,6 +193,7 @@ static void* reduce_tripple_ntrm(size_t argc, void* argv[]) {
 
 struct GrammarRule expr_prime;
 struct GrammarRule braced_block;
+struct GrammarRule stmts;
 struct GrammarRule stmt;
 
 RULE_EXPR(if_tail,
@@ -276,9 +255,13 @@ RULE( stmt,
   // PROD_R( TERM(TOK_ID), NTRM(type_expr), TERM(TOK_ASSIGN), NTRM(expr_prime),       REDUCE(reduce_id_types_expr_assign_expr) ),
 )
 
+RULE( stmts_rest,
+  PROD_R( NTRM(stmt_seps), NTRM(stmts),                           REDUCE(reduce_peek_second) ),
+  PROD_R(                                                         REDUCE(reduce_empty_block) ),
+)
+
 RULE( stmts,
-  PROD_L( NTRM(stmt), NTRM(stmt_seps), NTRM(stmts),               REDUCE(reduce_stmt_sep_stmts) ),
-  PROD_R( NTRM(stmt),                                             REDUCE(reduce_stmt) ),
+  PROD_R( NTRM(stmt), NTRM(stmts_rest),                           REDUCE(reduce_stmt_rest) ),
   PROD_R(                                                         REDUCE(reduce_empty_block) ),
 )
 
