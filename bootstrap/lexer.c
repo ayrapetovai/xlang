@@ -112,7 +112,6 @@ void lexer_rewind_to(struct Lexer *lexer, size_t mark) {
 
 enum LexState lexer_next_significant(struct Lexer *lexer, struct Token **tok) {
   assert(lexer != NULL);
-  *tok = NULL;
   if (lexer->at_eof && lexer->steps_pos >= lexer->steps_len) {
     assert(lexer->steps_len > 0);
     *tok = lexer->steps[lexer->steps_len - 1].tok;
@@ -120,6 +119,7 @@ enum LexState lexer_next_significant(struct Lexer *lexer, struct Token **tok) {
   }
 
   while (true) {
+    *tok = NULL;
     bool replayed = lexer->steps_pos < lexer->steps_len;
     if (replayed) {
       struct LexStep *step = &lexer->steps[lexer->steps_pos++];
@@ -217,7 +217,7 @@ enum LexState lexer_next_token(struct Lexer *lexer, struct Token **tok) {
       return LEX_ERROR;
     }
 
-    char c = '\0';
+    unsigned char c = '\0';
     bool read = reader_getch(lexer->reader, &c);
     if (!read && lexer->reader->error[0] != '\0') {
       // if no read and error present then error, else end of file
@@ -310,7 +310,7 @@ enum LexState lexer_skip_line(struct Lexer *lexer) {
   assert(lexer != NULL);
 
   while (true) {
-    char c = '\0';
+    unsigned char c = '\0';
     bool read = reader_getch(lexer->reader, &c);
     if (!read && lexer->reader->error[0] != '\0') {
       sprintf(lexer->error, "failed lexing line comment: %s", lexer->reader->error);
@@ -331,63 +331,33 @@ enum LexState lexer_skip_line(struct Lexer *lexer) {
 enum LexState lexer_skip_until(struct Lexer *lexer, const char *anchor) {
   assert(lexer != NULL && anchor != NULL);
 
-  typedef enum WatchState {
-    WS_SKIPPING,
-    WS_STOPPING,
-  } WatchState;
+  size_t anchor_len = strlen(anchor);
+  if (anchor_len == 0) return LEX_OK;
 
-  size_t anchor_ith = 0;
-  WatchState state = WS_SKIPPING;
+  size_t matched = 0; // length of the anchor prefix consumed so far
   while (true) {
-    char c = '\0';
+    unsigned char c = '\0';
     bool read = reader_getch(lexer->reader, &c);
     if (!read && lexer->reader->error[0] != '\0') {
-      // if no read and error present then error, else end of file
       sprintf(lexer->error, "faild lexing skip: %s", lexer->reader->error);
       return LEX_ERROR;
     }
-
     if (!read) { // EOF
       sprintf(lexer->error, "skip failed to reach anchor %s", anchor);
       return LEX_ERROR;
     }
 
     lexer->col += 1;
+    if (c == '\n') { lexer->line += 1; lexer->col = 1; }
 
-    switch (state) {
-    case WS_SKIPPING:
-      if (c == '\n') {
-        lexer->line += 1;
-        lexer->col = 1;
-      }
-      if (c == anchor[0]) {
-        anchor_ith = 0;
-        state = WS_STOPPING;
-      }
-      break;
-    case WS_STOPPING:
-      anchor_ith++;
-      if (c != anchor[anchor_ith]) {
-        if (anchor[anchor_ith] == '\0') {
-          reader_ungetch(lexer->reader, c);
-          lexer->col -= 1;
-          return LEX_OK;
-        } else { // that was not the anchor in parsed text
-          anchor_ith = 0;
-          state = WS_SKIPPING;
-        }
-      }
-      if (c == '\n') {
-        lexer->line += 1;
-        lexer->col = 1;
-      }
-      break;
-    default:
-      sprintf(lexer->error, "lexer skip state is undefined");
-      return LEX_ERROR;
+    if (c == anchor[matched]) {
+      matched += 1;
+    } else {
+      // restart, re-examining this char as a possible anchor start
+      matched = (c == anchor[0]) ? 1 : 0;
     }
+    if (matched == anchor_len) return LEX_OK; // whole anchor consumed
   }
-  return LEX_OK;
 }
 
 void lexer_close(struct Lexer *lexer) {

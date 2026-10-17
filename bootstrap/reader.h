@@ -19,7 +19,7 @@ typedef struct Reader {
 
 Reader *new_reader(FILE *);
 
-bool reader_getch(struct Reader *, char *);
+bool reader_getch(struct Reader *, unsigned char *);
 
 void reader_ungetch(struct Reader *, char);
 

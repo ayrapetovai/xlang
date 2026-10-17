@@ -1,6 +1,8 @@
 #include "map.h"
+#include <stdint.h>
 #include <string.h>
 #include <stddef.h>
+#include <inttypes.h>
 #include <stdlib.h>
 #include <assert.h>
 
@@ -23,15 +25,19 @@ typedef struct HashMap {
   HMNode **nodes;
 } HashMap;
 
-#define index(n, h) (n - 1) & h
+// #define index(n, h) (n - 1) & h
 
-static int hash(const char* s) {
+static inline size_t index(size_t n, uint64_t h) {
+  return (n - 1) & h;
+}
+
+static inline uint64_t hash(const char* s) {
   if (s == NULL || *s == '\0') {
     return 0;
   } else if (s[1] == '\0') {
     return *s & 0xff;
   } else {
-    int result = 0;
+    uint64_t result = 0;
     int i = 0;
     while (s[i] != '\0') {
       result = 31 * result + s[i];
@@ -86,7 +92,7 @@ void *hashmap_put(HashMap *hm, const char *key, void *val) {
     grow(hm);
   }
 
-  int h = hash(key);
+  uint64_t h = hash(key);
   size_t i = index(hm->cap, h);
   HMNode *n = hm->nodes[i];
 
@@ -123,7 +129,7 @@ void *hashmap_put(HashMap *hm, const char *key, void *val) {
 
 void *hashmap_get(HashMap *hm, const char *key) {
   assert(hm != NULL);
-  int h = hash(key);
+  uint64_t h = hash(key);
   size_t i = index(hm->cap, h);
   HMNode *n = hm->nodes[i];
   if (n == NULL) {
@@ -143,7 +149,7 @@ void *hashmap_get(HashMap *hm, const char *key) {
 
 void *hashmap_remove(struct HashMap *hm, const char *key) {
   assert(hm != NULL);
-  int h = hash(key);
+  uint64_t h = hash(key);
   size_t i = index(hm->cap, h);
   HMNode *n = hm->nodes[i];
   if (n == NULL) {
@@ -175,10 +181,6 @@ void *hashmap_remove(struct HashMap *hm, const char *key) {
   n->next = next;
   hm->size -= 1;
   return val;
-}
-
-bool hashmap_contains(HashMap *, const char *) {
-  assert(false);
 }
 
 void hashmap_free(HashMap *hm) {

@@ -1,6 +1,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 
@@ -80,7 +81,8 @@ int run_lex(FILE* src) {
 
   size_t token_count = 0;
   size_t value_bytes = 0;
-  while (true) {
+  bool done = false;
+  while (!done) {
     Token *t = NULL;
     enum LexState state = lexer_next_token(lexer, &t);
     if (state == LEX_EOF) {
@@ -88,7 +90,6 @@ int run_lex(FILE* src) {
       break;
     } else if (state == LEX_ERROR) {
       free(t);
-      fprintf(stderr, "lexing error: %s\n", lexer->error);
       error_code = 2;
       break;
     }
@@ -96,13 +97,21 @@ int run_lex(FILE* src) {
 
     // skip commentaries
     switch (t->kind) {
-    case TOK_SLC_START: lexer_skip_line(lexer); break;
-    case TOK_MLC_START: lexer_skip_until(lexer, "*/"); break;
+    case TOK_SLC_START:
+      if (lexer_skip_line(lexer) == LEX_ERROR) { error_code = 3; done = true; }
+      break;
+    case TOK_MLC_START:
+      if (lexer_skip_until(lexer, "*/") == LEX_ERROR) { error_code = 4; done = true; }
+      break;
     default:
     }
     token_count++;
     value_bytes += strlen(t->value);
     free(t);
+  }
+
+  if (error_code > 0) {
+    fprintf(stderr, "lexint error: %s\n", lexer->error);
   }
 
   lexer_close(lexer);
@@ -112,6 +121,11 @@ int run_lex(FILE* src) {
 
 int run_ast(FILE* src) {
   struct Lexer *lexer = lexer_new(src);
+  if (lexer == NULL) {
+    fprintf(stderr, "lexer initialization failed");
+    return 2;
+  }
+
   if (strlen(lexer->error) != 0) {
     fprintf(stderr, "lexer initialization: %s\n", lexer->error);
     lexer_close(lexer);
@@ -120,6 +134,7 @@ int run_ast(FILE* src) {
 
   struct Parser* parser = parser_new(lexer);
   if (parser == NULL) {
+    fprintf(stderr, "parser initialization failed");
     lexer_close(lexer);
     return 2;
   }
@@ -174,7 +189,9 @@ int main(int argc, char **argv) {
         logger_set_level(LOG_LEVEL_ERROR);
       else if (strcmp("fatal", level) == 0)
         logger_set_level(LOG_LEVEL_FATAL);
-      else if (strcmp(argv[i], "off") != 0) {
+      else if (strcmp("off", level) == 0)
+        logger_set_level(LOG_LEVEL_OFF);
+      else {
         fprintf(stderr, "wrong argument for --log-level, expected: debug, info, warn, error, fatal, off\n");
         return 1;
       }
@@ -205,7 +222,7 @@ int main(int argc, char **argv) {
   if (strcmp(filename, "-") == 0) {
     src = stdin;
   } else {
-    src = fopen(filename, "ra"); // read only as text
+    src = fopen(filename, "r"); // read only as text
     if (src == NULL) {
       fprintf(stderr, "failed to open file %s: %s\n", filename, strerror(errno));
       return 1;

@@ -21,7 +21,8 @@
   }                                                                 \
                                                                     \
   static inline void Name##_free(Name *s) {                         \
-    if (s == NULL || s->data == NULL) return;                       \
+    if (s == NULL) return;                                          \
+    if(s->data == NULL) { free(s); return; }                        \
     for (size_t i = 0; i < s->len; i++) {                           \
       deallocator(s->data[i]);                                      \
     }                                                               \

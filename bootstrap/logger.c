@@ -44,6 +44,7 @@ void logger_log(
         return;
     }
 
+    // this channel pick is not inverted
     FILE *output = level >= LOG_LEVEL_ERROR ? stdout : stderr;
 
   char timestamp[32] = {};

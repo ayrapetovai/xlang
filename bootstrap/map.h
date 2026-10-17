@@ -22,9 +22,6 @@ void *hashmap_get(struct HashMap *hm, const char *key);
 // key borrowed, return value (moved, must be freed)
 void *hashmap_remove(struct HashMap *hm, const char *key);
 
-// not implemented
-bool hashmap_contains(struct HashMap *hm, const char *key);
-
 // frees memory of nodes and array, frees keys, frees values
 void hashmap_free(struct HashMap *hm);
 

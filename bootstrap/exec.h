@@ -15,12 +15,12 @@ typedef uint64_t EMStackSlot;
 //   EMStackSlot *slots;
 // } EMStackFrame;
 
-typedef enum {
+typedef enum : char {
   EMS_SUCCESS,
   EMS_ERROR,
 } EMState;
 
-typedef enum {
+typedef enum : char {
   EMR_EVAL,
   EMR_REFERENCE,
 } EMReduceType;

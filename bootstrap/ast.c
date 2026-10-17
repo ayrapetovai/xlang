@@ -14,6 +14,7 @@ ASTNode *node_new(NodeKind kind) {
   ASTNode *n = malloc(sizeof *n);
   assert(n != NULL);
   n->kind = kind;
+  n->height = SIZE_MAX; // must be overwritten
   return n;
 }
 
@@ -247,7 +248,7 @@ ASTNode *node_block_new() {
     .stmts = malloc(2 * sizeof(ASTNode*)),
   };
   assert(block->info.block.stmts != NULL);
-  memset(block->info.block.stmts, 0, 2);
+  memset(block->info.block.stmts, 0, 2 * sizeof(ASTNode*));
   block->height = 1;
   return block;
 }

@@ -3,6 +3,7 @@
 #include "map.h"
 #include "tokens.h"
 #include <assert.h>
+#include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -46,6 +47,9 @@ ExecMachine *exec_new(size_t stack_slots, size_t task_slots) {
   em->stack_end = em->stack + stack_slots;
   em->sp = em->stack;
   em->fp = NULL;
+
+  em->tasks = NULL;
+
   em->scope = EMScope_new();
   if (em->scope == NULL) {
     em->corrupted = true;
@@ -102,7 +106,12 @@ static inline void scope_pop(ExecMachine *em) {
 }
 
 static inline void scope_add_descriptor(ExecMachine *em, char *name, NameDescriptor *dsc) {
-  hashmap_put(EMScope_top(em->scope), name, dsc);
+  void *prev = hashmap_put(EMScope_top(em->scope), name, dsc);
+  if (prev != NULL) {
+    free(prev);
+    snprintf(em->error, sizeof(em->error), "name redefinition, %s", name);
+    longjmp(em->catch, 1);
+  }
 }
 
 static inline NameDescriptor *scope_get_descriptor(ExecMachine *em, char *name) {
@@ -189,12 +198,23 @@ static void apply_if(ExecMachine *em, const ASTNode *n) {
 
 static void value_of(ExecMachine *em, const ASTNode *n) {
   switch (n->info.val.kind) {
-    case VK_INTEGER: exec_push(em, (int64_t)atoi(n->info.val.value));       break;
-    case VK_BOOL:    exec_push(em, strcmp(n->info.val.value, "true") == 0); break;
+    case VK_INTEGER:
+      int64_t v = strtoll(n->info.val.value, NULL, 10);
+      if (errno != 0) {
+        snprintf(em->error, sizeof(em->error), "faield to convert string to integer: %s", strerror(errno));
+        longjmp(em->catch, 1);
+      }
+      exec_push(em, v);
+      break;
+    case VK_BOOL: exec_push(em, strcmp(n->info.val.value, "true") == 0); break;
     default:
       snprintf(em->error, sizeof(em->error), "unsupported value kind %d", n->info.val.kind);
       longjmp(em->catch, 1);
   }
+}
+
+static void apply_echo(ExecMachine *em) {
+  printf("%"PRId64"\n", (int64_t)exec_pop(em));
 }
 
 static void apply_define(ExecMachine *em, const ASTNode *n) {
@@ -273,8 +293,8 @@ EMState exec_run(ExecMachine *em, const ASTNode *root) {
             case TOK_ECHO:
               PHASE2(t,
                 push_task(em, n->info.stmt.echo.expr, EMR_EVAL),
-                printf("%d\n", (int)(int64_t)exec_pop(em))
-                );
+                apply_echo(em)
+            );
             case TOK_DEFINE:
               PHASE2(t,
                 push_task(em, n->info.stmt.define.expr, EMR_EVAL),

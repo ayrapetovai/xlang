@@ -25,7 +25,7 @@ Reader* new_reader(FILE* src) {
   return reader;
 }
 
-bool reader_getch(struct Reader* reader, char *c) {
+bool reader_getch(struct Reader* reader, unsigned char *c) {
   if (reader == NULL) return false;
 
   // check if the last operation was unget,
