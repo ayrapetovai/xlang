@@ -57,6 +57,7 @@ ExecMachine *exec_new(size_t stack_slots, size_t task_slots) {
     free(em);
     return NULL;
   }
+  em->corrupted = false;
   memset(em->error, '\0', sizeof(em->error));
   return em;
 }
@@ -208,9 +209,10 @@ static void apply_assign(ExecMachine *em) {
 }
 
 EMState exec_run(ExecMachine *em, const ASTNode *root) {
+  if (em->corrupted) return EMS_ERROR;
+
   if (setjmp(em->catch) != 0) {
-    em->sp = em->stack;
-    // TODO exec_clear_scopes(em); // with proper disposing variables
+    em->corrupted = true;
     return EMS_ERROR;
   }
 

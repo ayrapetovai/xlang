@@ -42,6 +42,7 @@ typedef struct {
   size_t        to;         // task stack offset, defined the next free space to push a task
   size_t        task_slots; // must be to less than the AST depth
   jmp_buf       catch;      // return address for runtime error cases
+  bool          corrupted;  // the machine can be no longer used
   char error[1024];         // memory for error messages
 } ExecMachine;
 
