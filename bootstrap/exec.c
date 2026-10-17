@@ -61,6 +61,22 @@ ExecMachine *exec_new(size_t stack_slots, size_t task_slots) {
   return em;
 }
 
+static inline void push_task(ExecMachine *em, const ASTNode *n, EMReduceType r) {
+    if (em->ttop >= em->task_slots) {
+      snprintf(em->error, sizeof(em->error), "task stack overflow");
+      longjmp(em->catch, 1);
+    }
+    em->tasks[em->ttop++] = (EMTask){ n, r };
+}
+
+static inline EMTask pop_task(ExecMachine *em) {
+    if (em->ttop == 0){
+      snprintf(em->error, sizeof(em->error), "task stack underflow");
+      longjmp(em->catch, 1);
+    }
+    return em->tasks[--em->ttop];
+}
+
 static inline void scope_push_new(ExecMachine *em) {
   if (!EMScope_push(em->scope, hashmap_new(free))) {
     snprintf(em->error, sizeof(em->error), "failed to create scope");
@@ -154,6 +170,12 @@ static void apply_uexpr(ExecMachine *em, const ASTNode *n) {
   }
 }
 
+static void apply_if(ExecMachine *em, const ASTNode *n) {
+  int64_t c = (int64_t)exec_pop(em);
+  push_task(em, (c ? n->info.stmt.iff.then_arm
+                  : n->info.stmt.iff.else_arm), EMR_EVAL);
+}
+
 static void value_of(ExecMachine *em, const ASTNode *n) {
   switch (n->info.val.kind) {
     case VK_INTEGER: exec_push(em, (int64_t)atoi(n->info.val.value));       break;
@@ -185,22 +207,6 @@ static void apply_assign(ExecMachine *em) {
   *addr = exec_pop(em);
 }
 
-static inline void push_task(ExecMachine *em, const ASTNode *n, EMReduceType r) {
-    if (em->ttop >= em->task_slots) {
-      snprintf(em->error, sizeof(em->error), "task stack overflow");
-      longjmp(em->catch, 1);
-    }
-    em->tasks[em->ttop++] = (EMTask){ n, r };
-}
-
-static inline EMTask pop_task(ExecMachine *em) {
-    if (em->ttop == 0){
-      snprintf(em->error, sizeof(em->error), "task stack underflow");
-      longjmp(em->catch, 1);
-    }
-    return em->tasks[--em->ttop];
-}
-
 EMState exec_run(ExecMachine *em, const ASTNode *root) {
   if (setjmp(em->catch) != 0) {
     em->sp = em->stack;
@@ -221,12 +227,7 @@ EMState exec_run(ExecMachine *em, const ASTNode *root) {
         case NODE_STMT:
           // TODO factor out to the separate function apply_stmt
           switch (n->info.stmt.stmt_tok) {
-            case TOK_IF:
-              int64_t c = (int64_t)exec_pop(em);
-              // TODO refactor: move working with task stack to the eval-branch
-              push_task(em, (c ? n->info.stmt.iff.then_arm
-                              : n->info.stmt.iff.else_arm), EMR_EVAL);
-              break;
+            case TOK_IF: apply_if(em, n); break;
             case TOK_ECHO:
               printf("%d\n", (int)(int64_t)exec_pop(em));
               break;
