@@ -218,10 +218,10 @@ struct GrammarRule braced_block;
 struct GrammarRule stmt;
 
 RULE_EXPR(if_tail,
-  PROD_L( NTRM(expr_prime), TERM(TOK_THEN),     NTRM(expr_prime), TERM(TOK_ELSE), NTRM(expr_prime), REDUCE(reduce_if_expr_then_stmt_else_stmt) ),
-  PROD_L( NTRM(expr_prime), TERM(TOK_THEN),     NTRM(stmt),                             REDUCE(reduce_if_expr_then_stmt) ),
-  PROD_L( NTRM(expr_prime), NTRM(braced_block), TERM(TOK_ELSE), NTRM(braced_block),     REDUCE(reduce_if_expr_braced_block_else_braced_block) ),
-  PROD_L( NTRM(expr_prime), NTRM(braced_block),                                         REDUCE(reduce_if_expr_braced_block) ),
+  PROD_R( NTRM(expr_prime), TERM(TOK_THEN),     NTRM(expr_prime), TERM(TOK_ELSE), NTRM(expr_prime), REDUCE(reduce_if_expr_then_stmt_else_stmt) ),
+  PROD_R( NTRM(expr_prime), TERM(TOK_THEN),     NTRM(stmt),                             REDUCE(reduce_if_expr_then_stmt) ),
+  PROD_R( NTRM(expr_prime), NTRM(braced_block), TERM(TOK_ELSE), NTRM(braced_block),     REDUCE(reduce_if_expr_braced_block_else_braced_block) ),
+  PROD_R( NTRM(expr_prime), NTRM(braced_block),                                         REDUCE(reduce_if_expr_braced_block) ),
 )
 
 //**************************************************************
@@ -287,8 +287,8 @@ RULE( block,
 )
 
 RULE( braced_block,
-  PROD_L( TERM(TOK_LBRACE), NTRM(block), TERM(TOK_RBRACE),        REDUCE(reduce_tripple_ntrm) ),
-  PROD_L( TERM(TOK_LBRACE), NTRM(stmt_optseps), TERM(TOK_RBRACE), REDUCE(reduce_empty_block) ),
+  PROD_R( TERM(TOK_LBRACE), NTRM(block), TERM(TOK_RBRACE),        REDUCE(reduce_tripple_ntrm) ),
+  PROD_R( TERM(TOK_LBRACE), NTRM(stmt_optseps), TERM(TOK_RBRACE), REDUCE(reduce_empty_block) ),
 )
 
 //**************************************************************
