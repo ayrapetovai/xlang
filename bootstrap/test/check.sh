@@ -37,6 +37,8 @@
 # POSIX sh on purpose: zsh does not word-split unquoted expansions.
 set -u
 LC_ALL=C; export LC_ALL
+# The cases below pin the colorless dump; never exercise the tty-colored form.
+NO_COLOR=1; export NO_COLOR
 cd "$(dirname "$0")" || exit 1
 
 # BIN may be overridden (make check-vs REF=... sets it to a ref build) so the
