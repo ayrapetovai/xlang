@@ -69,7 +69,7 @@ static inline void push_task(ExecMachine *em, const ASTNode *n, EMReduceType r) 
       snprintf(em->error, sizeof(em->error), "task stack overflow");
       longjmp(em->catch, 1);
     }
-    em->tasks[em->to++] = (EMTask){ n, r };
+    em->tasks[em->to++] = (EMTask){ n, r, 0 };
 }
 
 static inline EMTask pop_task(ExecMachine *em) {
@@ -78,6 +78,14 @@ static inline EMTask pop_task(ExecMachine *em) {
       longjmp(em->catch, 1);
     }
     return em->tasks[--em->to];
+}
+
+static inline EMTask *top_task(ExecMachine *em) {
+    if (em->to == 0) {
+      snprintf(em->error, sizeof(em->error), "fetch top fialed: task stack underflow");
+      longjmp(em->catch, 1);
+    }
+    return &em->tasks[em->to - 1];
 }
 
 static inline void scope_push_new(ExecMachine *em) {
@@ -221,82 +229,77 @@ EMState exec_run(ExecMachine *em, const ASTNode *root) {
   push_task(em, root, EMR_EVAL);
 
   while (em->to > 0) {
-    EMTask t = pop_task(em);
-    const ASTNode *n = t.node;
+    EMTask *t = top_task(em);
+    const ASTNode *n = t->node;
 
-    if (t.reduce_type == EMR_VALUE) { // children's values are on the operand stack
+    if (n == NULL) {
+      pop_task(em);
+      continue;
+    }
+
+    if (t->reduce_type == EMR_REFERENCE) {
       switch (n->kind) {
-        case NODE_EXPR:  apply_expr(em, n);  break;   // pop 2, push 1
-        case NODE_UEXPR: apply_uexpr(em, n); break;   // pop 1, push 1
-        case NODE_STMT:
-          // TODO factor out to the separate function apply_stmt
-          switch (n->info.stmt.stmt_tok) {
-            case TOK_IF: apply_if(em, n); break;
-            case TOK_ECHO:
-              printf("%d\n", (int)(int64_t)exec_pop(em));
-              break;
-            case TOK_DEFINE: apply_define(em, n); break;
-            case TOK_ASSIGN: apply_assign(em);    break;
-            default:
-              snprintf(em->error, sizeof(em->error), "statment unrecognized %d", n->info.stmt.stmt_tok);
-              longjmp(em->catch, 1);
-          }
-          break;
-        case NODE_BLOCK:                       // nothing to reduce
-          scope_pop(em);
-          break;
-        case NODE_ID: apply_identifier(em, n); break;
-        default:
-          snprintf(em->error, sizeof(em->error), "node kind unrecognized %d", n->kind);
-          longjmp(em->catch, 1);
-      }
-    } else if (t.reduce_type == EMR_REFERENCE) {
-      switch (n->kind) {
-        case NODE_ID: apply_identifier_ref(em, n); break;
+        case NODE_ID: apply_identifier_ref(em, n); pop_task(em); break;
         default:
           snprintf(em->error, sizeof(em->error), "expression is not assignable (not lvalue)");
           longjmp(em->catch, 1);
       }
     } else { // if eval
-      if (n == NULL) continue;
+      #define PHASE1(t, p1) { p1; pop_task(em); } break;
+      #define PHASE2(t, p1, p2) if (t->phase == 0) { t->phase = 1; p1; } else { p2; pop_task(em); } break;
+      #define PHASE3(t, p1, p2, p3) if (t->phase == 0) { t->phase = 1; p1; } else if (t->phase == 1) {t->phase = 2; p2; } else { p3; pop_task(em); } break;
       switch (n->kind) {
-        case NODE_VALUE: value_of(em, n); break;
+        case NODE_VALUE:
+          PHASE1(t, value_of(em, n));
         case NODE_EXPR:
-          push_task(em, n, EMR_VALUE);
-          push_task(em, n->info.expr.op2, EMR_EVAL);
-          push_task(em, n->info.expr.op1, EMR_EVAL);
-          break;
+          PHASE3(t,
+            push_task(em, n->info.expr.op1, EMR_EVAL),
+            push_task(em, n->info.expr.op2, EMR_EVAL),
+            apply_expr(em, n)
+          );
         case NODE_UEXPR:
-          push_task(em, n, EMR_VALUE);
-          push_task(em, n->info.uexpr.op, EMR_EVAL);
-          break;
+          PHASE2(t,
+            push_task(em, n->info.uexpr.op, EMR_EVAL),
+            apply_uexpr(em, n)
+          );
         case NODE_STMT:
-          push_task(em, n, EMR_VALUE);
           switch (n->info.stmt.stmt_tok) {
             case TOK_IF:
-              push_task(em, n->info.stmt.iff.cond, EMR_EVAL);  break;
+              PHASE3(t,
+                push_task(em, n->info.stmt.iff.cond, EMR_EVAL),
+                apply_if(em, n),
+                {} // no operation, pop task only
+              );
             case TOK_ECHO:
-              push_task(em, n->info.stmt.echo.expr, EMR_EVAL); break;
+              PHASE2(t,
+                push_task(em, n->info.stmt.echo.expr, EMR_EVAL),
+                printf("%d\n", (int)(int64_t)exec_pop(em))
+                );
             case TOK_DEFINE:
-              push_task(em, n->info.stmt.define.expr, EMR_EVAL); break;
+              PHASE2(t,
+                push_task(em, n->info.stmt.define.expr, EMR_EVAL),
+                apply_define(em, n)
+              );
             case TOK_ASSIGN:
-              push_task(em, n->info.stmt.assign.lexpr, EMR_REFERENCE);
-              push_task(em, n->info.stmt.assign.expr, EMR_EVAL);
-              break;
+              PHASE3(t,
+                push_task(em, n->info.stmt.assign.expr, EMR_EVAL),
+                push_task(em, n->info.stmt.assign.lexpr, EMR_REFERENCE),
+                apply_assign(em)
+              );
             default:
               snprintf(em->error, sizeof(em->error), "failed to create a task: statement unrecognized %d", n->info.stmt.stmt_tok);
               longjmp(em->catch, 1);
           }
           break;
         case NODE_BLOCK:
-          scope_push_new(em);
-          push_task(em, n, EMR_VALUE);
-          for (size_t i = n->info.block.len; i-- > 0;)
+          if (t->phase == 0) scope_push_new(em);
+          if (t->phase < n->info.block.len) {
+            size_t i = t->phase; t->phase = i + 1;
             push_task(em, n->info.block.stmts[i], EMR_EVAL);
+          } else { scope_pop(em); pop_task(em); }
           break;
         case NODE_ID:
-          push_task(em, n, EMR_VALUE);
-          break;
+          PHASE1(t, apply_identifier(em, n));
         default:
           snprintf(em->error, sizeof(em->error), "failed to create a task: node kind unrecognized %d", n->kind);
           longjmp(em->catch, 1);

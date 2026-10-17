@@ -4,6 +4,7 @@
 #include "tokens.h"
 #include <stdbool.h>
 #include <stddef.h>
+#include <inttypes.h>
 #include <stdlib.h>
 
 typedef enum {
@@ -83,7 +84,7 @@ typedef struct InfoId {
 typedef struct ASTNode {
   struct ASTNode *parent;
   NodeKind kind;
-  // uint8_t depth; // TODO count node layer backward during creation, root mus have the biggest depth
+  size_t height; // how many children in depth does this node holds, trivial are 1
   union {
     InfoId id;
     InfoExpr expr;

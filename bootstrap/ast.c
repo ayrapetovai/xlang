@@ -7,6 +7,9 @@
 #include <unistd.h>
 #include <string.h>
 
+#define MAX2(a, b) (((a) > (b)) ? (a) : (b))
+#define MAX3(a, b, c) MAX2(MAX2(a,b),c)
+
 ASTNode *node_new(NodeKind kind) {
   ASTNode *n = malloc(sizeof *n);
   assert(n != NULL);
@@ -150,6 +153,7 @@ void node_free(ASTNode *n) {
 ASTNode *node_id_new(const char* value) {
   ASTNode *n = node_new(NODE_ID);
   n->info.id.value = strdup(value);
+  n->height = 1;
   return n;
 }
 
@@ -159,6 +163,7 @@ ASTNode *node_value_new(ValueKind kind, const char *v) {
     .kind = kind,
     .value = strdup(v),
   };
+  n->height = 1;
   return n;
 }
 
@@ -171,6 +176,7 @@ ASTNode *node_expr_new(TokenKind kind, ASTNode *l, ASTNode *r) {
   };
   l->parent = n;
   r->parent = n;
+  n->height = 1 + MAX2(l->height, r->height);
   return n;
 }
 
@@ -181,6 +187,7 @@ ASTNode *node_uexpr_new(TokenKind kind, ASTNode *expr) {
     .op = expr,
   };
   expr->parent = n;
+  n->height = 1 + expr->height;
   return n;
 }
 
@@ -190,6 +197,7 @@ ASTNode *node_if_new(ASTNode *cond, ASTNode *then_arm, ASTNode *else_arm) {
   n->info.stmt.iff.cond = cond;
   n->info.stmt.iff.then_arm = then_arm;
   n->info.stmt.iff.else_arm = else_arm;
+  n->height = 1 + MAX3(cond->height, then_arm->height, (else_arm != NULL ? else_arm->height : 0));
   return n;
 }
 
@@ -200,6 +208,7 @@ ASTNode *node_stmt_echo_new(TokenKind kind, ASTNode *expr) {
     .echo.expr = expr,
   };
   expr->parent = n;
+  n->height = 1 + expr->height;
   return n;
 }
 
@@ -213,6 +222,7 @@ ASTNode *node_definition_new(ASTNode *id_node, ASTNode *expr) {
   };
   expr->parent = n;
   id_node->parent = n;
+  n->height = 1 + MAX2(id_node->height, expr->height);
   return n;
 }
 
@@ -225,6 +235,7 @@ ASTNode *node_assignment_new(ASTNode *lexpr, ASTNode *expr) {
   };
   lexpr->parent = n;
   expr->parent = n;
+  n->height = 1 + MAX2(lexpr->height, expr->height);
   return n;
 }
 
@@ -237,6 +248,7 @@ ASTNode *node_block_new() {
   };
   assert(block->info.block.stmts != NULL);
   memset(block->info.block.stmts, 0, 2);
+  block->height = 1;
   return block;
 }
 
@@ -263,6 +275,7 @@ void node_block_append(ASTNode *block, ASTNode *stmt) {
   info_block->stmts[info_block->len] = stmt;
   info_block->len += 1;
   stmt->parent = block;
+  block->height = MAX2(block->height, stmt->height + 1);
 }
 
 void node_block_prepend(ASTNode *block, ASTNode *stmt) {
@@ -271,5 +284,6 @@ void node_block_prepend(ASTNode *block, ASTNode *stmt) {
   info_block->stmts[0] = stmt;
   info_block->len += 1;
   stmt->parent = block;
+  block->height = MAX2(block->height, stmt->height + 1);
 }
 

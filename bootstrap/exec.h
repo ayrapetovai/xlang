@@ -4,7 +4,6 @@
 #include "ast.h"
 #include "map.h"
 #include "stack.h"
-#include <inttypes.h>
 #include <setjmp.h>
 #include <stddef.h>
 
@@ -23,13 +22,13 @@ typedef enum {
 
 typedef enum {
   EMR_EVAL,
-  EMR_VALUE,
   EMR_REFERENCE,
 } EMReduceType;
 
 typedef struct {
   const ASTNode *node;
-  EMReduceType reduce_type;
+  EMReduceType   reduce_type;
+  size_t         phase;     // the step of execution
 } EMTask;
 
 typedef struct {
@@ -40,7 +39,7 @@ typedef struct {
   EMScope      *scope;      // name storage
   EMTask       *tasks;      // task stack, holds AST nodes to define the processing order
   size_t        to;         // task stack offset, defined the next free space to push a task
-  size_t        task_slots; // must be to less than the AST depth
+  size_t        task_slots; // must be greater than or equal to the AST depth
   jmp_buf       catch;      // return address for runtime error cases
   bool          corrupted;  // the machine can be no longer used
   char error[1024];         // memory for error messages
