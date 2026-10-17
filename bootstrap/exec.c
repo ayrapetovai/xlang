@@ -10,7 +10,7 @@
 #include <string.h>
 #include <setjmp.h>
 
-// all functions with longjmp to catch_executin_exception can be called only
+// all functions with longjmp to ExecMachine::catch can be called only
 // in stack of exec_run(ExecMachine*, const ASTNode*), becase
 // they transfere exection to this function
 
@@ -45,8 +45,18 @@ ExecMachine *exec_new(size_t stack_slots, size_t task_slots) {
   em->sp = em->stack;
   em->fp = NULL;
   em->scope = EMScope_new();
+  if (em->scope == NULL) {
+    free(em);
+    return NULL;
+  }
+  em->ttop = 0;
   em->task_slots = task_slots;
-  if (em->scope == NULL) return NULL;
+  em->tasks = malloc(em->task_slots * sizeof(EMTask));         // work stack; size = AST depth/node count
+  if (em->tasks == NULL) {
+    EMScope_free(em->scope);
+    free(em);
+    return NULL;
+  }
   memset(em->error, '\0', sizeof(em->error));
   return em;
 }
@@ -95,10 +105,19 @@ static inline void exec_push(ExecMachine *em, EMStackSlot value) {
   *em->sp++ = value;
 }
 
+static void apply_identifier_ref(ExecMachine *em, const ASTNode *n) {
+  NameDescriptor* dsc = scope_get_descriptor(em, n->info.id.value);
+  if (dsc == NULL) {
+    snprintf(em->error, sizeof(em->error), "reference fetch failed: undefined name %s", n->info.id.value);
+    longjmp(em->catch, 1);
+  }
+  exec_push(em, (uintptr_t)&dsc->value);
+}
+
 static void apply_identifier(ExecMachine *em, const ASTNode *n) {
   NameDescriptor* dsc = scope_get_descriptor(em, n->info.id.value);
   if (dsc == NULL) {
-    snprintf(em->error, sizeof(em->error), "undefined name %s", n->info.id.value);
+    snprintf(em->error, sizeof(em->error), "value fetch failed: undefined name %s", n->info.id.value);
     longjmp(em->catch, 1);
   }
   exec_push(em, dsc->value);
@@ -149,43 +168,53 @@ static void apply_define(ExecMachine *em, const ASTNode *n) {
   // TODO refactor get name from define node
   char *name = n->info.stmt.define.id->info.id.value;
   NameDescriptor *dsc = malloc(sizeof(NameDescriptor));
+  if (dsc == NULL) {
+    snprintf(em->error, sizeof(em->error), "name dclaration failed to allocate memory");
+    longjmp(em->catch, 1);
+  }
   dsc->value = exec_pop(em);
   scope_add_descriptor(em, name, dsc);
 }
 
 static void apply_assign(ExecMachine *em) {
-  (void)em;
+  EMStackSlot *addr  = (EMStackSlot*)(uintptr_t)exec_pop(em);
+  if (addr == NULL) {
+    snprintf(em->error, sizeof(em->error), "NULL pointer access");
+    longjmp(em->catch, 1);
+  }
+  *addr = exec_pop(em);
+}
+
+static inline void push_task(ExecMachine *em, const ASTNode *n, EMReduceType r) {
+    if (em->ttop >= em->task_slots) {
+      snprintf(em->error, sizeof(em->error), "task stack overflow");
+      longjmp(em->catch, 1);
+    }
+    em->tasks[em->ttop++] = (EMTask){ n, r };
+}
+
+static inline EMTask pop_task(ExecMachine *em) {
+    if (em->ttop == 0){
+      snprintf(em->error, sizeof(em->error), "task stack underflow");
+      longjmp(em->catch, 1);
+    }
+    return em->tasks[--em->ttop];
 }
 
 EMState exec_run(ExecMachine *em, const ASTNode *root) {
-  typedef struct { const ASTNode *node; bool reduce; } Task;
-  Task *tasks = malloc(em->task_slots * sizeof(Task));         // work stack; size = AST depth/node count
-
-  if (tasks == NULL) {
-    snprintf(em->error, sizeof(em->error), "failed to allocate memory for task stack");
-    return EMS_ERROR;
-  }
-
-  int jmpres = setjmp(em->catch);
-  if (jmpres != 0) {
+  if (setjmp(em->catch) != 0) {
     em->sp = em->stack;
     // TODO exec_clear_scopes(em); // with proper disposing variables
-    free(tasks);
     return EMS_ERROR;
   }
 
-  size_t ttop = 0;                         // em->stack / em->sp is the value stack
-  #define PUSH_TASK(t) (tasks[ttop++] = (t))
-  #define EVAL(n)   (Task){ (n), false }   // expand: schedule children
-  #define REDUCE(n) (Task){ (n), true  }   // children done: combine them
+  push_task(em, root, EMR_EVAL);
 
-  PUSH_TASK(EVAL(root));
-
-  while (ttop > 0) {
-    Task t = tasks[--ttop];
+  while (em->ttop > 0) {
+    EMTask t = pop_task(em);
     const ASTNode *n = t.node;
 
-    if (t.reduce) {                                   // children's values are on the value stack
+    if (t.reduce_type == EMR_VALUE) {                                   // children's values are on the value stack
       switch (n->kind) {
         case NODE_EXPR:  apply_expr(em, n);  break;   // pop 2, push 1
         case NODE_UEXPR: apply_uexpr(em, n); break;   // pop 1, push 1
@@ -195,8 +224,8 @@ EMState exec_run(ExecMachine *em, const ASTNode *root) {
             case TOK_IF:
               int64_t c = (int64_t)exec_pop(em);
               // TODO refactor: move working with task stack to the eval-branch
-              PUSH_TASK(EVAL(c ? n->info.stmt.iff.then_arm
-                              : n->info.stmt.iff.else_arm));
+              push_task(em, (c ? n->info.stmt.iff.then_arm
+                              : n->info.stmt.iff.else_arm), EMR_EVAL);
               break;
             case TOK_ECHO:
               printf("%d\n", (int)(int64_t)exec_pop(em));
@@ -216,31 +245,38 @@ EMState exec_run(ExecMachine *em, const ASTNode *root) {
           snprintf(em->error, sizeof(em->error), "node kind unrecognized %d", n->kind);
           longjmp(em->catch, 1);
       }
+    } else if (t.reduce_type == EMR_REFERENCE) {
+      switch (n->kind) {
+        case NODE_ID: apply_identifier_ref(em, n); break;
+        default:
+          snprintf(em->error, sizeof(em->error), "expression is not assignable (not lvalue)");
+          longjmp(em->catch, 1);
+      }
     } else { // if eval
       if (n == NULL) continue;
       switch (n->kind) {
         case NODE_VALUE: value_of(em, n); break;
         case NODE_EXPR:
-          PUSH_TASK(REDUCE(n));
-          PUSH_TASK(EVAL(n->info.expr.op2));
-          PUSH_TASK(EVAL(n->info.expr.op1));
+          push_task(em, n, EMR_VALUE);
+          push_task(em, n->info.expr.op2, EMR_EVAL);
+          push_task(em, n->info.expr.op1, EMR_EVAL);
           break;
         case NODE_UEXPR:
-          PUSH_TASK(REDUCE(n));
-          PUSH_TASK(EVAL(n->info.uexpr.op));
+          push_task(em, n, EMR_VALUE);
+          push_task(em, n->info.uexpr.op, EMR_EVAL);
           break;
         case NODE_STMT:
-          PUSH_TASK(REDUCE(n));
+          push_task(em, n, EMR_VALUE);
           switch (n->info.stmt.stmt_tok) {
             case TOK_IF:
-              PUSH_TASK(EVAL(n->info.stmt.iff.cond));  break;
+              push_task(em, n->info.stmt.iff.cond, EMR_EVAL);  break;
             case TOK_ECHO:
-              PUSH_TASK(EVAL(n->info.stmt.echo.expr)); break;
+              push_task(em, n->info.stmt.echo.expr, EMR_EVAL); break;
             case TOK_DEFINE:
-              PUSH_TASK(EVAL(n->info.stmt.define.expr)); break;
+              push_task(em, n->info.stmt.define.expr, EMR_EVAL); break;
             case TOK_ASSIGN:
-              PUSH_TASK(EVAL(n->info.stmt.assign.lexpr));
-              PUSH_TASK(EVAL(n->info.stmt.assign.expr));
+              push_task(em, n->info.stmt.assign.lexpr, EMR_REFERENCE);
+              push_task(em, n->info.stmt.assign.expr, EMR_EVAL);
               break;
             default:
               snprintf(em->error, sizeof(em->error), "failed to create a task: statement unrecognized %d", n->info.stmt.stmt_tok);
@@ -249,12 +285,12 @@ EMState exec_run(ExecMachine *em, const ASTNode *root) {
           break;
         case NODE_BLOCK:
           scope_push_new(em);
-          PUSH_TASK(REDUCE(n));
+          push_task(em, n, EMR_VALUE);
           for (size_t i = n->info.block.len; i-- > 0;)
-            PUSH_TASK(EVAL(n->info.block.stmts[i]));
+            push_task(em, n->info.block.stmts[i], EMR_EVAL);
           break;
         case NODE_ID:
-          PUSH_TASK(REDUCE(n));
+          push_task(em, n, EMR_VALUE);
           break;
         default:
           snprintf(em->error, sizeof(em->error), "failed to create a task: node kind unrecognized %d", n->kind);
@@ -262,16 +298,12 @@ EMState exec_run(ExecMachine *em, const ASTNode *root) {
       }
     }
   }
-  free(tasks);
   return EMS_SUCCESS;
-
-  #undef PUSH_TASK
-  #undef EVAL
-  #undef REDUCE
 }
 
 void exec_free(ExecMachine *em) {
   assert(em != NULL);
+  free(em->tasks);
   EMScope_free(em->scope);
   free(em);
 }
