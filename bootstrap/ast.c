@@ -95,11 +95,10 @@ static void inner_ast_dump(const ASTNode *n, bool colored, int depth) {
 }
 
 void ast_dump(const ASTNode *n) {
-  if (isatty(STDOUT_FILENO)) {
-    inner_ast_dump(n, true, 0);
-  } else {
-    inner_ast_dump(n, false, 0);
-  }
+  // Color is only for a terminal, and never when NO_COLOR is set
+  // (https://no-color.org). The regression harness pins the colorless form.
+  bool colored = isatty(STDOUT_FILENO) && getenv("NO_COLOR") == NULL;
+  inner_ast_dump(n, colored, 0);
 }
 
 void node_free(ASTNode *n) {

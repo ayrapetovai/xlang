@@ -286,7 +286,7 @@ RULE( block,
   PROD_R( NTRM(stmt_optseps), NTRM(stmts), NTRM(stmt_optseps),    REDUCE(reduce_tripple_ntrm) ),
 )
 
-RULE( braced_block,
+RULE_EXPR( braced_block,
   PROD_R( TERM(TOK_LBRACE), NTRM(block), TERM(TOK_RBRACE),        REDUCE(reduce_tripple_ntrm) ),
   PROD_R( TERM(TOK_LBRACE), NTRM(stmt_optseps), TERM(TOK_RBRACE), REDUCE(reduce_empty_block) ),
 )
@@ -350,9 +350,9 @@ ASTNode *parser_parse(struct Parser *parser) {
 
   struct Token *rest = parser->current_token;
   if (rest != NULL && rest->kind != TOK_UNDEF) {
-    // prefer the deepest point reached over the rolled-back position
-    // becase parser have failed at the deepest point
-    struct Token *err_tok = parser->deepest_tok ? parser->deepest_tok : rest;
+    struct Token *deepest = parser->deepest_tok;
+    struct Token *err_tok =
+        (deepest != NULL && deepest->kind != TOK_UNDEF) ? deepest : rest;
     if (strlen(parser->lexer->error) > 0)
       sprintf(parser->error, "parsing error: %s", parser->lexer->error);
     else

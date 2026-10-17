@@ -39,10 +39,7 @@ check-vs: bootstrap
 	rm -rf test/.work/ref && mkdir -p test/.work/ref && \
 	git archive "$$ref" | tar -x -C test/.work/ref && \
 	$(CC) $(CFLAGS) -o test/.work/ref/bootstrap \
-	  test/.work/ref/main.c test/.work/ref/ast.c test/.work/ref/lexer.c \
-	  test/.work/ref/logger.c test/.work/ref/parser.c \
-	  test/.work/ref/tokens.c test/.work/ref/exec.c \
-	  test/.work/ref/reader.c -lm || exit 2; \
+	  $(addprefix test/.work/ref/,$(SRC)) -lm || exit 2; \
 	if ! printf 'echo 1\n' | test/.work/ref/bootstrap --ast - 2>/dev/null | grep -q '^block'; then \
 	  echo "check-vs: $$ref has no --ast flag CLI and cannot run this suite" >&2; \
 	  exit 2; \
