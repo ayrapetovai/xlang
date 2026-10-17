@@ -37,28 +37,30 @@ typedef struct {
 ExecMachine *exec_new(size_t stack_slots, size_t task_slots) {
   assert(stack_slots > 0);
   assert(task_slots > 0);
+  // TODO allocate memory for stack separately. Must stack be growable?
   ExecMachine *em = malloc(sizeof(ExecMachine) + stack_slots * sizeof(EMStackSlot));
   assert(em != NULL);
   if (em == NULL) return NULL;
+  memset(em->error, '\0', sizeof(em->error));
   em->stack = (EMStackSlot*)(em + 1);
   em->stack_end = em->stack + stack_slots;
   em->sp = em->stack;
   em->fp = NULL;
   em->scope = EMScope_new();
   if (em->scope == NULL) {
-    free(em);
-    return NULL;
+    em->corrupted = true;
+    snprintf(em->error, sizeof(em->error), "failed to allocate memory for scope");
+    return em;
   }
   em->to = 0;
   em->task_slots = task_slots;
   em->tasks = malloc(em->task_slots * sizeof(EMTask));         // work stack; size = AST depth/node count
   if (em->tasks == NULL) {
-    EMScope_free(em->scope);
-    free(em);
-    return NULL;
+    em->corrupted = true;
+    snprintf(em->error, sizeof(em->error), "failed to allocate memory for task stack, %ld elements", task_slots);
+    return em;
   }
   em->corrupted = false;
-  memset(em->error, '\0', sizeof(em->error));
   return em;
 }
 
@@ -222,7 +224,7 @@ EMState exec_run(ExecMachine *em, const ASTNode *root) {
     EMTask t = pop_task(em);
     const ASTNode *n = t.node;
 
-    if (t.reduce_type == EMR_VALUE) {                                   // children's values are on the value stack
+    if (t.reduce_type == EMR_VALUE) { // children's values are on the operand stack
       switch (n->kind) {
         case NODE_EXPR:  apply_expr(em, n);  break;   // pop 2, push 1
         case NODE_UEXPR: apply_uexpr(em, n); break;   // pop 1, push 1
@@ -305,8 +307,8 @@ EMState exec_run(ExecMachine *em, const ASTNode *root) {
 }
 
 void exec_free(ExecMachine *em) {
-  assert(em != NULL);
-  free(em->tasks);
-  EMScope_free(em->scope);
+  if (em == NULL) return;
+  if (em->tasks != NULL) free(em->tasks);
+  if (em->scope != NULL) EMScope_free(em->scope);
   free(em);
 }
