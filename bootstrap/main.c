@@ -115,7 +115,7 @@ int run_lex(FILE* src) {
   }
 
   lexer_close(lexer);
-  LOG_DEBUG("memory used for %d tokens %db", token_count, token_count * sizeof(Token) + value_bytes);
+  LOG_DEBUG("memory used for %zu tokens %db", token_count, token_count * sizeof(Token) + value_bytes);
   return error_code;
 }
 

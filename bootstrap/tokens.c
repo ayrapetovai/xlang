@@ -347,10 +347,12 @@ const char *token_kind_to_string(enum TokenKind token_kind) {
   case TOK_OPERATOR_BEGIN:
   case TOK_OPERATOR_END:
     assert(false);
+    exit(11);
 
   case TOK_ID:
     return "identifier";
   default:
     assert(false);
+    exit(11);
   }
 }

@@ -10,6 +10,8 @@
 #include <string.h>
 #include <assert.h>
 
+#define MAX_PARSE_DEPTH 4096
+
 typedef struct ParseResult {
   ASTNode* result;
   bool reduced;
@@ -315,6 +317,8 @@ struct Parser* parser_new(struct Lexer *lexer) {
   parser->nl_probe_valid = false;
   parser->deepest_tok = NULL;
   parser->deepest_mark = 0;
+  parser->recursion_depth = 0;
+  parser->parsing_failed = false;
   memset(parser->error, '\0', sizeof(parser->error));
 
   if (lexer == NULL)
@@ -326,9 +330,17 @@ struct Parser* parser_new(struct Lexer *lexer) {
 }
 
 ASTNode *parser_parse(struct Parser *parser) {
+  memset(parser->error, '\0', sizeof(parser->error));
+  parser->recursion_depth = 0;
+  parser->parsing_failed = false;
   ParseResult reduce_result = parse_by_rule(parser, &prog);
+  if (parser->parsing_failed) {
+    if (reduce_result.result != NULL) node_free(reduce_result.result);
+    return NULL;
+  }
   if (!reduce_result.reduced) {
     sprintf(parser->error, "parsing error, reduce failed");
+    if (reduce_result.result != NULL) node_free(reduce_result.result);
     return NULL;
   }
 
@@ -406,8 +418,15 @@ static bool expr_token_matches(struct Parser* parser, bool skip_new_line, enum T
 }
 
 static ParseResult parse_by_rule(struct Parser* parser, struct GrammarRule* rule) {
+  #define RETURN(node, red) do { parser->recursion_depth -= 1; return (ParseResult) { .result = (node), .reduced = (red) }; } while(0)
+
   if (rule == NULL) return (ParseResult) { NULL, false }; // hard error
-  if (parser->current_token == NULL && !parser_move_forward(parser)) return (ParseResult) { NULL, false}; // hard error
+  if (++parser->recursion_depth > MAX_PARSE_DEPTH) {
+    snprintf(parser->error, sizeof(parser->error), "parse recursion has reached the max depth, limit is %d", MAX_PARSE_DEPTH);
+    parser->parsing_failed = true;
+    RETURN(NULL, false);
+  }
+  if (parser->current_token == NULL && !parser_move_forward(parser)) RETURN(NULL, false);  // hard error
 
   void *params[PRODUCTION_MAX_LENGTH] = {};
   bool param_is_token[PRODUCTION_MAX_LENGTH] = {}; // true: Token* (lookahead), false: node
@@ -438,10 +457,7 @@ production_cycle:
             if (!parser_move_forward(parser)) { // hard error: the lexer is unusable, free nodes
               for (size_t k = 0; k <= param_count; k++)
                 if (!param_is_token[k] && params[k] != NULL) node_free(params[k]);
-              return (ParseResult) {
-                .result = NULL, // hard error
-                .reduced = false,
-              };
+              RETURN(NULL, false); // hard error
             }
           } else if (rule->productions[i + 1].exists
             && starts_with_same_nodes(&rule->productions[i], &rule->productions[i + 1], j)
@@ -454,22 +470,21 @@ production_cycle:
           } else if (folded) {
             // no more operators: the chain ends here, keep what we folded
             LOG_DEBUG("chain ends, keep folded result of ::%s:: #%d", rule->name, i);
-            return (ParseResult) {
-                .result = params[0],
-                .reduced = true,
-              };
+            RETURN(params[0], true);
           } else {
             failed = true; // rollback
           }
           break;
         case PN_RULE:
           ParseResult sub_rule_result = parse_by_rule(parser, prod_node->rule);
+          if(parser->parsing_failed) {
+            for (size_t k = 0; k <= param_count; k++)   // note: the hard-error path uses k <= param_count
+              if (!param_is_token[k]) node_free(params[k]);
+            RETURN(NULL, false);
+          }
           if (!sub_rule_result.reduced) {
             if (folded) // keep what we folded rather than dropping the whole chain
-              return (ParseResult) {
-                .result = params[0],
-                .reduced = true,
-              };
+              RETURN(params[0], true);
             failed = true; // sub-rule did not match: try next production
           } else {
             params[param_count] = sub_rule_result.result;
@@ -483,6 +498,12 @@ production_cycle:
             struct ParseCheckpoint chk;
             parser_checkpoint(parser, &chk);
             ParseResult r = parse_by_rule(parser, prod_node->rule);
+            if (parser->parsing_failed) {
+              for (size_t k = 0; k < param_count; k++)
+                if (!param_is_token[k]) node_free(params[k]);
+              node_free(block);
+              RETURN(NULL, false);
+            }
             if (!r.reduced) { parser_restore(parser, &chk); break; }   // failed attempt is invisible
             if (r.result != NULL) {
               if (block == NULL) block = node_block_new();
@@ -507,7 +528,7 @@ production_cycle:
               goto production_cycle;
             }
           } // ASC_RIGHT
-          return (ParseResult) { reduce_result, true };
+          RETURN(reduce_result, true);
         default:
           failed = true; // error
       }
@@ -529,10 +550,9 @@ production_cycle:
     parser_restore(parser, &chk);
   }
 
-  return (ParseResult) {
-    .result = NULL, // no production in this rule accepts the current token
-    .reduced = false,
-  };
+  RETURN(NULL, false); // no production in this rule accepts the current token
+
+  #undef RETURN
 }
 
 // Lexes the next significant token: skips spaces and both comment forms, but

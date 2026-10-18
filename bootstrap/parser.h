@@ -4,6 +4,7 @@
 #include "ast.h"
 #include "tokens.h"
 #include "lexer.h"
+#include <stddef.h>
 
 typedef struct Parser {
   struct Lexer* lexer;
@@ -14,6 +15,8 @@ typedef struct Parser {
   bool nl_probe_valid;
   struct Token* deepest_tok; // furthest point reached during parsing, for error reporting
   size_t deepest_mark;       // the index of token after the deepest_tok
+  size_t recursion_depth;    // how many recursion was made
+  bool parsing_failed;       // if set - return only, and free all memory
 } Parser;
 
 struct Parser *parser_new(struct Lexer*);
