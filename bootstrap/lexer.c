@@ -221,7 +221,12 @@ enum LexState lexer_next_token(struct Lexer *lexer, struct Token **tok) {
     bool read = reader_getch(lexer->reader, &c);
     if (!read && lexer->reader->error[0] != '\0') {
       // if no read and error present then error, else end of file
-      sprintf(lexer->error, "faild lexing next token: %s", lexer->reader->error);
+      sprintf(lexer->error, "failed lexing next token: %s", lexer->reader->error);
+      return LEX_ERROR;
+    }
+
+    if (c >= 0x80) {
+      sprintf(lexer->error, "non-ASCII byte 0x%02x is not supported", c);
       return LEX_ERROR;
     }
 
@@ -243,7 +248,10 @@ enum LexState lexer_next_token(struct Lexer *lexer, struct Token **tok) {
         state = WS_STRING;
         break;
       }
-
+      if (c != '\n' && isspace((unsigned char)c)) {
+        *tok = token_new(TOK_SPACE, line, col);
+        return LEX_OK;
+      }
       buf[buf_idx++] = c;
       if (is_alpha)
         state = WS_WORD;
@@ -339,7 +347,7 @@ enum LexState lexer_skip_until(struct Lexer *lexer, const char *anchor) {
     unsigned char c = '\0';
     bool read = reader_getch(lexer->reader, &c);
     if (!read && lexer->reader->error[0] != '\0') {
-      sprintf(lexer->error, "faild lexing skip: %s", lexer->reader->error);
+      sprintf(lexer->error, "failed lexing skip: %s", lexer->reader->error);
       return LEX_ERROR;
     }
     if (!read) { // EOF

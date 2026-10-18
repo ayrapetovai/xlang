@@ -111,7 +111,7 @@ int run_lex(FILE* src) {
   }
 
   if (error_code > 0) {
-    fprintf(stderr, "lexint error: %s\n", lexer->error);
+    fprintf(stderr, "lexing error: %s\n", lexer->error);
   }
 
   lexer_close(lexer);

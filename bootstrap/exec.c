@@ -199,9 +199,10 @@ static void apply_if(ExecMachine *em, const ASTNode *n) {
 static void value_of(ExecMachine *em, const ASTNode *n) {
   switch (n->info.val.kind) {
     case VK_INTEGER:
+      errno = 0;
       int64_t v = strtoll(n->info.val.value, NULL, 10);
       if (errno != 0) {
-        snprintf(em->error, sizeof(em->error), "faield to convert string to integer: %s", strerror(errno));
+        snprintf(em->error, sizeof(em->error), "failed to convert string to integer: %s", strerror(errno));
         longjmp(em->catch, 1);
       }
       exec_push(em, v);
@@ -222,7 +223,7 @@ static void apply_define(ExecMachine *em, const ASTNode *n) {
   char *name = n->info.stmt.define.id->info.id.value;
   NameDescriptor *dsc = malloc(sizeof(NameDescriptor));
   if (dsc == NULL) {
-    snprintf(em->error, sizeof(em->error), "name dclaration failed to allocate memory");
+    snprintf(em->error, sizeof(em->error), "name declaration failed to allocate memory");
     longjmp(em->catch, 1);
   }
   dsc->value = exec_pop(em);
@@ -248,6 +249,10 @@ EMState exec_run(ExecMachine *em, const ASTNode *root) {
 
   push_task(em, root, EMR_EVAL);
 
+  #define PHASE1(t, p1) { p1; pop_task(em); } break;
+  #define PHASE2(t, p1, p2) if (t->phase == 0) { t->phase = 1; p1; } else { p2; pop_task(em); } break;
+  #define PHASE3(t, p1, p2, p3) if (t->phase == 0) { t->phase = 1; p1; } else if (t->phase == 1) {t->phase = 2; p2; } else { p3; pop_task(em); } break;
+
   while (em->to > 0) {
     EMTask *t = top_task(em);
     const ASTNode *n = t->node;
@@ -265,9 +270,6 @@ EMState exec_run(ExecMachine *em, const ASTNode *root) {
           longjmp(em->catch, 1);
       }
     } else { // if eval
-      #define PHASE1(t, p1) { p1; pop_task(em); } break;
-      #define PHASE2(t, p1, p2) if (t->phase == 0) { t->phase = 1; p1; } else { p2; pop_task(em); } break;
-      #define PHASE3(t, p1, p2, p3) if (t->phase == 0) { t->phase = 1; p1; } else if (t->phase == 1) {t->phase = 2; p2; } else { p3; pop_task(em); } break;
       switch (n->kind) {
         case NODE_VALUE:
           PHASE1(t, value_of(em, n));
@@ -324,6 +326,9 @@ EMState exec_run(ExecMachine *em, const ASTNode *root) {
           snprintf(em->error, sizeof(em->error), "failed to create a task: node kind unrecognized %d", n->kind);
           longjmp(em->catch, 1);
       }
+      #undef PHASE1
+      #undef PHASE2
+      #undef PHASE3
     }
   }
   return EMS_SUCCESS;
