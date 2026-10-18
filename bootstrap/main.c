@@ -58,7 +58,7 @@ int run_exec(FILE* src) {
 
   size_t max_stack_size = parse_result->height + 1;
 
-  ExecMachine *em = exec_new(max_stack_size, max_stack_size);
+  ExecMachine *em = exec_new(max_stack_size);
   EMState es = exec_run(em, parse_result);
   if (es != EMS_SUCCESS) {
     fprintf(stderr, "execution failed: %s\n", em->error);

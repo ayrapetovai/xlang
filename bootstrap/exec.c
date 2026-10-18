@@ -35,16 +35,14 @@ typedef struct {
   EMStackSlot value;
 } NameDescriptor;
 
-ExecMachine *exec_new(size_t stack_slots, size_t task_slots) {
-  assert(stack_slots > 0);
-  assert(task_slots > 0);
-  // TODO allocate memory for stack separately. Must stack be growable?
-  ExecMachine *em = malloc(sizeof(ExecMachine) + stack_slots * sizeof(EMStackSlot));
+ExecMachine *exec_new(size_t max_stack_size) {
+  assert(max_stack_size > 0);
+  ExecMachine *em = malloc(sizeof(ExecMachine) + max_stack_size * sizeof(EMStackSlot));
   assert(em != NULL);
   if (em == NULL) return NULL;
   memset(em->error, '\0', sizeof(em->error));
   em->stack = (EMStackSlot*)(em + 1);
-  em->stack_end = em->stack + stack_slots;
+  em->stack_end = em->stack + max_stack_size;
   em->sp = em->stack;
   em->fp = NULL;
 
@@ -56,12 +54,12 @@ ExecMachine *exec_new(size_t stack_slots, size_t task_slots) {
     snprintf(em->error, sizeof(em->error), "failed to allocate memory for scope");
     return em;
   }
-  em->to = 0;
-  em->task_slots = task_slots;
+  em->task_offset = 0;
+  em->task_slots = max_stack_size;
   em->tasks = malloc(em->task_slots * sizeof(EMTask));         // work stack; size = AST depth/node count
   if (em->tasks == NULL) {
     em->corrupted = true;
-    snprintf(em->error, sizeof(em->error), "failed to allocate memory for task stack, %ld elements", task_slots);
+    snprintf(em->error, sizeof(em->error), "failed to allocate memory for task stack, %ld elements", max_stack_size);
     return em;
   }
   em->corrupted = false;
@@ -69,27 +67,27 @@ ExecMachine *exec_new(size_t stack_slots, size_t task_slots) {
 }
 
 static inline void push_task(ExecMachine *em, const ASTNode *n, EMReduceType r) {
-    if (em->to >= em->task_slots) {
-      snprintf(em->error, sizeof(em->error), "task stack overflow");
-      longjmp(em->catch, 1);
-    }
-    em->tasks[em->to++] = (EMTask){ n, r, 0 };
+  if (em->task_offset >= em->task_slots) {
+    snprintf(em->error, sizeof(em->error), "task stack overflow");
+    longjmp(em->catch, 1);
+  }
+  em->tasks[em->task_offset++] = (EMTask){ n, r, 0 };
 }
 
 static inline EMTask pop_task(ExecMachine *em) {
-    if (em->to == 0){
-      snprintf(em->error, sizeof(em->error), "task stack underflow");
-      longjmp(em->catch, 1);
-    }
-    return em->tasks[--em->to];
+  if (em->task_offset == 0) {
+    snprintf(em->error, sizeof(em->error), "task stack underflow");
+    longjmp(em->catch, 1);
+  }
+  return em->tasks[--em->task_offset];
 }
 
 static inline EMTask *top_task(ExecMachine *em) {
-    if (em->to == 0) {
-      snprintf(em->error, sizeof(em->error), "fetch top fialed: task stack underflow");
-      longjmp(em->catch, 1);
-    }
-    return &em->tasks[em->to - 1];
+  if (em->task_offset == 0) {
+    snprintf(em->error, sizeof(em->error), "fetch top fialed: task stack underflow");
+    longjmp(em->catch, 1);
+  }
+  return &em->tasks[em->task_offset - 1];
 }
 
 static inline void scope_push_new(ExecMachine *em) {
@@ -256,7 +254,7 @@ EMState exec_run(ExecMachine *em, const ASTNode *root) {
   #define PHASE2(t, p1, p2) if (t->phase == 0) { t->phase = 1; p1; } else { p2; pop_task(em); } break;
   #define PHASE3(t, p1, p2, p3) if (t->phase == 0) { t->phase = 1; p1; } else if (t->phase == 1) {t->phase = 2; p2; } else { p3; pop_task(em); } break;
 
-  while (em->to > 0) {
+  while (em->task_offset > 0) {
     EMTask *t = top_task(em);
     const ASTNode *n = t->node;
 
@@ -330,11 +328,11 @@ EMState exec_run(ExecMachine *em, const ASTNode *root) {
           snprintf(em->error, sizeof(em->error), "failed to create a task: node kind unrecognized %d", n->kind);
           longjmp(em->catch, 1);
       }
-      #undef PHASE1
-      #undef PHASE2
-      #undef PHASE3
     }
   }
+  #undef PHASE1
+  #undef PHASE2
+  #undef PHASE3
   return EMS_SUCCESS;
 }
 
