@@ -267,9 +267,10 @@ EMState exec_run(ExecMachine *em, const ASTNode *root) {
 
     if (t->reduce_type == EMR_REFERENCE) {
       switch (n->kind) {
-        case NODE_ID: apply_identifier_ref(em, n); pop_task(em); break;
+        case NODE_ID:
+          PHASE1(t, apply_identifier_ref(em, n));
         default:
-          snprintf(em->error, sizeof(em->error), "expression is not assignable (not lvalue)");
+          snprintf(em->error, sizeof(em->error), "expression is not assignable (not an lvalue)");
           longjmp(em->catch, 1);
       }
     } else { // if eval

@@ -38,11 +38,11 @@ struct Lexer *lexer_new(FILE *src) {
 
   struct Reader *reader = new_reader(src);
   if (reader == NULL) {
-    sprintf(lexer->error, "reader is NULL");
+    snprintf(lexer->error, sizeof(lexer->error), "reader is NULL");
     return lexer;
   }
   if (strlen(reader->error) != 0) {
-    sprintf(lexer->error, "reading error: %s\n", reader->error);
+    snprintf(lexer->error, sizeof(lexer->error), "reading error: %s\n", reader->error);
     reader_close(reader);
   } else
     lexer->reader = reader;
@@ -57,7 +57,7 @@ static bool lexer_log_grow(struct Lexer *lexer) {
   size_t new_cap = lexer->steps_cap == 0 ? 64 : lexer->steps_cap * 2;
   struct LexStep *grown = realloc(lexer->steps, new_cap * sizeof *grown);
   if (grown == NULL) {
-    sprintf(lexer->error, "out of memory growing the token log");
+    snprintf(lexer->error, sizeof(lexer->error), "out of memory growing the token log");
     return false;
   }
 
@@ -213,7 +213,7 @@ enum LexState lexer_next_token(struct Lexer *lexer, struct Token **tok) {
 
   while (true) {
     if (buf_idx >= sizeof buf) {
-      sprintf(lexer->error, "too long identifier: %ld, max %d", buf_idx, TOKEN_VALUE_MAX_SIZE);
+      snprintf(lexer->error, sizeof(lexer->error), "too long identifier: %ld, max %d", buf_idx, TOKEN_VALUE_MAX_SIZE);
       return LEX_ERROR;
     }
 
@@ -221,12 +221,12 @@ enum LexState lexer_next_token(struct Lexer *lexer, struct Token **tok) {
     bool read = reader_getch(lexer->reader, &c);
     if (!read && lexer->reader->error[0] != '\0') {
       // if no read and error present then error, else end of file
-      sprintf(lexer->error, "failed lexing next token: %s", lexer->reader->error);
+      snprintf(lexer->error, sizeof(lexer->error), "failed lexing next token: %s", lexer->reader->error);
       return LEX_ERROR;
     }
 
     if (c >= 0x80) {
-      sprintf(lexer->error, "non-ASCII byte 0x%02x is not supported", c);
+      snprintf(lexer->error, sizeof(lexer->error), "non-ASCII byte 0x%02x is not supported", c);
       return LEX_ERROR;
     }
 
@@ -305,12 +305,12 @@ enum LexState lexer_next_token(struct Lexer *lexer, struct Token **tok) {
       }
       break;
     default:
-      sprintf(lexer->error, "lexer parse state is undefined");
+      snprintf(lexer->error, sizeof(lexer->error), "lexer parse state is undefined");
       return LEX_ERROR;
     }
   }
 
-  sprintf(lexer->error, "unexpected lexer condition");
+  snprintf(lexer->error, sizeof(lexer->error), "unexpected lexer condition");
   return LEX_ERROR;
 }
 
@@ -321,7 +321,7 @@ enum LexState lexer_skip_line(struct Lexer *lexer) {
     unsigned char c = '\0';
     bool read = reader_getch(lexer->reader, &c);
     if (!read && lexer->reader->error[0] != '\0') {
-      sprintf(lexer->error, "failed lexing line comment: %s", lexer->reader->error);
+      snprintf(lexer->error, sizeof(lexer->error), "failed lexing line comment: %s", lexer->reader->error);
       return LEX_ERROR;
     }
 
@@ -347,11 +347,11 @@ enum LexState lexer_skip_until(struct Lexer *lexer, const char *anchor) {
     unsigned char c = '\0';
     bool read = reader_getch(lexer->reader, &c);
     if (!read && lexer->reader->error[0] != '\0') {
-      sprintf(lexer->error, "failed lexing skip: %s", lexer->reader->error);
+      snprintf(lexer->error, sizeof(lexer->error), "failed lexing skip: %s", lexer->reader->error);
       return LEX_ERROR;
     }
     if (!read) { // EOF
-      sprintf(lexer->error, "skip failed to reach anchor %s", anchor);
+      snprintf(lexer->error, sizeof(lexer->error), "skip failed to reach anchor %s", anchor);
       return LEX_ERROR;
     }
 

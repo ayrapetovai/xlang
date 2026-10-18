@@ -322,7 +322,7 @@ struct Parser* parser_new(struct Lexer *lexer) {
   memset(parser->error, '\0', sizeof(parser->error));
 
   if (lexer == NULL)
-    sprintf(parser->error, "lexer is NULL");
+    snprintf(parser->error, sizeof(parser->error), "lexer is NULL");
   else
     parser->lexer = lexer;
 
@@ -339,7 +339,7 @@ ASTNode *parser_parse(struct Parser *parser) {
     return NULL;
   }
   if (!reduce_result.reduced) {
-    sprintf(parser->error, "parsing error, reduce failed");
+    snprintf(parser->error, sizeof(parser->error), "parsing error, reduce failed");
     if (reduce_result.result != NULL) node_free(reduce_result.result);
     return NULL;
   }
@@ -350,9 +350,9 @@ ASTNode *parser_parse(struct Parser *parser) {
     struct Token *err_tok =
         (deepest != NULL && deepest->kind != TOK_UNDEF) ? deepest : rest;
     if (strlen(parser->lexer->error) > 0)
-      sprintf(parser->error, "parsing error: %s", parser->lexer->error);
+      snprintf(parser->error, sizeof(parser->error), "parsing error: %s", parser->lexer->error);
     else
-      sprintf(parser->error, "parsing error, unexpected %s at line %zu, col %zu",
+      snprintf(parser->error, sizeof(parser->error), "parsing error, unexpected %s at line %zu, col %zu",
             token_kind_to_string(err_tok->kind), err_tok->line, err_tok->col);
     node_free(reduce_result.result);
     return NULL;
@@ -564,7 +564,7 @@ static bool parser_move_forward(struct Parser* parser) {
   struct Token* tok = NULL;
   enum LexState lex_state = lexer_next_significant(parser->lexer, &tok);
   if (lex_state == LEX_ERROR) {
-    sprintf(parser->error, "parsing failed: %s", parser->lexer->error);
+    snprintf(parser->error, sizeof(parser->error), "parsing failed: %s", parser->lexer->error);
     return false;
   }
 

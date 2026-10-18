@@ -18,7 +18,7 @@ Reader* new_reader(FILE* src) {
   memset(reader->unget_buf, '\0', sizeof reader->unget_buf);
 
   if (src == NULL) {
-    sprintf(reader->error, "%s", "given file pointer is NULL");
+    snprintf(reader->error, sizeof(reader->error), "%s", "given file pointer is NULL");
     return reader;
   }
   reader->file = src;
