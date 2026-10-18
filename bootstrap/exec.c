@@ -164,15 +164,17 @@ static void apply_expr(ExecMachine *em, const ASTNode *n) {
   int64_t a = (int64_t)exec_pop(em);
   int64_t r;
   switch (n->info.expr.op_tok) {
-    case TOK_MINUS: r = a - b; break;
-    case TOK_PLUS:  r = a + b; break;
-    case TOK_STAR:  r = a * b; break;
+    case TOK_MINUS: r = (int64_t)((uint64_t)a - (uint64_t)b); break;
+    case TOK_PLUS:  r = (int64_t)((uint64_t)a + (uint64_t)b); break;
+    case TOK_STAR:  r = (int64_t)((uint64_t)a * (uint64_t)b); break;
     case TOK_SLASH:
       if (b == 0) {
         snprintf(em->error, sizeof(em->error), "division by zero");
         longjmp(em->catch, 1);
       }
-      r = a / b; break;
+      if (b == -1) r = (int64_t)(0 - (uint64_t)a);
+      else         r = a / b;
+      break;
     default:
       snprintf(em->error, sizeof(em->error), "unknown expression kind %d", n->info.expr.op_tok);
       longjmp(em->catch, 1);
@@ -183,7 +185,8 @@ static void apply_expr(ExecMachine *em, const ASTNode *n) {
 static void apply_uexpr(ExecMachine *em, const ASTNode *n) {
   int64_t v = (int64_t)exec_pop(em);
   switch (n->info.uexpr.op_tok) {
-    case TOK_MINUS: exec_push(em, -v); break;
+    // negate unsigned so -INT64_MIN wraps to INT64_MIN instead of being UB
+    case TOK_MINUS: exec_push(em, (int64_t)(0 - (uint64_t)v)); break;
     default:
       snprintf(em->error, sizeof(em->error), "unknown unary expression kind %d", n->info.uexpr.op_tok);
       longjmp(em->catch, 1);

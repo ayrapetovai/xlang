@@ -187,6 +187,11 @@ block
   stmt echo
     val 2
 
+=== sep_nl run rc=0
+--- out
+1
+2
+
 === sep_blank rc=0
 --- out
 block
@@ -406,6 +411,24 @@ block
   stmt echo
     val 2
 
+# The anchor scan for */ must not be fooled by an overlapping candidate: in
+# /*x**/ the first two stars are followed by '/', so a naive two-byte compare
+# anchored one byte too early ends the comment at /*x* and leaves a stray /.
+
+=== ok_mlc_overlap rc=0
+--- out
+block
+  stmt echo
+    val 1
+
+# A comment may be the last bytes of the file with no newline after it.
+
+=== ok_mlc_eof_noeol rc=0
+--- out
+block
+  stmt echo
+    val 1
+
 # An unterminated /* is still an error: the anchor is never reached.
 
 #
@@ -430,19 +453,68 @@ parsing failed: parsing error, reduce failed
 --- err
 parsing failed: parsing error: skip failed to reach anchor */
 
-# TODO: CR is not whitespace in the lexer, so \r lexes as an identifier
+=== ok_crlf rc=0
+--- out
+block
+  stmt echo
+    val 1
 
-=== err_crlf rc=4
---- err
-parsing failed: parsing error, unexpected identifier at line 1, col 7
+=== ok_crlf2 rc=0
+--- out
+block
+  stmt echo
+    val 1
+  stmt echo
+    val 2
 
-=== err_crlf2 rc=4
---- err
-parsing failed: parsing error, unexpected identifier at line 1, col 7
+# A CR at the very end of the file with no LF after it: CR is whitespace, so
+# this is just `echo 1` with trailing space.
+
+=== ok_cr_eof rc=0
+--- out
+block
+  stmt echo
+    val 1
+
+# A CR inside an expression is whitespace too, not a statement break: the
+# expression still binds and evaluates as 1 + 2.
+
+=== ok_cr_expr rc=0
+--- out
+block
+  stmt echo
+    expr +
+      val 1
+      val 2
+
+# Tabs are whitespace the same way spaces are: between tokens ...
+
+=== ok_tab rc=0
+--- out
+block
+  stmt echo
+    val 1
+
+# ... and as indentation inside a block.
+
+=== ok_tab_indent rc=0
+--- out
+block
+  stmt if
+    cond
+      val true
+    then
+      block
+        stmt echo
+          val 1
+
+# A bare CR between two statements is whitespace, NOT a newline: the two
+# statements end up on one logical line and the second `echo` is unexpected.
+# (The column: `echo` is 1-4, space 5, 1 at 6, CR at 7, so 8.)
 
 === err_bare_cr rc=4
 --- err
-parsing failed: parsing error, unexpected identifier at line 1, col 7
+parsing failed: parsing error, unexpected echo at line 1, col 8
 
 # the ';' ends the statement, so a following operator cannot continue it
 
@@ -505,6 +577,10 @@ block
               stmt echo
                 val 1
 
+=== nest_inline run rc=0
+--- out
+1
+
 === nest_empty_inline rc=0
 --- out
 block
@@ -533,4 +609,182 @@ block
       block
         stmt echo
           val 2
+
+=== nest_else_inline run rc=0
+--- out
+2
+
+# Non-ASCII bytes (>= 0x80) are rejected by the lexer. Where the rejection is
+# reported depends on the parser's speculative rollback, exactly like the
+# unterminated-comment pair above: mid-expression the lexer's own message
+# survives, at statement level it is swallowed into "reduce failed".
+
+=== err_nonascii_midexpr rc=4
+--- err
+parsing failed: parsing error: non-ASCII byte 0xc3 is not supported
+
+=== err_nonascii_stmt rc=4
+--- err
+parsing failed: parsing error, reduce failed
+
+# Inside a string literal the byte is caught too (strings are lexed by the
+# same scanner loop, so the check covers them).
+
+=== err_nonascii_string rc=4
+--- err
+parsing failed: parsing error: non-ASCII byte 0xc3 is not supported
+
+# But comments tolerate non-ASCII on purpose: they are skipped by the
+# comment-scanning loops, which never consult the token scanner. Pasting an
+# accented comment must not break a build.
+
+=== ok_cmt_nonascii rc=0
+--- out
+block
+  stmt echo
+    val 1
+# Execution semantics: what a program prints, not just that it parses.
+# Everything else in this file is answered by --ast; the `run` blocks below
+# are answered by --run. Arithmetic wraps modulo 2^64 by definition (it is
+# computed on uint64_t), so the overflow lines pin the wrapped value.
+
+=== ok_arith rc=0
+--- out
+block
+  stmt echo
+    expr +
+      val 1
+      expr *
+        val 2
+        val 3
+  stmt echo
+    expr *
+      expr +
+        val 1
+        val 2
+      val 3
+  stmt echo
+    expr /
+      val 7
+      val 2
+  stmt echo
+    expr /
+      uexpr -
+        val 7
+      val 2
+  stmt echo
+    expr -
+      val 2
+      uexpr -
+        val 3
+  stmt echo
+    expr *
+      val 90000
+      val 1000000
+
+=== ok_arith run rc=0
+--- out
+7
+9
+3
+-3
+5
+90000000000
+
+=== ok_arith_wrap rc=0
+--- out
+block
+  stmt echo
+    expr +
+      val 9223372036854775807
+      val 1
+
+=== ok_arith_wrap run rc=0
+--- out
+-9223372036854775808
+
+=== ok_define rc=0
+--- out
+block
+  stmt :=
+    id x
+    val 1
+  stmt :=
+    id y
+    expr +
+      id x
+      val 1
+  stmt echo
+    id y
+
+=== ok_define run rc=0
+--- out
+2
+
+=== ok_shadow rc=0
+--- out
+block
+  stmt :=
+    id x
+    val 1
+  stmt if
+    cond
+      val true
+    then
+      block
+        stmt :=
+          id x
+          val 2
+  stmt echo
+    id x
+
+=== ok_shadow run rc=0
+--- out
+1
+
+=== run_div_zero rc=0
+--- out
+block
+  stmt echo
+    expr /
+      val 1
+      val 0
+
+=== run_div_zero run rc=1
+--- err
+execution failed: division by zero
+
+=== run_redefine rc=0
+--- out
+block
+  stmt :=
+    id x
+    val 1
+  stmt :=
+    id x
+    val 2
+
+=== run_redefine run rc=1
+--- err
+execution failed: name redefinition, x
+
+=== run_undef_name rc=0
+--- out
+block
+  stmt echo
+    id y
+
+=== run_undef_name run rc=1
+--- err
+execution failed: value fetch failed: undefined name y
+
+=== run_literal_range rc=0
+--- out
+block
+  stmt echo
+    val 99999999999999999999
+
+=== run_literal_range run rc=1
+--- err
+execution failed: failed to convert string to integer: Numerical result out of range
 

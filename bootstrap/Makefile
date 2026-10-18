@@ -19,14 +19,18 @@ bootstrap-asan: $(SRC) $(HDR)
 vm_test: vm.h vm.c vm_test.c
 	gcc -std=c23 -Wall -Wextra -Werror -Wcast-align=strict -O0 -g vm.c vm_test.c -o vm_test
 
+map_test: map.h map.c map_test.c
+	$(CC) $(CFLAGS) -o $@ map.c map_test.c
+
 clean:
-	rm -f bootstrap bootstrap-asan
+	rm -f bootstrap bootstrap-asan map_test
 	rm -rf test/.work
 
 tags: $(SRC) $(HDR)
 	ctags -R --languages=C --exclude=.git --exclude=build -f tags .
 
-check: bootstrap
+check: bootstrap map_test
+	./map_test
 	sh test/check.sh
 
 check-asan: bootstrap-asan

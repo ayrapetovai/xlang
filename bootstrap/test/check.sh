@@ -1,27 +1,34 @@
 #!/bin/sh
 # Regression harness for the bootstrap compiler. Run via `make check`.
 #
-#   sh check.sh          cases + stdin + properties
+#   sh check.sh          cases + stdin + run + properties
 #   VERBOSE=1            also print the actual block of every failing case
 #
-# Six layers, and none of them reads a stored digest of compiler output:
+# Seven layers, and none of them reads a stored digest of compiler output:
 #
 #   1. cases        every cases/*.x against expect.txt -- rc, exact stdout,
 #                   exact stderr. This is the only layer that says what the
 #                   compiler *should* do, so it is the only one a human reads.
 #   2. stdin        the same case fed via '-' must match the same case fed via
 #                   its filename, byte for byte on both channels and in rc.
-#   3. properties   assertions that need no stored answer: determinism,
+#   3. run          every case that declares a `run` block in expect.txt is
+#                   additionally executed with --run and its printed values,
+#                   runtime errors and rc are pinned. The only layer that
+#                   covers exec.c and map.c: everything above stops at the AST.
+#                   Two generated programs join it: a 1000-definition program
+#                   for hashmap growth, and a --log-level on/off pair.
+#   4. properties   assertions that need no stored answer: determinism,
 #                   comments do not change meaning, a newline where a space
 #                   was does not change meaning, statuses are legal, and error
 #                   positions point into the source.
-#   4. snippets     the hand-written material in snippets/ checked directly:
+#   5. snippets     the hand-written material in snippets/ checked directly:
 #                   every statement stands alone, every expression parses
 #                   inside an echo, and every comment form is inert by itself
 #                   and invisible in front of a real statement.
-#   5. completeness cases/ and expect.txt must agree 1:1, so neither can gain
-#                   a silent extra.
-#   6. reserved     every reserved spelling in tokens.c lexes as itself and
+#   6. completeness cases/ and expect.txt must agree 1:1, so neither can gain
+#                   a silent extra. (run blocks are extra assertions about an
+#                   existing case, so they are not counted here.)
+#   7. reserved     every reserved spelling in tokens.c lexes as itself and
 #                   every near-miss (kw+x, kw+8, _kw, Kw) lexes as an
 #                   identifier -- the sort order, the length field and the
 #                   first-character buckets pinned by one round trip. The
@@ -72,6 +79,10 @@ run_file()  { R_OUT=$("$BIN" --ast "$1" 2>"$ERRF"); R_RC=$?; R_ERR=$(cat "$ERRF"
 run_stdin() { R_OUT=$("$BIN" --ast - <"$1" 2>"$ERRF"); R_RC=$?; R_ERR=$(cat "$ERRF"); }
 run_str()   { R_OUT=$(printf '%s\n' "$1" | "$BIN" --ast - 2>"$ERRF"); R_RC=$?; R_ERR=$(cat "$ERRF"); }
 
+# The --run twins of the file and stdin paths: same capture, execution mode.
+run_rfile()  { R_OUT=$("$BIN" --run "$1" 2>"$ERRF"); R_RC=$?; R_ERR=$(cat "$ERRF"); }
+run_rstdin() { R_OUT=$("$BIN" --run - <"$1" 2>"$ERRF"); R_RC=$?; R_ERR=$(cat "$ERRF"); }
+
 # run_wrapped <file> <prefix> <suffix>: feed prefix + file bytes + suffix on
 # stdin. Both are printf '%b' formats. The bytes go down a pipe rather than
 # through a shell variable, so a source that lacks a final newline keeps
@@ -99,14 +110,17 @@ block() {
 }
 run_block() { block "$R_RC" "$R_OUT" "$R_ERR"; }
 
-# expected_block <name>: the expect.txt block for a case, with its header line
-# rewritten from `=== name rc=N` to `rc=N` so it matches run_block(). A block
-# ends at the next case or at a group comment; trailing blanks are the
-# separator between entries, so they are dropped -- which is also what happens
-# to the run side inside $( ).
+# expected_block <name> [run]: the expect.txt block for a case, with its header
+# line rewritten from `=== name rc=N` to `rc=N` so it matches run_block(). With
+# the second argument it selects the `=== name run rc=N` block instead -- the
+# --run expectation that the run layer checks. A block ends at the next case or
+# at a group comment; trailing blanks are the separator between entries, so
+# they are dropped -- which is also what happens to the run side inside $( ).
 expected_block() {
-  awk -v n="$1" '
-    $1 == "===" && $2 == n { grab = 1; sub(/^=== [^ ]+ rc=/, "rc="); b[++c] = $0; next }
+  awk -v n="$1" -v run="${2:-}" '
+    $1 == "===" && $2 == n && (run == "" ? $3 ~ /^rc=/ : $3 == "run") {
+      grab = 1; sub(/^=== [^ ]+( run)? rc=/, "rc="); b[++c] = $0; next
+    }
     grab && ($1 == "===" || substr($0, 1, 1) == "#") { exit }
     grab { b[++c] = $0 }
     END { while (c > 0 && b[c] == "") c--; for (i = 1; i <= c; i++) print b[i] }
@@ -165,7 +179,9 @@ for f in "$CASES"/*.x; do
   name=$(basename "$f" .x)
   grep -q "^=== $name rc=" "$EXPECT" || note_fail "$f has no entry in $EXPECT"
 done
-n_entries=$(grep -c '^=== ' "$EXPECT")
+# run blocks are extra assertions about a case that already has one, so only
+# the plain `=== name rc=N` headers are counted against cases/*.x.
+n_entries=$(grep '^=== ' "$EXPECT" | grep -vc ' run rc=')
 if [ "$n_entries" -ne "$n_files" ]; then
   note_fail "$EXPECT has $n_entries entries but $CASES/ has $n_files cases"
 fi
@@ -234,6 +250,67 @@ for f in "$CASES"/*.x; do
   fi
 done
 echo "  $n_acc accepted, $n_rej rejected, all matched"
+
+echo "== run =="
+# Execution semantics. Everything above stops at the AST; this is the only
+# layer that covers exec.c and map.c, and it pins what a program *prints* --
+# values, runtime errors and rc -- not just that it parses. A case joins this
+# layer by declaring a `=== <name> run rc=N` block in expect.txt; cases
+# without one are skipped (they parse but have nothing pinned about running
+# them).
+n_run=0
+for f in "$CASES"/*.x; do
+  [ -e "$f" ] || continue
+  name=$(basename "$f" .x)
+  want=$(expected_block "$name" run)
+  [ -n "$want" ] || continue
+
+  run_rfile "$f"
+  if [ "$(run_block)" != "$want" ]; then
+    note_fail "$name: --run differs from its run expectation"
+    [ "$VERBOSE" = "1" ] && { printf '%s\n' "$want" | sed 's/^/    want /'; printf '%s\n' "$(run_block)" | sed 's/^/    got  /'; }
+    continue
+  fi
+
+  # The stdin path must be indistinguishable in execution mode too.
+  run_rstdin "$f"
+  if [ "$(run_block)" != "$want" ]; then
+    note_fail "$name: --run stdin and file disagree"
+    [ "$VERBOSE" = "1" ] && { printf '%s\n' "$want" | sed 's/^/    file  /'; run_block | sed 's/^/    stdin /'; }
+    continue
+  fi
+
+  n_run=$((n_run + 1))
+done
+echo "  $n_run programs checked through --run"
+
+# HashMap growth: 1000 definitions must survive every rehash and the first
+# and last names must still read back. Generated rather than stored -- the
+# program is the interesting part, its 1000 bytes of spelling are not.
+wide="$WORK/wide.x"
+{
+  i=0
+  while [ "$i" -lt 1000 ]; do
+    printf 'v%d := %d\n' "$i" "$i"
+    i=$((i + 1))
+  done
+  printf 'echo v0\necho v999\n'
+} > "$wide"
+run_rfile "$wide"
+if [ "$(run_block)" != "$(block 0 "$(printf '0\n999')" "")" ]; then
+  note_fail "wide: 1000 definitions did not survive (map resize or lookup)"
+fi
+
+# --log-level off must silence the debug trace, and debug must produce one.
+printf 'echo 1\n' > "$WORK/ll.x"
+R_OUT=$("$BIN" --log-level off --run "$WORK/ll.x" 2>"$ERRF"); R_RC=$?; R_ERR=$(cat "$ERRF")
+if [ "$R_RC" -ne 0 ] || [ -n "$R_ERR" ]; then
+  note_fail "--log-level off: rc=$R_RC, stderr not empty"
+fi
+R_OUT=$("$BIN" --log-level debug --run "$WORK/ll.x" 2>"$ERRF"); R_RC=$?; R_ERR=$(cat "$ERRF")
+if ! printf '%s' "$R_ERR" | grep -q 'DEBUG'; then
+  note_fail "--log-level debug: no DEBUG trace on stderr (rc=$R_RC)"
+fi
 
 echo "== properties =="
 n_comment=0
