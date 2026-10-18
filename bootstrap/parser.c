@@ -20,6 +20,7 @@ typedef enum ProdNodeType {
   PN_TERM,
   PN_RULE,
   PN_REDUCE,
+  PN_RULE_LIST,
 } ProdNodeType;
 
 typedef enum Associativity {
@@ -54,9 +55,10 @@ struct GrammarRule {
   const struct Production productions[PRODUCTIONS_MAX];
 };
 
-#define TERM(t)           (struct ProdNode)   { .name = #t,     .type = PN_TERM,   .tok_kind =  t }
-#define NTRM(r)           (struct ProdNode)   { .name = #r,     .type = PN_RULE,   .rule     = &r }
-#define REDUCE(f)         (struct ProdNode)   { .name = #f,     .type = PN_REDUCE, .reducer  =  f }
+#define TERM(t)           (struct ProdNode)   { .name = #t,     .type = PN_TERM,      .tok_kind =  t }
+#define NTRM(r)           (struct ProdNode)   { .name = #r,     .type = PN_RULE,      .rule     = &r }
+#define LIST(r)           (struct ProdNode)   { .name = #r,     .type = PN_RULE_LIST, .rule     = &r }
+#define REDUCE(f)         (struct ProdNode)   { .name = #f,     .type = PN_REDUCE,    .reducer  =  f }
 #define PROD_L(...)       (struct Production) { true, ASC_LEFT,  { __VA_ARGS__ }}
 #define PROD_R(...)       (struct Production) { true, ASC_RIGHT, { __VA_ARGS__ }}
 #define RULE(rule_id, ...) struct GrammarRule rule_id = { .name = #rule_id, .productions = { __VA_ARGS__ } };
@@ -148,12 +150,13 @@ static void* reduce_expr_assign_expr(size_t argc, void* argv[]) {
   return node_assignment_new(argv[0], argv[2]);
 }
 
-static void* reduce_stmt_rest(size_t argc, void* argv[]) {
+static void* reduce_stmt_stmts(size_t argc, void* argv[]) {
   assert(argc == 2);
   ASTNode *stmt = argv[0], *rest = argv[1];
-  assert(stmt->kind == NODE_STMT && rest->kind == NODE_BLOCK);
-  node_block_prepend(rest, stmt);
-  return rest;
+  assert(stmt->kind == NODE_STMT && (rest == NULL || rest->kind == NODE_BLOCK));
+  ASTNode *block = rest != NULL ? rest : node_block_new();
+  node_block_prepend(block, stmt);
+  return block;
 }
 
 static void* reduce_empty_block(size_t argc, void* []) {
@@ -238,8 +241,7 @@ RULE( stmt_sep,
 )
 
 RULE( stmt_seps,
-  PROD_R( NTRM(stmt_sep), NTRM(stmt_seps),                        REDUCE(reduce_sep_seps) ),
-  PROD_R( NTRM(stmt_sep),                                         REDUCE(reduce_sep) ),
+  PROD_R( NTRM(stmt_sep), LIST(stmt_sep),                         REDUCE(reduce_sep_seps) ),
 )
 
 RULE( stmt_optseps,
@@ -255,13 +257,12 @@ RULE( stmt,
   // PROD_R( TERM(TOK_ID), NTRM(type_expr), TERM(TOK_ASSIGN), NTRM(expr_prime),       REDUCE(reduce_id_types_expr_assign_expr) ),
 )
 
-RULE( stmts_rest,
-  PROD_R( NTRM(stmt_seps), NTRM(stmts),                           REDUCE(reduce_peek_second) ),
-  PROD_R(                                                         REDUCE(reduce_empty_block) ),
+RULE(stmt_next,
+  PROD_R( NTRM(stmt_seps), NTRM(stmt),                            REDUCE(reduce_peek_second) ),
 )
 
 RULE( stmts,
-  PROD_R( NTRM(stmt), NTRM(stmts_rest),                           REDUCE(reduce_stmt_rest) ),
+  PROD_R( NTRM(stmt), LIST(stmt_next),                            REDUCE(reduce_stmt_stmts) ),
   PROD_R(                                                         REDUCE(reduce_empty_block) ),
 )
 
@@ -475,6 +476,20 @@ production_cycle:
             param_is_token[param_count] = false;
           }
           LOG_DEBUG("continue rule ::%s:: #%d:%s", rule->name, i, production->nodes[j].name);
+          break;
+        case PN_RULE_LIST:
+          ASTNode *block = NULL; // lazily allocated: NULL when nothing was collected
+          for (;;) {
+            struct ParseCheckpoint chk;
+            parser_checkpoint(parser, &chk);
+            ParseResult r = parse_by_rule(parser, prod_node->rule);
+            if (!r.reduced) { parser_restore(parser, &chk); break; }   // failed attempt is invisible
+            if (r.result != NULL) {
+              if (block == NULL) block = node_block_new();
+              node_block_append(block, r.result);
+            }
+          }
+          params[param_count] = block;
           break;
         case PN_REDUCE:
           LOG_DEBUG("reduce rule ::%s:: #%d:%s", rule->name, i, production->nodes[j].name);
