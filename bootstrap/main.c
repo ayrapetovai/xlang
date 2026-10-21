@@ -6,11 +6,13 @@
 #include <errno.h>
 
 #include "ast.h"
+#include "ast-dump.h"
 #include "exec.h"
 #include "lexer.h"
 #include "logger.h"
 #include "parser.h"
 #include "tokens.h"
+#include "walker.h"
 
 /*
 Bootstrap compiler does not support:
@@ -56,13 +58,15 @@ int run_exec(FILE* src) {
   parser_close(parser);
   lexer_close(lexer);
 
-  size_t max_stack_size = parse_result->height + 1;
+  size_t max_stack_size = 2 * parse_result->height + 1;
 
   ExecMachine *em = exec_new(max_stack_size);
-  EMState es = exec_run(em, parse_result);
+  struct Walker *walker = walker_new(&em->header, max_stack_size);
+  EMState es = walker_run(walker, parse_result);
   if (es != EMS_SUCCESS) {
-    fprintf(stderr, "execution failed: %s\n", em->error);
+    fprintf(stderr, "execution failed: %s\n", walker->error);
   }
+  walker_free(walker);
 
   exec_free(em);
   node_free(parse_result);
@@ -156,9 +160,20 @@ int run_ast(FILE* src) {
   parser_close(parser);
   lexer_close(lexer);
 
-  ast_dump(parse_result);
+  size_t max_stack_size = 2 * parse_result->height + 1;
+  ASTDump *dmp = astdump_new(max_stack_size);
+  struct Walker *walker = walker_new(&dmp->header, max_stack_size);
+  EMState es = walker_run(walker, parse_result);
+  if (es != EMS_SUCCESS) {
+    fprintf(stderr, "dump failed: %s\n", walker->error);
+  }
+  walker_free(walker);
+
+  astdump_print(dmp);
+  astdump_free(dmp);
+
   node_free(parse_result);
-  return 0;
+  return es == EMS_ERROR;
 }
 
 typedef enum {

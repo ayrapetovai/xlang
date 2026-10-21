@@ -7,104 +7,6 @@
 #include <unistd.h>
 #include <string.h>
 
-#define MAX2(a, b) (((a) > (b)) ? (a) : (b))
-#define MAX3(a, b, c) MAX2(MAX2(a,b),c)
-
-ASTNode *node_new(NodeKind kind) {
-  ASTNode *n = malloc(sizeof *n);
-  assert(n != NULL);
-  n->kind = kind;
-  n->height = SIZE_MAX; // must be overwritten
-  return n;
-}
-
-static void inner_ast_dump(const ASTNode *n, bool colored, int depth) {
-  if (n == NULL) return;
-
-  const char* s;
-
-  #define RED_TEXT(s) "\033[31m" s "\033[0m"
-  #define GREEN_TEXT(s) "\033[32m" s "\033[0m"
-
-  // d is a string literal, TEXT_COLOR is a name of a macro
-  #define PRINT_INDENTS(count) for (int indents_i = 0; indents_i < (count); indents_i++) printf("  ")
-  #define PRINT_DESC(d, TEXT_COLOR) if (colored) s = d TEXT_COLOR("%s\n"); else s = d "%s\n"
-
-  PRINT_INDENTS(depth);
-
-  switch (n->kind) {
-    case NODE_BLOCK:
-      printf("block\n");
-      for (size_t i = 0; i < n->info.block.len; i++) {
-        inner_ast_dump(n->info.block.stmts[i], colored, depth + 1);
-      }
-    break;
-    case NODE_STMT:
-      PRINT_DESC("stmt ", GREEN_TEXT);
-      printf(s, token_kind_to_string(n->info.stmt.stmt_tok));
-      switch (n->info.stmt.stmt_tok) {
-        case TOK_IF:
-          PRINT_INDENTS(depth + 1);
-          printf("cond\n");
-          inner_ast_dump(n->info.stmt.iff.cond, colored, depth + 2);
-          PRINT_INDENTS(depth + 1);
-          printf("then\n");
-          inner_ast_dump(n->info.stmt.iff.then_arm, colored, depth + 2);
-          if (n->info.stmt.iff.else_arm != NULL) {
-            PRINT_INDENTS(depth + 1);
-            printf("else\n");
-            inner_ast_dump(n->info.stmt.iff.else_arm, colored, depth + 2);
-          }
-        break;
-        case TOK_ECHO: inner_ast_dump(n->info.stmt.echo.expr, colored, depth + 1); break;
-        case TOK_DEFINE:
-          inner_ast_dump(n->info.stmt.define.id, colored, depth + 1);
-          inner_ast_dump(n->info.stmt.define.type_expr, colored, depth + 1);
-          inner_ast_dump(n->info.stmt.define.expr, colored, depth + 1);
-        break;
-        case TOK_ASSIGN:
-          inner_ast_dump(n->info.stmt.assign.lexpr, colored, depth + 1);
-          inner_ast_dump(n->info.stmt.assign.expr, colored, depth + 1);
-        break;
-        default: assert(false);
-      }
-    break;
-    case NODE_EXPR:
-      PRINT_DESC("expr ", RED_TEXT);
-      printf(s, token_kind_to_string(n->info.expr.op_tok));
-      inner_ast_dump(n->info.expr.op1, colored, depth + 1);
-      inner_ast_dump(n->info.expr.op2, colored, depth + 1);
-    break;
-    case NODE_UEXPR:
-      const char* s;
-      PRINT_DESC("uexpr ", RED_TEXT);
-      printf(s, token_kind_to_string(n->info.uexpr.op_tok));
-      inner_ast_dump(n->info.uexpr.op, colored, depth + 1);
-    break;
-    case NODE_VALUE:
-      PRINT_DESC("val ", RED_TEXT);
-      printf(s, n->info.val.value);
-    break;
-    case NODE_ID:
-      PRINT_DESC("id ", RED_TEXT);
-      printf(s, n->info.id.value);
-    break;
-    default:
-    assert(false);
-  }
-  #undef RED_TEXT
-  #undef GREEN_TEXT
-  #undef PRINT_DESC
-  #undef PRINT_INDENTS
-}
-
-void ast_dump(const ASTNode *n) {
-  // Color is only for a terminal, and never when NO_COLOR is set
-  // (https://no-color.org). The regression harness pins the colorless form.
-  bool colored = isatty(STDOUT_FILENO) && getenv("NO_COLOR") == NULL;
-  inner_ast_dump(n, colored, 0);
-}
-
 void node_free(ASTNode *n) {
   if (n == NULL) return;
 
@@ -149,6 +51,17 @@ void node_free(ASTNode *n) {
     assert(false);
   }
   free(n);
+}
+
+#define MAX2(a, b) (((a) > (b)) ? (a) : (b))
+#define MAX3(a, b, c) MAX2(MAX2(a,b),c)
+
+ASTNode *node_new(NodeKind kind) {
+  ASTNode *n = malloc(sizeof *n);
+  assert(n != NULL);
+  n->kind = kind;
+  n->height = SIZE_MAX; // must be overwritten
+  return n;
 }
 
 ASTNode *node_id_new(const char* value) {

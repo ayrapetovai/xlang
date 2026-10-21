@@ -115,8 +115,6 @@ ASTNode *node_block_new();
 void node_block_append(ASTNode *block, ASTNode *stmt);
 void node_block_prepend(ASTNode *block, ASTNode *stmt);
 void node_free(ASTNode *);
-void ast_dump(const ASTNode *);
-
 
 #endif
 
