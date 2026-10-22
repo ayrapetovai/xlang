@@ -5,9 +5,8 @@
 #include <unistd.h>
 
 #include <assert.h>
-#include <stddef.h>
-#include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static PrintNode *printnode_new(size_t i, char *t, struct PrintNode *n) {

@@ -1,14 +1,27 @@
 #include "ast.h"
+#include "ast-free.h"
 #include "parser.h"
 #include "lexer.h"
 #include "logger.h"
 #include "tokens.h"
 #include <stdbool.h>
-#include <stddef.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+
+static void node_free(ASTNode *ast) {
+  if (ast == NULL) return;
+  size_t max_stack_size = 2 * ast->height + 1;
+  ASTFree *fr = astfree_new();
+  struct Walker *free_walker = walker_new(&fr->header, max_stack_size);
+
+  EMState es = walker_run(free_walker, ast);
+  if (es != EMS_SUCCESS) {
+    fprintf(stderr, "free failed: %s\n", free_walker->error);
+  }
+  walker_free(free_walker);
+  astfree_free(fr);
+}
 
 #define MAX_PARSE_DEPTH 4096
 

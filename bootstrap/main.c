@@ -1,7 +1,3 @@
-#include <stdbool.h>
-#include <stddef.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 
@@ -28,7 +24,7 @@ Bootstrap compiler does not support:
 - custom memory allocators
 */
 
-void free_ast(ASTNode *ast) {
+static void free_ast(ASTNode *ast) {
   if (ast == NULL) return;
   size_t max_stack_size = 2 * ast->height + 1;
   ASTFree *fr = astfree_new();

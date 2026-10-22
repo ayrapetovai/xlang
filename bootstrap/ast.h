@@ -3,7 +3,6 @@
 
 #include "tokens.h"
 #include <stdbool.h>
-#include <stddef.h>
 #include <inttypes.h>
 #include <stdlib.h>
 
@@ -116,7 +115,6 @@ ASTNode *node_assignment_new(ASTNode *lexpr, ASTNode *expr);
 ASTNode *node_block_new();
 void node_block_append(ASTNode *block, ASTNode *stmt);
 void node_block_prepend(ASTNode *block, ASTNode *stmt);
-void node_free(ASTNode *);
 
 #endif
 

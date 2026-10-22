@@ -5,12 +5,8 @@
 #include "walker.h"
 #include <assert.h>
 #include <errno.h>
-#include <stddef.h>
-#include <stdint.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
-#include <setjmp.h>
 
 // all functions with longjmp to ExecMachine.header.catch can be called only
 // in stack of function walker_run, becase they transfere exection to the function

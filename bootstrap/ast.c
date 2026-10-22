@@ -1,62 +1,8 @@
 #include "ast.h"
 #include "tokens.h"
 #include <assert.h>
-#include <stddef.h>
-#include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <string.h>
-
-void node_free(ASTNode *n) {
-  if (n == NULL) return;
-
-  switch (n->kind) {
-    case NODE_BLOCK:
-      for (size_t i = 0; i < n->info.block.len; i++) {
-        node_free(n->info.block.stmts[i]);
-      }
-      free(n->info.block.stmts);
-      break;
-    case NODE_STMT:
-      switch (n->info.stmt.stmt_tok) {
-        case TOK_IF:
-          node_free(n->info.stmt.iff.cond);
-          node_free(n->info.stmt.iff.else_arm);
-          node_free(n->info.stmt.iff.then_arm);
-        break;
-        case TOK_ECHO: node_free(n->info.stmt.echo.expr); break;
-        case TOK_DEFINE:
-          node_free(n->info.stmt.define.id);
-          node_free(n->info.stmt.define.type_expr);
-          node_free(n->info.stmt.define.expr);
-          break;
-        case TOK_ASSIGN:
-          node_free(n->info.stmt.assign.lexpr);
-          node_free(n->info.stmt.assign.expr);
-          break;
-        default: assert(false);
-      }
-      break;
-    case NODE_IFEXPR:
-      node_free(n->info.ifexpr.cond);
-      node_free(n->info.ifexpr.else_arm);
-      node_free(n->info.ifexpr.then_arm);
-      break;
-    case NODE_EXPR:
-      node_free(n->info.expr.op1);
-      node_free(n->info.expr.op2);
-      break;
-    case NODE_UEXPR:
-      node_free(n->info.uexpr.op); break;
-    case NODE_VALUE:
-      free((void*) n->info.val.value); break;
-    case NODE_ID:
-      free(n->info.id.value); break;
-    default:
-    assert(false);
-  }
-  free(n);
-}
 
 #define MAX2(a, b) (((a) > (b)) ? (a) : (b))
 #define MAX3(a, b, c) MAX2(MAX2(a,b),c)
