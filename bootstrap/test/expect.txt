@@ -788,3 +788,167 @@ block
 --- err
 execution failed: failed to convert string to integer: Numerical result out of range
 
+# --- expr_if_: `if` in expression position is its own node kind (NODE_IFEXPR)
+# and prints as `expr if`; the same text at statement level stays `stmt if`.
+# The distinction is what a type checker will key on. Against a pre-feature
+# build the expression-position dumps differ by that one label line, by design
+# -- stmt_if_value_arms below is byte-identical to the old dump. The run blocks
+# also pin branch semantics: a dead arm is never evaluated, a live one is.
+
+=== expr_if_echo rc=0
+--- out
+block
+  stmt echo
+    expr if
+      cond
+        val true
+      then
+        val 1
+      else
+        val 2
+
+=== expr_if_echo run rc=0
+--- out
+1
+
+=== expr_if_dead_arm rc=0
+--- out
+block
+  stmt echo
+    expr if
+      cond
+        val false
+      then
+        id bad
+      else
+        val 2
+
+=== expr_if_dead_arm run rc=0
+--- out
+2
+
+=== expr_if_live_arm rc=0
+--- out
+block
+  stmt echo
+    expr if
+      cond
+        val true
+      then
+        id bad
+      else
+        val 2
+
+=== expr_if_live_arm run rc=1
+--- err
+execution failed: value fetch failed: undefined name bad
+
+=== expr_if_define rc=0
+--- out
+block
+  stmt :=
+    id x
+    expr if
+      cond
+        val false
+      then
+        val 7
+      else
+        val 8
+  stmt echo
+    id x
+
+=== expr_if_define run rc=0
+--- out
+8
+
+=== stmt_if_value_arms rc=0
+--- out
+block
+  stmt if
+    cond
+      val true
+    then
+      val 1
+    else
+      val 2
+  stmt echo
+    val 5
+
+=== stmt_if_value_arms run rc=0
+--- out
+5
+
+=== expr_if_chain rc=0
+--- out
+block
+  stmt echo
+    expr if
+      cond
+        val true
+      then
+        val 1
+      else
+        expr if
+          cond
+            val false
+          then
+            val 2
+          else
+            val 3
+
+=== expr_if_chain run rc=0
+--- out
+1
+
+=== expr_if_paren rc=0
+--- out
+block
+  stmt echo
+    expr if
+      cond
+        val true
+      then
+        val 1
+      else
+        val 2
+
+=== expr_if_paren run rc=0
+--- out
+1
+
+=== expr_if_cond rc=0
+--- out
+block
+  stmt echo
+    expr if
+      cond
+        expr if
+          cond
+            val true
+          then
+            val false
+          else
+            val true
+      then
+        val 1
+      else
+        val 2
+
+=== expr_if_cond run rc=0
+--- out
+2
+
+# --- rej_ifexpr_: shapes the grammar rejects. Both messages predate the
+# if-expression node and are byte-identical to a pre-feature build: a
+# statement arm cannot stand without `else` in value form, and an if used as
+# an assignment target is not an lvalue (the parser reports it at the `=`).
+
+=== rej_ifexpr_no_else rc=4
+--- err
+parsing failed: parsing error, unexpected echo at line 1, col 1
+
+=== rej_ifexpr_lexpr rc=4
+--- err
+parsing failed: parsing error, unexpected = at line 1, col 23
+

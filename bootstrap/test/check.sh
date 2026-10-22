@@ -301,6 +301,21 @@ if [ "$(run_block)" != "$(block 0 "$(printf '0\n999')" "")" ]; then
   note_fail "wide: 1000 definitions did not survive (map resize or lookup)"
 fi
 
+# Deep if-expression nesting: 200 levels of `if ... then ... else ...` in
+# expression position. Generated rather than stored, like wide: the depth is
+# what matters, not the spelling. One run exercises phase-4 re-entrancy in the
+# walker, the 2*height+1 task sizing and the recursive free path together.
+deepif="$WORK/deepif.x"
+awk 'BEGIN {
+  s = "1"
+  for (i = 0; i < 200; i++) s = "if true then " s " else 1"
+  print "echo " s
+}' > "$deepif"
+run_rfile "$deepif"
+if [ "$(run_block)" != "$(block 0 "1" "")" ]; then
+  note_fail "deepif: 200-level nested if-expression did not evaluate to 1"
+fi
+
 # --log-level off must silence the debug trace, and debug must produce one.
 printf 'echo 1\n' > "$WORK/ll.x"
 R_OUT=$("$BIN" --log-level off --run "$WORK/ll.x" 2>"$ERRF"); R_RC=$?; R_ERR=$(cat "$ERRF")
