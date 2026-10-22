@@ -149,6 +149,16 @@ EMState walker_run(Walker *walker, const ASTNode *root) {
               longjmp(walker->catch, 1);
           }
           break;
+        case NODE_IFEXPR:
+          PHASE4(t,
+            push_task(walker, n->info.ifexpr.cond, EMR_EVAL),
+            walker->ctx->ops.apply_if_cond(walker->ctx, n),
+            { bool do_then = walker->ctx->ops.apply_if_then_descision(walker->ctx);
+              bool do_else = walker->ctx->ops.apply_if_else_descision(walker->ctx);
+              if (do_else) push_task(walker, n->info.ifexpr.else_arm, EMR_EVAL);
+              if (do_then) push_task(walker, n->info.ifexpr.then_arm, EMR_EVAL);},
+            walker->ctx->ops.apply_ifexpr_post(walker->ctx, n)
+          );
         case NODE_BLOCK:
           if (t->phase == 0) walker->ctx->ops.scope_push_new(walker->ctx);
           if (t->phase < n->info.block.len) {

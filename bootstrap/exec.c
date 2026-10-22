@@ -239,6 +239,7 @@ ExecMachine *exec_new(size_t max_stack_size) {
 
   // executor does not need to do anything after calculating if-statement
   em->header.ops.apply_if_post = (NodeApplyer)do_nothing_node;
+  em->header.ops.apply_ifexpr_post = (NodeApplyer)do_nothing_node;
 
   em->header.ops.scope_push_new = (Applyer)scope_push_new;
   em->header.ops.scope_pop = (NodeApplyer)scope_pop;

@@ -23,6 +23,7 @@ typedef struct {
   CondApplyer apply_if_then_descision;
   CondApplyer apply_if_else_descision;
   NodeApplyer apply_if_post;
+  NodeApplyer apply_ifexpr_post;
   NodeApplyer apply_define;
   Applyer apply_assign;
   Applyer apply_echo;

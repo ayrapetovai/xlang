@@ -37,6 +37,11 @@ void node_free(ASTNode *n) {
         default: assert(false);
       }
       break;
+    case NODE_IFEXPR:
+      node_free(n->info.ifexpr.cond);
+      node_free(n->info.ifexpr.else_arm);
+      node_free(n->info.ifexpr.then_arm);
+      break;
     case NODE_EXPR:
       node_free(n->info.expr.op1);
       node_free(n->info.expr.op2);
@@ -104,6 +109,13 @@ ASTNode *node_uexpr_new(TokenKind kind, ASTNode *expr) {
   n->height = 1 + expr->height;
   return n;
 }
+void *node_abstract_if_new(ASTNode *cond, ASTNode *then_arm, ASTNode *else_arm) {
+  ASTNode **n = malloc(3 * sizeof(ASTNode*));
+  n[0] = cond;
+  n[1] = then_arm;
+  n[2] = else_arm;
+  return n;
+}
 
 ASTNode *node_if_new(ASTNode *cond, ASTNode *then_arm, ASTNode *else_arm) {
   ASTNode *n = node_new(NODE_STMT);
@@ -111,6 +123,15 @@ ASTNode *node_if_new(ASTNode *cond, ASTNode *then_arm, ASTNode *else_arm) {
   n->info.stmt.iff.cond = cond;
   n->info.stmt.iff.then_arm = then_arm;
   n->info.stmt.iff.else_arm = else_arm;
+  n->height = 1 + MAX3(cond->height, then_arm->height, (else_arm != NULL ? else_arm->height : 0));
+  return n;
+}
+
+ASTNode *node_ifexpr_new(ASTNode *cond, ASTNode *then_arm, ASTNode *else_arm) {
+  ASTNode *n = node_new(NODE_IFEXPR);
+  n->info.ifexpr.cond = cond;
+  n->info.ifexpr.then_arm = then_arm;
+  n->info.ifexpr.else_arm = else_arm;
   n->height = 1 + MAX3(cond->height, then_arm->height, (else_arm != NULL ? else_arm->height : 0));
   return n;
 }

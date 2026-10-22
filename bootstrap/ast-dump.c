@@ -1,4 +1,5 @@
 #include "ast-dump.h"
+#include "ast.h"
 #include "walker.h"
 
 #include <unistd.h>
@@ -82,14 +83,13 @@ static inline PrintNode *stack_pop(ASTDump *dmp) {
   return dmp->stack[--dmp->sp];
 }
 
-static inline void scope_push_new(ASTDump */*dmp*/) {
+static inline void scope_push_new(ASTDump *) {
 }
 
 static inline void scope_pop(ASTDump *dmp, const ASTNode *block) {
   PrintNode *block_pn = printnode_new(dmp->depth, strdup("block"), NULL);
   PrintNode *addant = block_pn;
   PrintNode *adde;
-  //printf(">>> %ld (%ld)\n", block->info.block.len, dmp->sp);
 
   size_t from;
   if (dmp->sp > block->info.block.len) {
@@ -100,7 +100,6 @@ static inline void scope_pop(ASTDump *dmp, const ASTNode *block) {
 
   for (size_t i = from; i < dmp->sp; i++) {
     adde = dmp->stack[i];
-    //printf("--> [%s]\n", adde->text);
     printnode_append(addant, adde);
     addant = adde;
   }
@@ -165,8 +164,8 @@ static bool apply_if_else_descision(ASTDump *) {
 static void printnode_indent_add(PrintNode *pn, size_t by) {
   for (PrintNode *it = pn; it != NULL; it = it->next) it->indent += by;
 }
-static void apply_if_post(ASTDump *dmp, const ASTNode *n) {
-  bool has_else = n->info.stmt.iff.else_arm != NULL;
+
+static inline void apply_if_post_universal(ASTDump *dmp, bool has_else, const char *node_type, Color c) {
   PrintNode *else_chain = NULL;
   PrintNode *then_chain;
   PrintNode *cond_chain;
@@ -180,7 +179,6 @@ static void apply_if_post(ASTDump *dmp, const ASTNode *n) {
 
   const size_t label_level = dmp->depth + 1;
   printnode_indent_add(cond_chain, 1);
-  printnode_indent_add(then_chain, 0);
   printnode_indent_add(else_chain, 1);
 
   PrintNode *cond_pn = printnode_new(label_level, strdup("cond"), cond_chain);
@@ -190,10 +188,20 @@ static void apply_if_post(ASTDump *dmp, const ASTNode *n) {
     else_pn = printnode_new(label_level, strdup("else"), else_chain);
   }
 
-  PrintNode *if_pn = printnode_new(dmp->depth, strdup(colorise(dmp, "stmt ", "if", GREEN)), cond_pn);
+  PrintNode *if_pn = printnode_new(dmp->depth, strdup(colorise(dmp, node_type, "if", c)), cond_pn);
   printnode_append(cond_pn, then_pn);
   printnode_append(then_pn, else_pn);
   stack_push(dmp, if_pn);
+}
+
+static void apply_if_post(ASTDump *dmp, const ASTNode *n) {
+  bool has_else = n->info.stmt.iff.else_arm != NULL;
+  apply_if_post_universal(dmp, has_else, "stmt ", GREEN);
+}
+
+static void apply_ifexpr_post(ASTDump *dmp, const ASTNode *n) {
+  bool has_else = n->info.ifexpr.else_arm != NULL;
+  apply_if_post_universal(dmp, has_else, "expr ", RED);
 }
 
 static void value_of(ASTDump *dmp, const ASTNode *n) {
@@ -265,6 +273,7 @@ ASTDump *astdump_new(size_t max_stack_size) {
   dmp->header.ops.apply_if_then_descision = (CondApplyer)apply_if_then_descision;
   dmp->header.ops.apply_if_else_descision = (CondApplyer)apply_if_else_descision;
   dmp->header.ops.apply_if_post = (NodeApplyer)apply_if_post;
+  dmp->header.ops.apply_ifexpr_post = (NodeApplyer)apply_ifexpr_post;
 
   dmp->header.ops.scope_push_new = (Applyer)scope_push_new;
   dmp->header.ops.scope_pop = (NodeApplyer)scope_pop;

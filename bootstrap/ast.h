@@ -10,6 +10,7 @@
 typedef enum {
   NODE_EXPR,
   NODE_UEXPR,
+  NODE_IFEXPR,
   NODE_VALUE,
   NODE_ID,
   NODE_STMT,
@@ -81,12 +82,17 @@ typedef struct InfoId {
   char *value;
 } InfoId;
 
+typedef struct InfoIfExpr {
+  struct ASTNode *cond, *then_arm, *else_arm;
+} InfoIfExpr;
+
 typedef struct ASTNode {
   struct ASTNode *parent;
   NodeKind kind;
   size_t height; // how many children in depth does this node holds, trivial are 1
   union {
     InfoId id;
+    InfoIfExpr ifexpr;
     InfoExpr expr;
     InfoUExpr uexpr;
     InfoStmt stmt;
@@ -96,18 +102,14 @@ typedef struct ASTNode {
   } info;
 } ASTNode;
 
-typedef struct ASTNodeList {
-  size_t len;
-  size_t cap;
-  struct ASTNode **nodes;
-} ASTNodeList;
-
 ASTNode *node_new(NodeKind kind);
 ASTNode *node_id_new(const char* value);
 ASTNode *node_value_new(ValueKind kind, const char *str_reprentation);
 ASTNode *node_expr_new(TokenKind kind, ASTNode *left_expr, ASTNode *right_expr);
 ASTNode *node_uexpr_new(TokenKind kind, ASTNode *expr);
+void    *node_abstract_if_new(ASTNode *cond, ASTNode *then_arm, ASTNode *else_arm);
 ASTNode *node_if_new(ASTNode *cond, ASTNode *then_arm, ASTNode *else_arm);
+ASTNode *node_ifexpr_new(ASTNode *cond, ASTNode *then_arm, ASTNode *else_arm);
 ASTNode *node_stmt_echo_new(TokenKind kind, ASTNode *expr);
 ASTNode *node_definition_new(ASTNode *id_node, ASTNode *expr);
 ASTNode *node_assignment_new(ASTNode *lexpr, ASTNode *expr);

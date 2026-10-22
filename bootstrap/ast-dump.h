@@ -6,6 +6,12 @@
 
 typedef struct PrintNode PrintNode;
 
+// This is one string (wihtout indention symbols) representation.
+// The next field is a next string to be printed.
+// This is basically a linked list.
+// During the traversing process we appending new elements to the list.
+// Add Head and "tail" pointer, such that we will be able to append to the tail
+// in no time.
 typedef struct PrintNode {
   char *text;
   size_t indent;

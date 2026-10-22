@@ -81,22 +81,22 @@ struct GrammarRule {
 //
 static void* reduce_if_expr_then_stmt_else_stmt(size_t argc, void* argv[]) {
   assert(argc == 5);
-  return node_if_new(argv[0], argv[2], argv[4]);
+  return node_abstract_if_new(argv[0], argv[2], argv[4]);
 }
 
 static void* reduce_if_expr_then_stmt(size_t argc, void* argv[]) {
   assert(argc == 3);
-  return node_if_new(argv[0], argv[2], NULL);
+  return node_abstract_if_new(argv[0], argv[2], NULL);
 }
 
 static void* reduce_if_expr_braced_block_else_braced_block(size_t argc, void* argv[]) {
   assert(argc == 4);
-  return node_if_new(argv[0], argv[1], argv[3]);
+  return node_abstract_if_new(argv[0], argv[1], argv[3]);
 }
 
 static void* reduce_if_expr_braced_block(size_t argc, void* argv[]) {
   assert(argc == 2);
-  return node_if_new(argv[0], argv[1], NULL);
+  return node_abstract_if_new(argv[0], argv[1], NULL);
 }
 
 static void *reduce_id(size_t argc, void* argv[]) {
@@ -181,6 +181,18 @@ static void* reduce_empty(size_t argc, void* []) {
   return NULL;
 }
 
+static void* reduce_ifstmt_if_tail(size_t argc, void* argv[]) {
+  assert(argc == 2);
+  ASTNode **cond_then_else = argv[1];
+  return node_if_new(cond_then_else[0], cond_then_else[1], cond_then_else[2]);
+}
+
+static void* reduce_ifexpr_if_tail(size_t argc, void* argv[]) {
+  assert(argc == 2);
+  ASTNode **cond_then_else = argv[1];
+  return node_ifexpr_new(cond_then_else[0], cond_then_else[1], cond_then_else[2]);
+}
+
 static void* reduce_peek_second(size_t argc, void* argv[]) {
   assert(argc == 2);
   return argv[1];
@@ -214,7 +226,7 @@ RULE_EXPR( expr_factor,
   PROD_R( TERM(TOK_NUMBER_L),                                     REDUCE(reduce_number_l) ),
   PROD_R( TERM(TOK_BOOL_L),                                       REDUCE(reduce_bool_l) ),
   PROD_R( TERM(TOK_LPAREN), NTRM(expr_prime), TERM(TOK_RPAREN),   REDUCE(reduce_tripple_ntrm) ),
-  PROD_R( TERM(TOK_IF), NTRM(if_tail),                            REDUCE(reduce_peek_second) ),
+  PROD_R( TERM(TOK_IF), NTRM(if_tail),                            REDUCE(reduce_ifexpr_if_tail) ),
   PROD_R( TERM(TOK_ID),                                           REDUCE(reduce_id) ),
 )
 
@@ -253,7 +265,7 @@ RULE( stmt_optseps,
 
 RULE( stmt,
   PROD_R( TERM(TOK_ECHO), NTRM(expr_prime),                                        REDUCE(reduce_echo_expr) ),
-  PROD_R( TERM(TOK_IF), NTRM(if_tail),                                             REDUCE(reduce_peek_second) ),
+  PROD_R( TERM(TOK_IF), NTRM(if_tail),                                             REDUCE(reduce_ifstmt_if_tail) ),
   PROD_R( TERM(TOK_ID), TERM(TOK_DEFINE), NTRM(expr_prime),                        REDUCE(reduce_id_define_expr) ),
   PROD_R( NTRM(expr_prime), TERM(TOK_ASSIGN), NTRM(expr_prime),                    REDUCE(reduce_expr_assign_expr) ),
   // PROD_R( TERM(TOK_ID), NTRM(type_expr), TERM(TOK_ASSIGN), NTRM(expr_prime),       REDUCE(reduce_id_types_expr_assign_expr) ),
