@@ -200,7 +200,6 @@ static void apply_assign(ExecMachine *em) {
   *addr = exec_pop(em);
 }
 
-static void do_nothing(ExecMachine*) {}
 static void do_nothing_node(ExecMachine*, const ASTNode*) {}
 
 ExecMachine *exec_new(size_t max_stack_size) {
@@ -244,8 +243,8 @@ ExecMachine *exec_new(size_t max_stack_size) {
   em->header.ops.scope_push_new = (Applyer)scope_push_new;
   em->header.ops.scope_pop = (NodeApplyer)scope_pop;
 
-  em->header.ops.apply_enter = (Applyer)do_nothing;
-  em->header.ops.apply_leave = (Applyer)do_nothing;
+  em->header.ops.apply_enter = (NodeApplyer)do_nothing_node;
+  em->header.ops.apply_leave = (NodeApplyer)do_nothing_node;
 
   memset(em->header.error, '\0', sizeof(em->header.error));
 

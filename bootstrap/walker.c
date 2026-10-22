@@ -33,17 +33,17 @@ static inline void push_task(Walker *walker, const ASTNode *n, EMReduceType r) {
     snprintf(walker->error, sizeof(walker->error), "task stack overflow");
     longjmp(walker->catch, 1);
   }
-  walker->ctx->ops.apply_enter(walker->ctx);
   walker->tasks[walker->task_offset++] = (EMTask){ n, r, 0 };
+  walker->ctx->ops.apply_enter(walker->ctx, n);
 }
 
-static inline EMTask pop_task(Walker *walker) {
+static inline void pop_task(Walker *walker) {
   if (walker->task_offset == 0) {
     snprintf(walker->error, sizeof(walker->error), "task stack underflow");
     longjmp(walker->catch, 1);
   }
-  walker->ctx->ops.apply_leave(walker->ctx);
-  return walker->tasks[--walker->task_offset];
+  EMTask e = walker->tasks[--walker->task_offset];
+  walker->ctx->ops.apply_leave(walker->ctx, e.node);
 }
 
 static inline EMTask *top_task(Walker *walker) {
@@ -98,7 +98,7 @@ EMState walker_run(Walker *walker, const ASTNode *root) {
         case NODE_ID:
           PHASE1(t, walker->ctx->ops.apply_identifier_ref(walker->ctx, n));
         default:
-          snprintf(walker->error, sizeof(walker->error), "expression is not assignable (not an lvalue)");
+          snprintf(walker->error, sizeof(walker->error), "unknown node kind for mode REFRENCE, %d", n->kind);
           longjmp(walker->catch, 1);
       }
     } else if (t->reduce_type == EMR_EVAL) { // if eval

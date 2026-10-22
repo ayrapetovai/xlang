@@ -238,11 +238,11 @@ static void apply_assign(ASTDump *dmp) {
       strdup(colorise(dmp, "stmt ", "=", GREEN)), lexpr_chain));
 }
 
-static void apply_enter(ASTDump *dmp) {
+static void apply_enter(ASTDump *dmp, ASTNode*) {
   dmp->depth += 1;
 }
 
-static void apply_leave(ASTDump *dmp) {
+static void apply_leave(ASTDump *dmp, ASTNode*) {
   dmp->depth -= 1;
 }
 
@@ -278,8 +278,8 @@ ASTDump *astdump_new(size_t max_stack_size) {
   dmp->header.ops.scope_push_new = (Applyer)scope_push_new;
   dmp->header.ops.scope_pop = (NodeApplyer)scope_pop;
 
-  dmp->header.ops.apply_enter = (Applyer)apply_enter;
-  dmp->header.ops.apply_leave = (Applyer)apply_leave;
+  dmp->header.ops.apply_enter = (NodeApplyer)apply_enter;
+  dmp->header.ops.apply_leave = (NodeApplyer)apply_leave;
 
   memset(dmp->header.error, '\0', sizeof(dmp->header.error));
 

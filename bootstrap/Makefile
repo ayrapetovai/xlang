@@ -7,8 +7,8 @@ CFLAGS  ?= -std=c23 -Wall -Wextra -Werror -O0 -g
 SAN     = -fsanitize=address,undefined -fno-omit-frame-pointer
 ASANF   = -std=c23 -Wall -Wextra -Werror -Wno-format-overflow -O1 -g $(SAN)
 
-HDR     = ast.h tokens.h reader.h lexer.h logger.h parser.h exec.h stack.h map.h walker.h ast-dump.h
-SRC     = main.c ast.c lexer.c logger.c parser.c tokens.c exec.c reader.c map.c walker.c ast-dump.c
+HDR     = tokens.h ast.h reader.h lexer.h logger.h parser.h exec.h stack.h map.h walker.h ast-dump.h ast-free.h
+SRC     = main.c   ast.c reader.c lexer.c logger.c tokens.c parser.c exec.c  map.c walker.c ast-dump.c ast-free.c
 
 bootstrap: $(SRC) $(HDR)
 	$(CC) $(CFLAGS) -o $@ $(SRC) -lm

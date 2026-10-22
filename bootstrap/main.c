@@ -6,6 +6,7 @@
 #include <errno.h>
 
 #include "ast.h"
+#include "ast-free.h"
 #include "ast-dump.h"
 #include "exec.h"
 #include "lexer.h"
@@ -26,6 +27,20 @@ Bootstrap compiler does not support:
 - floating point numbers
 - custom memory allocators
 */
+
+void free_ast(ASTNode *ast) {
+  if (ast == NULL) return;
+  size_t max_stack_size = 2 * ast->height + 1;
+  ASTFree *fr = astfree_new();
+  struct Walker *free_walker = walker_new(&fr->header, max_stack_size);
+
+  EMState es = walker_run(free_walker, ast);
+  if (es != EMS_SUCCESS) {
+    fprintf(stderr, "free failed: %s\n", free_walker->error);
+  }
+  walker_free(free_walker);
+  astfree_free(fr);
+}
 
 int run_exec(FILE* src) {
   struct Lexer *lexer = lexer_new(src);
@@ -69,7 +84,8 @@ int run_exec(FILE* src) {
   walker_free(walker);
 
   exec_free(em);
-  node_free(parse_result);
+  free_ast(parse_result);
+
   return es == EMS_ERROR;
 }
 
@@ -162,17 +178,18 @@ int run_ast(FILE* src) {
 
   size_t max_stack_size = 2 * parse_result->height + 1;
   ASTDump *dmp = astdump_new(max_stack_size);
-  struct Walker *walker = walker_new(&dmp->header, max_stack_size);
-  EMState es = walker_run(walker, parse_result);
+  struct Walker *dump_walker = walker_new(&dmp->header, max_stack_size);
+  EMState es = walker_run(dump_walker, parse_result);
   if (es != EMS_SUCCESS) {
-    fprintf(stderr, "dump failed: %s\n", walker->error);
+    fprintf(stderr, "dump failed: %s\n", dump_walker->error);
   }
-  walker_free(walker);
+  walker_free(dump_walker);
 
   astdump_print(dmp);
   astdump_free(dmp);
 
-  node_free(parse_result);
+  free_ast(parse_result);
+
   return es == EMS_ERROR;
 }
 

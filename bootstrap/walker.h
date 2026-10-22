@@ -30,8 +30,8 @@ typedef struct {
   Applyer scope_push_new;
   NodeApplyer scope_pop;
 
-  Applyer apply_enter;
-  Applyer apply_leave;
+  NodeApplyer apply_enter;
+  NodeApplyer apply_leave;
 } WOperations;
 
 // This context header must be the first field in any context (print, check, exec)
