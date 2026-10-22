@@ -184,13 +184,17 @@ static void* reduce_empty(size_t argc, void* []) {
 static void* reduce_ifstmt_if_tail(size_t argc, void* argv[]) {
   assert(argc == 2);
   ASTNode **cond_then_else = argv[1];
-  return node_if_new(cond_then_else[0], cond_then_else[1], cond_then_else[2]);
+  ASTNode *n =  node_if_new(cond_then_else[0], cond_then_else[1], cond_then_else[2]);
+  free(cond_then_else);
+  return n;
 }
 
 static void* reduce_ifexpr_if_tail(size_t argc, void* argv[]) {
   assert(argc == 2);
   ASTNode **cond_then_else = argv[1];
-  return node_ifexpr_new(cond_then_else[0], cond_then_else[1], cond_then_else[2]);
+  ASTNode *n = node_ifexpr_new(cond_then_else[0], cond_then_else[1], cond_then_else[2]);
+  free(cond_then_else);
+  return n;
 }
 
 static void* reduce_peek_second(size_t argc, void* argv[]) {
