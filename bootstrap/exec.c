@@ -187,7 +187,7 @@ static void apply_define(ExecMachine *em, const ASTNode *n) {
   scope_add_descriptor(em, name, dsc);
 }
 
-static void apply_assign(ExecMachine *em) {
+static void apply_assign(ExecMachine *em, ASTNode*) {
   EMStackSlot *addr  = (EMStackSlot*)(uintptr_t)exec_pop(em);
   if (addr == NULL) {
     snprintf(em->header.error, sizeof(em->header.error), "NULL pointer access");
@@ -219,7 +219,7 @@ ExecMachine *exec_new(size_t max_stack_size) {
 
   em->corrupted = false;
 
-  em->header.ops.apply_assign = (Applyer)apply_assign;
+  em->header.ops.apply_assign = (NodeApplyer)apply_assign;
   em->header.ops.apply_define = (NodeApplyer)apply_define;
   em->header.ops.apply_echo = (Applyer)apply_echo;
   em->header.ops.apply_expr = (NodeApplyer)apply_expr;

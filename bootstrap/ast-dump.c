@@ -229,7 +229,7 @@ static void apply_define(ASTDump *dmp, const ASTNode *n) {
       strdup(colorise(dmp, "stmt ", ":=", GREEN)), id_pn));
 }
 
-static void apply_assign(ASTDump *dmp) {
+static void apply_assign(ASTDump *dmp, const ASTNode*) {
   PrintNode *lexpr_chain = stack_pop(dmp);
   PrintNode *expr_chain = stack_pop(dmp);
   printnode_append(lexpr_chain, expr_chain);
@@ -259,7 +259,7 @@ ASTDump *astdump_new(size_t max_stack_size) {
 
   memset(&dmp->header, 0, sizeof(dmp->header));
 
-  dmp->header.ops.apply_assign = (Applyer)apply_assign;
+  dmp->header.ops.apply_assign = (NodeApplyer)apply_assign;
   dmp->header.ops.apply_define = (NodeApplyer)apply_define;
   dmp->header.ops.apply_echo = (Applyer)apply_echo;
   dmp->header.ops.apply_expr = (NodeApplyer)apply_expr;

@@ -25,7 +25,7 @@ typedef struct {
   NodeApplyer apply_if_post;
   NodeApplyer apply_ifexpr_post;
   NodeApplyer apply_define;
-  Applyer apply_assign;
+  NodeApplyer apply_assign;
   Applyer apply_echo;
   Applyer scope_push_new;
   NodeApplyer scope_pop;

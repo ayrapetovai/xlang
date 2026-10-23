@@ -42,7 +42,7 @@ ASTFree *astfree_new() {
 
   memset(&fr->header, 0, sizeof(fr->header));
 
-  fr->header.ops.apply_assign = (Applyer)do_nothing;
+  fr->header.ops.apply_assign = (NodeApplyer)do_nothing_node;
   fr->header.ops.apply_define = (NodeApplyer)free_the_define;
   fr->header.ops.apply_echo = (Applyer)do_nothing;
   fr->header.ops.apply_expr = (NodeApplyer)do_nothing_node;

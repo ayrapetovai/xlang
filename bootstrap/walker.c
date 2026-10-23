@@ -140,7 +140,7 @@ EMState walker_run(Walker *walker, const ASTNode *root) {
               PHASE3(t,
                 push_task(walker, n->info.stmt.assign.expr, EMR_EVAL),
                 push_task(walker, n->info.stmt.assign.lexpr, EMR_REFERENCE),
-                walker->ctx->ops.apply_assign(walker->ctx);
+                walker->ctx->ops.apply_assign(walker->ctx, n);
               );
             default:
               snprintf(walker->error, sizeof(walker->error), "failed to create a task: statement unrecognized %d", n->info.stmt.stmt_tok);
