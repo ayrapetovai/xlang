@@ -89,6 +89,8 @@ typedef struct ASTNode {
   struct ASTNode *parent;
   NodeKind kind;
   size_t height; // how many children in depth does this node holds, trivial are 1
+  size_t line;
+  size_t col;
   union {
     InfoId id;
     InfoIfExpr ifexpr;
@@ -101,17 +103,17 @@ typedef struct ASTNode {
   } info;
 } ASTNode;
 
-ASTNode *node_new(NodeKind kind);
-ASTNode *node_id_new(const char* value);
-ASTNode *node_value_new(ValueKind kind, const char *str_reprentation);
-ASTNode *node_expr_new(TokenKind kind, ASTNode *left_expr, ASTNode *right_expr);
-ASTNode *node_uexpr_new(TokenKind kind, ASTNode *expr);
+ASTNode *node_new(NodeKind kind, size_t line, size_t col);
+ASTNode *node_id_new(const char* value, size_t line, size_t col);
+ASTNode *node_value_new(ValueKind kind, const char *str_reprentation, size_t line, size_t col);
+ASTNode *node_expr_new(TokenKind kind, ASTNode *left_expr, ASTNode *right_expr, size_t line, size_t col);
+ASTNode *node_uexpr_new(TokenKind kind, ASTNode *expr, size_t line, size_t col);
 void    *node_abstract_if_new(ASTNode *cond, ASTNode *then_arm, ASTNode *else_arm);
-ASTNode *node_if_new(ASTNode *cond, ASTNode *then_arm, ASTNode *else_arm);
-ASTNode *node_ifexpr_new(ASTNode *cond, ASTNode *then_arm, ASTNode *else_arm);
-ASTNode *node_stmt_echo_new(TokenKind kind, ASTNode *expr);
-ASTNode *node_definition_new(ASTNode *id_node, ASTNode *expr);
-ASTNode *node_assignment_new(ASTNode *lexpr, ASTNode *expr);
+ASTNode *node_if_new(ASTNode *cond, ASTNode *then_arm, ASTNode *else_arm, size_t line, size_t col);
+ASTNode *node_ifexpr_new(ASTNode *cond, ASTNode *then_arm, ASTNode *else_arm, size_t line, size_t col);
+ASTNode *node_stmt_echo_new(TokenKind kind, ASTNode *expr, size_t line, size_t col);
+ASTNode *node_definition_new(ASTNode *id_node, ASTNode *expr, size_t line, size_t col);
+ASTNode *node_assignment_new(ASTNode *lexpr, ASTNode *expr, size_t line, size_t col);
 ASTNode *node_block_new();
 void node_block_append(ASTNode *block, ASTNode *stmt);
 void node_block_prepend(ASTNode *block, ASTNode *stmt);

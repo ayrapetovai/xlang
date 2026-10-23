@@ -116,38 +116,41 @@ static void *reduce_id(size_t argc, void* argv[]) {
   assert(argc == 1);
   Token *tok = argv[0];
   assert(tok->kind == TOK_ID);
-  return node_id_new(tok->value);
+  return node_id_new(tok->value, tok->line, tok->col);
 }
 
 static void* reduce_bool_l(size_t argc, void* argv[]) {
   assert(argc == 1);
   struct Token* tok = (struct Token*) argv[0];
   assert(tok->kind == TOK_BOOL_L);
-  return node_value_new(VK_BOOL, tok->value);
+  return node_value_new(VK_BOOL, tok->value, tok->line, tok->col);
 }
 
 static void* reduce_number_l(size_t argc, void* argv[]) {
   assert(argc == 1);
   struct Token* tok = (struct Token*) argv[0];
   assert(tok->kind == TOK_NUMBER_L);
-  return node_value_new(VK_INTEGER, tok->value);
+  return node_value_new(VK_INTEGER, tok->value, tok->line, tok->col);
 }
 
 static void* reduce_minus_expr(size_t argc, void* argv[]) {
   assert(argc == 2);
-  return node_uexpr_new(((Token*)argv[0])->kind, argv[1]);
+  Token *tok = argv[0];
+  assert(tok->kind == TOK_MINUS);
+  return node_uexpr_new(tok->kind, argv[1], tok->line, tok->col);
 }
 
 static void* reduce_expr_op_expr(size_t argc, void* argv[]) {
   assert(argc == 3);
-  return node_expr_new(((Token*)argv[1])->kind, argv[0], argv[2]);
+  Token *tok = argv[1];
+  return node_expr_new(tok->kind, argv[0], argv[2], tok->line, tok->col);
 }
 
 static void* reduce_echo_expr(size_t argc, void* argv[]) {
   assert(argc == 2);
-  Token* echo_tok = (Token*) argv[0];
-  assert(echo_tok->kind == TOK_ECHO);
-  return node_stmt_echo_new(echo_tok->kind, argv[1]);
+  Token* tok = argv[0];
+  assert(tok->kind == TOK_ECHO);
+  return node_stmt_echo_new(tok->kind, argv[1], tok->line, tok->col);
 }
 
 static void* reduce_id_define_expr(size_t argc, void* argv[]) {
@@ -155,14 +158,14 @@ static void* reduce_id_define_expr(size_t argc, void* argv[]) {
   Token *id_tok = argv[0];
   Token *define_tok = argv[1];
   assert(id_tok->kind == TOK_ID && define_tok->kind == TOK_DEFINE);
-  return node_definition_new(node_id_new(id_tok->value), argv[2]);
+  return node_definition_new(node_id_new(id_tok->value, id_tok->line, id_tok->col), argv[2], define_tok->line, define_tok->col);
 }
 
 static void* reduce_expr_assign_expr(size_t argc, void* argv[]) {
   assert(argc == 3);
   Token *define_tok = argv[1];
   assert(define_tok->kind == TOK_ASSIGN);
-  return node_assignment_new(argv[0], argv[2]);
+  return node_assignment_new(argv[0], argv[2], define_tok->line, define_tok->col);
 }
 
 static void* reduce_stmt_stmts(size_t argc, void* argv[]) {
@@ -196,16 +199,18 @@ static void* reduce_empty(size_t argc, void* []) {
 
 static void* reduce_ifstmt_if_tail(size_t argc, void* argv[]) {
   assert(argc == 2);
+  Token *tok = argv[0];
   ASTNode **cond_then_else = argv[1];
-  ASTNode *n =  node_if_new(cond_then_else[0], cond_then_else[1], cond_then_else[2]);
+  ASTNode *n =  node_if_new(cond_then_else[0], cond_then_else[1], cond_then_else[2], tok->line, tok->col);
   free(cond_then_else);
   return n;
 }
 
 static void* reduce_ifexpr_if_tail(size_t argc, void* argv[]) {
   assert(argc == 2);
+  Token *tok = argv[0];
   ASTNode **cond_then_else = argv[1];
-  ASTNode *n = node_ifexpr_new(cond_then_else[0], cond_then_else[1], cond_then_else[2]);
+  ASTNode *n = node_ifexpr_new(cond_then_else[0], cond_then_else[1], cond_then_else[2], tok->line, tok->col);
   free(cond_then_else);
   return n;
 }
