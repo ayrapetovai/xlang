@@ -2,6 +2,7 @@
 #include "ast.h"
 #include "walker.h"
 
+#include <stddef.h>
 #include <unistd.h>
 
 #include <assert.h>
@@ -9,24 +10,46 @@
 #include <stdlib.h>
 #include <string.h>
 
-static PrintNode *printnode_new(size_t i, char *t, struct PrintNode *n) {
+static inline PrintChain chain_empty(void) {
+  return (PrintChain){NULL, NULL};
+}
+
+static PrintChain chain_single(size_t i, const char *t) {
   PrintNode *pn = malloc(sizeof(PrintNode));
-  pn->text = t;
+  assert(pn != NULL);
+  pn->text = strdup(t);
   pn->indent = i;
-  pn->next = n;
-  return pn;
+  pn->next = NULL;
+  return (PrintChain){pn, pn};
 }
 
-static void printnode_append(PrintNode *n1, PrintNode *n2) {
-  if (n1 == NULL || n2 == NULL) return;
-  PrintNode *it = n1;
-  while(it->next != NULL) {
-    it = it->next;
+// Prepend a label node to c. The tail of the result is the tail of c.
+static PrintChain chain_wrap(size_t i, const char *t, PrintChain c) {
+  assert(c.head != NULL || c.tail == NULL);
+  assert(c.tail == NULL || c.tail->next == NULL);
+  PrintNode *pn = malloc(sizeof(PrintNode));
+  assert(pn != NULL);
+  pn->text = strdup(t);
+  pn->indent = i;
+  pn->next = c.head;
+  return (PrintChain){pn, c.head == NULL ? pn : c.tail};
+}
+
+static void chain_append(PrintChain *dst, PrintChain src) {
+  if (src.head == NULL) return;
+  assert(src.tail != NULL);
+  assert(src.tail->next == NULL);
+  if (dst->head == NULL) {
+    *dst = src;
+    return;
   }
-  it->next = n2;
+  assert(dst->tail != NULL);
+  assert(dst->tail->next == NULL);
+  dst->tail->next = src.head;
+  dst->tail = src.tail;
 }
 
-#define RED_TEXT(s) "\033[31m" s "\033[0m"
+#define RED_TEXT(s)   "\033[31m" s "\033[0m"
 #define GREEN_TEXT(s) "\033[32m" s "\033[0m"
 
 typedef enum {
@@ -51,7 +74,7 @@ static inline const char* colorise(ASTDump *dmp, const char *prefix, const char 
         snprintf(print_to, sizeof(buf) - prefix_len, GREEN_TEXT("%s"), s);
         break;
       default:
-        exit(55);
+        abort();
     }
   } else {
     snprintf(print_to, sizeof(buf) - prefix_len, "%s", s);
@@ -60,10 +83,10 @@ static inline const char* colorise(ASTDump *dmp, const char *prefix, const char 
   return buf;
 }
 
-static inline void stack_push(ASTDump *dmp, PrintNode *s) {
+static inline void stack_push(ASTDump *dmp, PrintChain c) {
   if (dmp->sp >= dmp->stack_len) {
     size_t nlen = dmp->stack_len * 2;
-    PrintNode **nstack = realloc(dmp->stack, nlen * sizeof(*nstack));
+    PrintChain *nstack = realloc(dmp->stack, nlen * sizeof(*nstack));
     if (nstack == NULL) {
       snprintf(dmp->header.error, sizeof(dmp->header.error), "print stack realloc failed");
       longjmp(dmp->header.catch, 1);
@@ -71,10 +94,10 @@ static inline void stack_push(ASTDump *dmp, PrintNode *s) {
     dmp->stack = nstack;
     dmp->stack_len = nlen;
   }
-  dmp->stack[dmp->sp++] = s;
+  dmp->stack[dmp->sp++] = c;
 }
 
-static inline PrintNode *stack_pop(ASTDump *dmp) {
+static inline PrintChain stack_pop(ASTDump *dmp) {
   if (dmp->sp == 0) {
     snprintf(dmp->header.error, sizeof(dmp->header.error), "print stack underflow");
     longjmp(dmp->header.catch, 1);
@@ -86,9 +109,7 @@ static inline void scope_push_new(ASTDump *) {
 }
 
 static inline void scope_pop(ASTDump *dmp, const ASTNode *block) {
-  PrintNode *block_pn = printnode_new(dmp->depth, strdup("block"), NULL);
-  PrintNode *addant = block_pn;
-  PrintNode *adde;
+  PrintChain block_chain = chain_single(dmp->depth, "block");
 
   size_t from;
   if (dmp->sp > block->info.block.len) {
@@ -97,19 +118,17 @@ static inline void scope_pop(ASTDump *dmp, const ASTNode *block) {
     from = 0;
   }
 
-  for (size_t i = from; i < dmp->sp; i++) {
-    adde = dmp->stack[i];
-    printnode_append(addant, adde);
-    addant = adde;
-  }
+  for (size_t i = from; i < dmp->sp; i++)
+    chain_append(&block_chain, dmp->stack[i]);
+
   dmp->sp = from;
-  stack_push(dmp, block_pn);
+  stack_push(dmp, block_chain);
 }
 
 static void apply_identifier_ref(ASTDump *dmp, const ASTNode *n) {
   switch (n->kind) {
     case NODE_ID:
-      stack_push(dmp, printnode_new(dmp->depth, strdup(colorise(dmp, "id ", n->info.id.value, RED)), NULL));
+      stack_push(dmp, chain_single(dmp->depth, colorise(dmp, "id ", n->info.id.value, RED)));
       break;
     default:
       snprintf(dmp->header.error, sizeof(dmp->header.error), "unknown reference expression kind %d", n->info.expr.op_tok);
@@ -118,7 +137,7 @@ static void apply_identifier_ref(ASTDump *dmp, const ASTNode *n) {
 }
 
 static void apply_identifier(ASTDump *dmp, const ASTNode *n) {
-  stack_push(dmp, printnode_new(dmp->depth, strdup(colorise(dmp, "id ", n->info.id.value, RED)), NULL));
+  stack_push(dmp, chain_single(dmp->depth, colorise(dmp, "id ", n->info.id.value, RED)));
 }
 
 static void apply_expr(ASTDump *dmp, const ASTNode *n) {
@@ -132,17 +151,19 @@ static void apply_expr(ASTDump *dmp, const ASTNode *n) {
       snprintf(dmp->header.error, sizeof(dmp->header.error), "unknown expression kind %d", n->info.expr.op_tok);
       longjmp(dmp->header.catch, 1);
   }
-  PrintNode *r = stack_pop(dmp);
-  PrintNode *l = stack_pop(dmp);
-  printnode_append(l, r);
-  stack_push(dmp, printnode_new(dmp->depth, strdup(buf), l));
+  PrintChain r = stack_pop(dmp);
+  PrintChain l = stack_pop(dmp);
+  chain_append(&l, r);
+  stack_push(dmp, chain_wrap(dmp->depth, buf, l));
 }
 
 static void apply_uexpr(ASTDump *dmp, const ASTNode *n) {
   switch (n->info.uexpr.op_tok) {
-    case TOK_MINUS:
-      stack_push(dmp, printnode_new(dmp->depth, strdup(colorise(dmp, "uexpr ", "-", RED)), stack_pop(dmp)));
+    case TOK_MINUS: {
+      PrintChain inner = stack_pop(dmp);
+      stack_push(dmp, chain_wrap(dmp->depth, colorise(dmp, "uexpr ", "-", RED), inner));
       break;
+    }
     default:
       snprintf(dmp->header.error, sizeof(dmp->header.error), "unknown unary expression kind %d", n->info.uexpr.op_tok);
       longjmp(dmp->header.catch, 1);
@@ -165,9 +186,9 @@ static void printnode_indent_add(PrintNode *pn, size_t by) {
 }
 
 static inline void apply_if_post_universal(ASTDump *dmp, bool has_else, const char *node_type, Color c) {
-  PrintNode *else_chain = NULL;
-  PrintNode *then_chain;
-  PrintNode *cond_chain;
+  PrintChain else_chain = chain_empty();
+  PrintChain then_chain;
+  PrintChain cond_chain;
   if (has_else) {
     else_chain = stack_pop(dmp);
     then_chain = stack_pop(dmp);
@@ -176,21 +197,17 @@ static inline void apply_if_post_universal(ASTDump *dmp, bool has_else, const ch
   }
   cond_chain = stack_pop(dmp);
 
+  printnode_indent_add(cond_chain.head, 1);
+  if (else_chain.head)
+    printnode_indent_add(else_chain.head, 1);
+
   const size_t label_level = dmp->depth + 1;
-  printnode_indent_add(cond_chain, 1);
-  printnode_indent_add(else_chain, 1);
-
-  PrintNode *cond_pn = printnode_new(label_level, strdup("cond"), cond_chain);
-  PrintNode *then_pn = printnode_new(label_level, strdup("then"), then_chain);
-  PrintNode *else_pn = NULL;
-  if (has_else) {
-    else_pn = printnode_new(label_level, strdup("else"), else_chain);
-  }
-
-  PrintNode *if_pn = printnode_new(dmp->depth, strdup(colorise(dmp, node_type, "if", c)), cond_pn);
-  printnode_append(cond_pn, then_pn);
-  printnode_append(then_pn, else_pn);
-  stack_push(dmp, if_pn);
+  PrintChain chain = chain_wrap(label_level, "cond", cond_chain);
+  chain_append(&chain, chain_wrap(label_level, "then", then_chain));
+  if (has_else)
+    chain_append(&chain, chain_wrap(label_level, "else", else_chain));
+  PrintChain if_chain = chain_wrap(dmp->depth, colorise(dmp, node_type, "if", c), chain);
+  stack_push(dmp, if_chain);
 }
 
 static void apply_if_post(ASTDump *dmp, const ASTNode *n) {
@@ -206,10 +223,10 @@ static void apply_ifexpr_post(ASTDump *dmp, const ASTNode *n) {
 static void value_of(ASTDump *dmp, const ASTNode *n) {
   switch (n->info.val.kind) {
     case VK_INTEGER:
-    case VK_BOOL:
-      char *at = strdup(colorise(dmp, "val ", n->info.val.value, RED));
-      stack_push(dmp, printnode_new(dmp->depth, at, NULL));
+    case VK_BOOL: {
+      stack_push(dmp, chain_single(dmp->depth, colorise(dmp, "val ", n->info.val.value, RED)));
       break;
+    }
     default:
       snprintf(dmp->header.error, sizeof(dmp->header.error), "unsupported value kind %d", n->info.val.kind);
       longjmp(dmp->header.catch, 1);
@@ -217,24 +234,24 @@ static void value_of(ASTDump *dmp, const ASTNode *n) {
 }
 
 static void apply_echo(ASTDump *dmp) {
-  stack_push(dmp, printnode_new(dmp->depth, strdup(colorise(dmp, "stmt ", "echo", GREEN)), stack_pop(dmp)));
+  PrintChain inner = stack_pop(dmp);
+  stack_push(dmp, chain_wrap(dmp->depth, colorise(dmp, "stmt ", "echo", GREEN), inner));
 }
 
 static void apply_define(ASTDump *dmp, const ASTNode *n) {
-  PrintNode *expr_chain = stack_pop(dmp);
-  PrintNode *id_pn = printnode_new(dmp->depth + 1,
-      strdup(colorise(dmp, "id ", n->info.stmt.define.id->info.id.value, RED)),
-      expr_chain);
-  stack_push(dmp, printnode_new(dmp->depth,
-      strdup(colorise(dmp, "stmt ", ":=", GREEN)), id_pn));
+  PrintChain expr = stack_pop(dmp);
+  PrintChain id_pn = chain_wrap(dmp->depth + 1,
+      colorise(dmp, "id ", n->info.stmt.define.id->info.id.value, RED), expr);
+  stack_push(dmp, chain_wrap(dmp->depth,
+      colorise(dmp, "stmt ", ":=", GREEN), id_pn));
 }
 
 static void apply_assign(ASTDump *dmp, const ASTNode*) {
-  PrintNode *lexpr_chain = stack_pop(dmp);
-  PrintNode *expr_chain = stack_pop(dmp);
-  printnode_append(lexpr_chain, expr_chain);
-  stack_push(dmp, printnode_new(dmp->depth,
-      strdup(colorise(dmp, "stmt ", "=", GREEN)), lexpr_chain));
+  PrintChain lexpr = stack_pop(dmp);
+  PrintChain expr = stack_pop(dmp);
+  chain_append(&lexpr, expr);
+  stack_push(dmp, chain_wrap(dmp->depth,
+      colorise(dmp, "stmt ", "=", GREEN), lexpr));
 }
 
 static void apply_enter(ASTDump *dmp, ASTNode*) {
@@ -286,12 +303,15 @@ ASTDump *astdump_new(size_t max_stack_size) {
 }
 
 void astdump_print(ASTDump *dmp) {
-  if (dmp->sp == 0) return; // TODO error, stack is empty
-  PrintNode *it = NULL;
+  if (dmp->sp == 0) {
+    snprintf(dmp->header.error, sizeof(dmp->header.error), "dump stack is empty");
+    return;
+  }
+
   for (size_t i = 0; i < dmp->sp; i++) {
-    it = dmp->stack[i];
+    PrintNode *it = dmp->stack[i].head;
     while (it != NULL) {
-      for (size_t i = 1; i < it->indent; i++)
+      for (size_t j = 1; j < it->indent; j++)
         printf("  ");
       printf("%s\n", it->text);
       PrintNode *free_me = it;
@@ -306,16 +326,12 @@ void astdump_print(ASTDump *dmp) {
 void astdump_free(ASTDump *dmp) {
   assert(dmp != NULL);
   for (size_t i = 0; i < dmp->sp; i++) {
-    PrintNode *pn = dmp->stack[i];
-    if (pn != NULL) {
-      while (pn != NULL && pn->next != NULL) {
-        free(pn->text);
-        PrintNode *next = pn->next;
-        free(pn);
-        pn = next;
-      }
+    PrintNode *pn = dmp->stack[i].head;
+    while (pn != NULL) {
+      PrintNode *next = pn->next;
       free(pn->text);
       free(pn);
+      pn = next;
     }
   }
   free(dmp->stack);
