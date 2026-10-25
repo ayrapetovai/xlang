@@ -7,8 +7,8 @@ CFLAGS  ?= -std=c23 -Wall -Wextra -Werror -O0 -g
 SAN     = -fsanitize=address,undefined -fno-omit-frame-pointer
 ASANF   = -std=c23 -Wall -Wextra -Werror -Wno-format-overflow -O1 -g $(SAN)
 
-HDR     = tokens.h ast.h reader.h lexer.h logger.h parser.h exec.h stack.h map.h walker.h ast-dump.h ast-free.h typetab.h checker.h
-SRC     = main.c   ast.c reader.c lexer.c logger.c tokens.c parser.c exec.c  map.c walker.c ast-dump.c ast-free.c typetab.c checker.c
+HDR     = tokens.h ast.h reader.h lexer.h logger.h parser.h exec.h stack.h walker.h ast-dump.h ast-free.h typetab.h checker.h hmap.h
+SRC     = main.c   ast.c reader.c lexer.c logger.c tokens.c parser.c exec.c walker.c ast-dump.c ast-free.c typetab.c checker.c
 
 bootstrap: $(SRC) $(HDR)
 	$(CC) $(CFLAGS) -o $@ $(SRC) -lm
@@ -19,18 +19,18 @@ bootstrap-asan: $(SRC) $(HDR)
 vm_test: vm.h vm.c vm_test.c
 	gcc -std=c23 -Wall -Wextra -Werror -Wcast-align=strict -O0 -g vm.c vm_test.c -o vm_test
 
-map_test: map.h map.c map_test.c
-	$(CC) $(CFLAGS) -o $@ map.c map_test.c
+hmap_test: hmap.h hmap_test.c
+	$(CC) $(CFLAGS) -o $@ hmap.h hmap_test.c
 
 clean:
-	rm -f bootstrap bootstrap-asan map_test
+	rm -f bootstrap bootstrap-asan hmap_test
 	rm -rf test/.work
 
 tags: $(SRC) $(HDR)
 	ctags -R --languages=C --exclude=.git --exclude=build -f tags .
 
-check: bootstrap map_test
-	./map_test
+check: bootstrap hmap_test
+	./hmap_test
 	sh test/check.sh
 
 check-asan: bootstrap-asan

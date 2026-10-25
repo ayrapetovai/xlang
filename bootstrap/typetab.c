@@ -1,5 +1,4 @@
 #include "typetab.h"
-#include "map.h"
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -24,7 +23,7 @@ static void init_predefined_types(TypeTable *tt) {
     memset(t, 0, sizeof(Type));
     t->base = TB_NONE;
     t->name = "none";
-    hashmap_put(tt->by_name, "none", (void*)(uintptr_t)(tt->len - 1));
+    TypeNameMap_put(tt->by_name, "none", (TypeId)(tt->len - 1));
   }
   /* TYPE_UNKNOWN_ID */
   {
@@ -32,7 +31,7 @@ static void init_predefined_types(TypeTable *tt) {
     memset(t, 0, sizeof(Type));
     t->base = TB_ANY;
     t->name = "unknown";
-    hashmap_put(tt->by_name, "unknown", (void*)(uintptr_t)(tt->len - 1));
+    TypeNameMap_put(tt->by_name, "unknown", (TypeId)(tt->len - 1));
   }
   /* int */
   {
@@ -43,7 +42,7 @@ static void init_predefined_types(TypeTable *tt) {
     t->flags.is_immutable = true;
     t->flags.is_owning = true;
     t->object_size = 8;
-    hashmap_put(tt->by_name, "int", (void*)(uintptr_t)(tt->len - 1));
+    TypeNameMap_put(tt->by_name, "int", (TypeId)(tt->len - 1));
   }
   /* uint */
   {
@@ -55,7 +54,7 @@ static void init_predefined_types(TypeTable *tt) {
     t->flags.is_owning = true;
     t->flags.is_unsigned = true;
     t->object_size = 8;
-    hashmap_put(tt->by_name, "uint", (void*)(uintptr_t)(tt->len - 1));
+    TypeNameMap_put(tt->by_name, "uint", (TypeId)(tt->len - 1));
   }
   /* float */
   {
@@ -64,7 +63,7 @@ static void init_predefined_types(TypeTable *tt) {
     t->base = TB_FLOAT;
     t->name = "float";
     t->object_size = 8;
-    hashmap_put(tt->by_name, "float", (void*)(uintptr_t)(tt->len - 1));
+    TypeNameMap_put(tt->by_name, "float", (TypeId)(tt->len - 1));
   }
   /* bool */
   {
@@ -73,7 +72,7 @@ static void init_predefined_types(TypeTable *tt) {
     t->base = TB_BOOL;
     t->name = "bool";
     t->object_size = 1;
-    hashmap_put(tt->by_name, "bool", (void*)(uintptr_t)(tt->len - 1));
+    TypeNameMap_put(tt->by_name, "bool", (TypeId)(tt->len - 1));
   }
   /* char */
   {
@@ -82,7 +81,7 @@ static void init_predefined_types(TypeTable *tt) {
     t->base = TB_CHAR;
     t->name = "char";
     t->object_size = 4;
-    hashmap_put(tt->by_name, "char", (void*)(uintptr_t)(tt->len - 1));
+    TypeNameMap_put(tt->by_name, "char", (TypeId)(tt->len - 1));
   }
   /* byte */
   {
@@ -91,7 +90,7 @@ static void init_predefined_types(TypeTable *tt) {
     t->base = TB_BYTE;
     t->name = "byte";
     t->object_size = 1;
-    hashmap_put(tt->by_name, "byte", (void*)(uintptr_t)(tt->len - 1));
+    TypeNameMap_put(tt->by_name, "byte", (TypeId)(tt->len - 1));
   }
   /* string */
   {
@@ -100,7 +99,7 @@ static void init_predefined_types(TypeTable *tt) {
     t->base = TB_STRING;
     t->name = "string";
     t->object_size = 8 * 2;
-    hashmap_put(tt->by_name, "string", (void*)(uintptr_t)(tt->len - 1));
+    TypeNameMap_put(tt->by_name, "string", (TypeId)(tt->len - 1));
   }
   /* bytes */
   {
@@ -109,7 +108,7 @@ static void init_predefined_types(TypeTable *tt) {
     t->base = TB_BYTES;
     t->name = "bytes";
     t->object_size = 8 * 2;
-    hashmap_put(tt->by_name, "bytes", (void*)(uintptr_t)(tt->len - 1));
+    TypeNameMap_put(tt->by_name, "bytes", (TypeId)(tt->len - 1));
   }
   /* void */
   {
@@ -118,7 +117,7 @@ static void init_predefined_types(TypeTable *tt) {
     t->base = TB_VOID;
     t->name = "void";
     t->object_size = 0;
-    hashmap_put(tt->by_name, "void", (void*)(uintptr_t)(tt->len - 1));
+    TypeNameMap_put(tt->by_name, "void", (TypeId)(tt->len - 1));
   }
   /* type */
   {
@@ -127,7 +126,7 @@ static void init_predefined_types(TypeTable *tt) {
     t->base = TB_TYPE;
     t->name = "type";
     t->object_size = 8;
-    hashmap_put(tt->by_name, "type", (void*)(uintptr_t)(tt->len - 1));
+    TypeNameMap_put(tt->by_name, "type", (TypeId)(tt->len - 1));
   }
   /* any */
   {
@@ -135,7 +134,7 @@ static void init_predefined_types(TypeTable *tt) {
     memset(t, 0, sizeof(Type));
     t->base = TB_ANY;
     t->name = "any";
-    hashmap_put(tt->by_name, "any", (void*)(uintptr_t)(tt->len - 1));
+    TypeNameMap_put(tt->by_name, "any", (TypeId)(tt->len - 1));
   }
 }
 
@@ -213,14 +212,14 @@ static void init_func_types(TypeTable *tt) {
     t->props.func.params[0] = (TypeParam) {.type = int_type_id, .default_expr = NULL};
     t->props.func.params[1] = (TypeParam) {.type = int_type_id, .default_expr = NULL};
     t->props.func.return_type = int_type_id;
-    hashmap_put(tt->by_name, t->name, (void*)(uintptr_t)(tt->len - 1));
+    TypeNameMap_put(tt->by_name, t->name, (TypeId)(tt->len - 1));
   }
 }
 
 TypeTable *typetab_new(void) {
   TypeTable *tt = calloc(1, sizeof(TypeTable));
   assert(tt);
-  tt->by_name = hashmap_new(NULL);
+  tt->by_name = TypeNameMap_new(NULL);
   init_predefined_types(tt);
   init_func_types(tt);
   return tt;
@@ -229,7 +228,7 @@ TypeTable *typetab_new(void) {
 // every type name has one-to-one mappring to type id
 TypeId typetab_find_by_name(TypeTable *tt, const char* type_name) {
   assert(tt != NULL);
-  return (uintptr_t)hashmap_get(tt->by_name, type_name);
+  return (uintptr_t)TypeNameMap_get(tt->by_name, type_name);
 }
 
 void typetab_free(TypeTable *tt) {
@@ -240,28 +239,28 @@ void typetab_free(TypeTable *tt) {
     if (t.base == TB_FUNC) free(t.props.func.params);
   }
   if (tt->types) free(tt->types);
-  if (tt->by_name) hashmap_free(tt->by_name);
+  if (tt->by_name) TypeNameMap_free(tt->by_name);
   free(tt);
 }
 
 FuncTable *functab_new(TypeTable *tt) {
   FuncTable *ft = malloc(sizeof (FuncTable));
-  ft->by_name = hashmap_new(NULL);
+  ft->by_name = TypeNameMap_new(NULL);
   ft->by_qualified = NULL;
 
   TypeId op_plus_type_id = typetab_find_by_name(tt, "f(i,i)i");
-  hashmap_put(ft->by_name, "operator+", (void*)(uintptr_t) op_plus_type_id);
+  TypeNameMap_put(ft->by_name, "operator+", (TypeId) op_plus_type_id);
   return ft;
 }
 
 // TODO: we could find may functions with the same name and diffetent types
 TypeId functab_find(FuncTable *ft, const char *func_name) {
-  return (uintptr_t) hashmap_get(ft->by_name, func_name);
+  return (uintptr_t) TypeNameMap_get(ft->by_name, func_name);
 }
 
 void functab_free(FuncTable *ft) {
   if (ft == NULL) return;
-  if (ft->by_name != NULL) hashmap_free(ft->by_name);
-  if (ft->by_qualified != NULL) hashmap_free(ft->by_qualified);
+  if (ft->by_name != NULL) TypeNameMap_free(ft->by_name);
+  if (ft->by_qualified != NULL) TypeNameMap_free(ft->by_qualified);
   free(ft);
 }

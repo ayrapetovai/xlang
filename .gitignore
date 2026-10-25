@@ -1,6 +1,6 @@
 /bootstrap/bootstrap
 /bootstrap/bootstrap-asan
-/bootstrap/map_test
+/bootstrap/hmap_test
 /bootstrap/tags
 /bootstrap/compile_commands.json
 

@@ -2,11 +2,12 @@
 #define EXEC_H
 
 #include "walker.h"
-#include "map.h"
+#include "hmap.h"
 #include "stack.h"
 #include <stddef.h>
 
-DEFINE_STACK(struct HashMap*, hashmap_free, EMScope);
+DEFINE_HMAP(struct NameDescriptor*, NameDescriptorMap);
+DEFINE_STACK(NameDescriptorMap*, NameDescriptorMap_free, EMScope);
 
 typedef uint64_t EMStackSlot;
 

@@ -3,14 +3,16 @@
 
 #include "walker.h"
 #include "typetab.h"
-#include "map.h"
+#include "hmap.h"
+
+DEFINE_HMAP(TypeId, TypeScope)
 
 typedef struct {
   WalkerContextHeader header;
   TypeTable *type_table;
   FuncTable *func_table;
-  struct HashMap *globals;      // name -> TypeId
-  struct HashMap **scopes;      // stack of scopes
+  struct TypeScope *globals;      // name -> TypeId
+  struct TypeScope **scopes;      // stack of scopes
   size_t scope_cap;
   size_t scope_len;
   char current_namespace[512];

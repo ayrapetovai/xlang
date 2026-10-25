@@ -1,6 +1,7 @@
 #ifndef TYPETAB_H
 #define TYPETAB_H
 
+#include "hmap.h"
 #include <stddef.h>
 #include <inttypes.h>
 #include <stdbool.h>
@@ -32,6 +33,8 @@ typedef enum {
 
 #define TYPE_NONE_ID 0
 #define TYPE_UNKNOWN_ID 1
+
+DEFINE_HMAP(TypeId, TypeNameMap);
 
 typedef struct {
   unsigned is_immutable : 1;
@@ -86,7 +89,7 @@ typedef struct TypeTable {
   Type *types;
   size_t len;
   size_t cap;
-  struct HashMap *by_name;
+  struct TypeNameMap *by_name;
 } TypeTable;
 
 typedef struct FuncEntry {
@@ -100,8 +103,8 @@ typedef struct FuncEntry {
 } FuncEntry;
 
 typedef struct FuncTable {
-  struct HashMap *by_name;
-  struct HashMap *by_qualified;
+  struct TypeNameMap *by_name;
+  struct TypeNameMap *by_qualified;
 } FuncTable;
 
 // create type table and initialize it with integral types and default functions

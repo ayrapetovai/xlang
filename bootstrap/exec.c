@@ -1,6 +1,5 @@
 #include "exec.h"
 #include "ast.h"
-#include "map.h"
 #include "tokens.h"
 #include "walker.h"
 #include <assert.h>
@@ -11,7 +10,7 @@
 // all functions with longjmp to ExecMachine.header.catch can be called only
 // in stack of function walker_run, becase they transfere exection to the function
 
-typedef struct {
+typedef struct NameDescriptor {
   // type: variable/function/structure/interface/array
   // mutability: const/variable
   // ownership: OWNED|BORROW|SHARED
@@ -32,20 +31,20 @@ typedef struct {
 } NameDescriptor;
 
 static inline void scope_push_new(ExecMachine *em) {
-  if (!EMScope_push(em->scope, hashmap_new(free))) {
+  if (!EMScope_push(em->scope, NameDescriptorMap_new(free))) {
     snprintf(em->header.error, sizeof(em->header.error), "failed to create scope");
     longjmp(em->header.catch, 1);
   }
 }
 
 static inline void scope_pop(ExecMachine *em, const ASTNode *) {
-  struct HashMap *hm = NULL;
+  NameDescriptorMap *hm = NULL;
   EMScope_pop(em->scope, &hm);
-  if (hm != NULL) hashmap_free(hm);
+  if (hm != NULL) NameDescriptorMap_free(hm);
 }
 
 static inline void scope_add_descriptor(ExecMachine *em, char *name, NameDescriptor *dsc) {
-  void *prev = hashmap_put(EMScope_top(em->scope), name, dsc);
+  void *prev = NameDescriptorMap_put(EMScope_top(em->scope), name, dsc);
   if (prev != NULL) {
     free(prev);
     snprintf(em->header.error, sizeof(em->header.error), "name redefinition, %s", name);
@@ -53,10 +52,10 @@ static inline void scope_add_descriptor(ExecMachine *em, char *name, NameDescrip
   }
 }
 
-static inline NameDescriptor *scope_get_descriptor(ExecMachine *em, char *name) {
+static inline struct NameDescriptor *scope_get_descriptor(ExecMachine *em, char *name) {
   for (size_t i = em->scope->len; i-- > 0;) {
-    struct HashMap *hm = em->scope->data[i];
-    NameDescriptor *dsc = hashmap_get(hm, name);
+    NameDescriptorMap *hm = em->scope->data[i];
+    NameDescriptor *dsc = NameDescriptorMap_get(hm, name);
     if (dsc != NULL) {
       return dsc;
     }
@@ -176,7 +175,7 @@ static void apply_echo(ExecMachine *em) {
 }
 
 static void apply_define(ExecMachine *em, const ASTNode *n) {
-  // TODO refactor get name from define node
+  // TODO: refactor get name from define node
   char *name = n->info.stmt.define.id->info.id.value;
   NameDescriptor *dsc = malloc(sizeof(NameDescriptor));
   if (dsc == NULL) {

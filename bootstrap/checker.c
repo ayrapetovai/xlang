@@ -2,7 +2,6 @@
 #include "ast.h"
 #include "walker.h"
 #include "typetab.h"
-#include "map.h"
 #include "tokens.h"
 #include <setjmp.h>
 #include <stdlib.h>
@@ -16,32 +15,32 @@
 static inline void scope_push(Checker *c) {
   if (c->scope_len >= c->scope_cap) {
     size_t ncap = c->scope_cap ? c->scope_cap * 2 : 16;
-    struct HashMap **ns = realloc(c->scopes, ncap * sizeof(*ns));
+    TypeScope **ns = realloc(c->scopes, ncap * sizeof(*ns));
     assert(ns);
     c->scopes = ns;
     c->scope_cap = ncap;
   }
-  c->scopes[c->scope_len++] = hashmap_new(NULL);
+  c->scopes[c->scope_len++] = TypeScope_new(NULL);
 }
 
 static inline void scope_pop(Checker *c) {
   if (c->scope_len == 0) return;
-  struct HashMap *hm = c->scopes[--c->scope_len];
-  if (hm) hashmap_free(hm);
+  TypeScope *hm = c->scopes[--c->scope_len];
+  if (hm) TypeScope_free(hm);
 }
 
 static inline void scope_put(Checker *c, const char *name, TypeId tid) {
   if (c->scope_len == 0) scope_push(c);
-  hashmap_put(c->scopes[c->scope_len - 1], name, (void*)(uintptr_t)tid);
+  TypeScope_put(c->scopes[c->scope_len - 1], name, tid);
 }
 
 static TypeId scope_get(Checker *c, const char *name) {
   for (int i = (int)c->scope_len - 1; i >= 0; i--) {
-    void *v = hashmap_get(c->scopes[i], name);
-    if (v) return (TypeId)(uintptr_t)v;
+    TypeId v = TypeScope_get(c->scopes[i], name);
+    if (v) return v;
   }
-  void *v = hashmap_get(c->globals, name);
-  if (v) return (TypeId)(uintptr_t)v;
+  TypeId v = TypeScope_get(c->globals, name);
+  if (v) return v;
   return TYPE_UNKNOWN_ID;
 }
 
@@ -217,7 +216,7 @@ Checker *checker_new(void) {
   memset(&c->header, 0, sizeof(c->header));
   c->type_table = typetab_new();
   c->func_table = functab_new(c->type_table);
-  c->globals = hashmap_new(NULL);
+  c->globals = TypeScope_new(NULL);
   c->scopes = calloc(16, sizeof(struct HashMap*));
   c->scope_cap = 16;
   c->scope_len = 0;
@@ -249,9 +248,9 @@ void checker_free(Checker *c) {
   if (c == NULL) return;
   typetab_free(c->type_table);
   functab_free(c->func_table);
-  if (c->globals) hashmap_free(c->globals);
+  if (c->globals) TypeScope_free(c->globals);
   for (size_t i = 0; i < c->scope_len; i++) {
-    if (c->scopes[i]) hashmap_free(c->scopes[i]);
+    if (c->scopes[i]) TypeScope_free(c->scopes[i]);
   }
   free(c->scopes);
   free(c);
