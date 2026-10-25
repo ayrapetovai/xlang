@@ -4,6 +4,7 @@
 #include "ast.h"
 #include "ast-free.h"
 #include "ast-dump.h"
+#include "checker.h"
 #include "exec.h"
 #include "lexer.h"
 #include "logger.h"
@@ -80,6 +81,53 @@ int run_exec(FILE* src) {
   walker_free(walker);
 
   exec_free(em);
+  free_ast(parse_result);
+
+  return es == EMS_ERROR;
+}
+
+int run_check(FILE* src) {
+  struct Lexer *lexer = lexer_new(src);
+  if (strlen(lexer->error) != 0) {
+    fprintf(stderr, "lexer initialization: %s\n", lexer->error);
+    lexer_close(lexer);
+    return 1;
+  }
+
+  struct Parser* parser = parser_new(lexer);
+  if (parser == NULL) {
+    lexer_close(lexer);
+    return 2;
+  }
+  if (strlen(parser->error) != 0) {
+    fprintf(stderr, "parser initialization failed: %s\n", parser->error);
+    parser_close(parser);
+    lexer_close(lexer);
+    return 3;
+  }
+
+  ASTNode *parse_result = parser_parse(parser);
+  if (parse_result == NULL) {
+    fprintf(stderr, "parsing failed: %s\n", parser->error);
+    parser_close(parser);
+    lexer_close(lexer);
+    return 4;
+  }
+
+  parser_close(parser);
+  lexer_close(lexer);
+
+  size_t max_stack_size = 2 * parse_result->height + 1;
+
+  Checker *ch = checker_new();
+  struct Walker *walker = walker_new(&ch->header, max_stack_size);
+  EMState es = walker_run(walker, parse_result);
+  if (es != EMS_SUCCESS) {
+    fprintf(stderr, "check failed: %s\n", walker->error);
+  }
+  walker_free(walker);
+
+  checker_free(ch);
   free_ast(parse_result);
 
   return es == EMS_ERROR;
@@ -191,6 +239,7 @@ int run_ast(FILE* src) {
 
 typedef enum {
   RUN,
+  CHECK,
   AST,
   LEX,
 } ProgramMode;
@@ -228,6 +277,8 @@ int main(int argc, char **argv) {
       mode = AST;
     } else if (strcmp("--lex", argv[i]) == 0){
       mode = LEX;
+    } else if (strcmp("--chk", argv[i]) == 0){
+      mode = CHECK;
     } else if (strcmp("--run", argv[i]) == 0){
       mode = RUN;
     } else if (strcmp("--", argv[i]) == 0 && strlen(argv[i]) == 2) {
@@ -259,8 +310,9 @@ int main(int argc, char **argv) {
 
   switch (mode) {
     case RUN: return run_exec(src);
-    case LEX: return run_lex(src);
+    case CHECK: return run_check(src);
     case AST: return run_ast(src);
+    case LEX: return run_lex(src);
     default:
       fprintf(stderr, "unknown mode\n");
       return 1;

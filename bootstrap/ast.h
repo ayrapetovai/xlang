@@ -1,6 +1,7 @@
 #ifndef AST_H
 #define AST_H
 
+#include "typetab.h"
 #include "tokens.h"
 #include <stdbool.h>
 #include <inttypes.h>
@@ -88,6 +89,7 @@ typedef struct InfoIfExpr {
 typedef struct ASTNode {
   struct ASTNode *parent;
   NodeKind kind;
+  TypeId type;   // index in the type-table
   size_t height; // how many children in depth does this node holds, trivial are 1
   size_t line;
   size_t col;
