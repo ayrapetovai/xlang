@@ -1,6 +1,7 @@
 /bootstrap/bootstrap
 /bootstrap/bootstrap-asan
 /bootstrap/hmap_test
+/bootstrap/vec_test
 /bootstrap/tags
 /bootstrap/compile_commands.json
 

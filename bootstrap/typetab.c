@@ -170,8 +170,7 @@ size_t typetab_render_type_buf(TypeTable *tt, TypeId typeId, char buf[], size_t 
 
       for (uint32_t i = 0; i < t->props.func.param_count; i++) {
         struct TypeParam *p = &t->props.func.params[i];
-        size_t param_len = typetab_render_type_buf(tt, p->type, it, BUF_BYTES_LEFT);
-        it += param_len;
+        it += typetab_render_type_buf(tt, p->type, it, BUF_BYTES_LEFT);
         if (i + 1 < t->props.func.param_count) {
           snprintf(it, BUF_BYTES_LEFT, comma_spacer);
           it += sizeof(comma_spacer) - 1;
@@ -182,8 +181,7 @@ size_t typetab_render_type_buf(TypeTable *tt, TypeId typeId, char buf[], size_t 
       it += sizeof(closing_parent) - 1;
 
       if (t->props.func.return_type != 0) {
-        size_t return_len = typetab_render_type_buf(tt, t->props.func.return_type, it, BUF_BYTES_LEFT);
-        it += return_len;
+        it += typetab_render_type_buf(tt, t->props.func.return_type, it, BUF_BYTES_LEFT);
       }
       return it - buf;
     default:
@@ -228,7 +226,7 @@ TypeTable *typetab_new(void) {
 // every type name has one-to-one mappring to type id
 TypeId typetab_find_by_name(TypeTable *tt, const char* type_name) {
   assert(tt != NULL);
-  return (uintptr_t)TypeNameMap_get(tt->by_name, type_name);
+  return TypeNameMap_get(tt->by_name, type_name);
 }
 
 void typetab_free(TypeTable *tt) {
@@ -244,18 +242,18 @@ void typetab_free(TypeTable *tt) {
 }
 
 FuncTable *functab_new(TypeTable *tt) {
-  FuncTable *ft = malloc(sizeof (FuncTable));
+  FuncTable *ft = malloc(sizeof(FuncTable));
   ft->by_name = TypeNameMap_new(NULL);
   ft->by_qualified = NULL;
 
   TypeId op_plus_type_id = typetab_find_by_name(tt, "f(i,i)i");
-  TypeNameMap_put(ft->by_name, "operator+", (TypeId) op_plus_type_id);
+  TypeNameMap_put(ft->by_name, "operator+", op_plus_type_id);
   return ft;
 }
 
-// TODO: we could find may functions with the same name and diffetent types
+// TODO: we could find many functions with the same name and diffetent types
 TypeId functab_find(FuncTable *ft, const char *func_name) {
-  return (uintptr_t) TypeNameMap_get(ft->by_name, func_name);
+  return TypeNameMap_get(ft->by_name, func_name);
 }
 
 void functab_free(FuncTable *ft) {

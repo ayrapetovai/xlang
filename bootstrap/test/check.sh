@@ -43,9 +43,11 @@
 #
 # POSIX sh on purpose: zsh does not word-split unquoted expansions.
 set -u
-LC_ALL=C; export LC_ALL
+LC_ALL=C
+export LC_ALL
 # The cases below pin the colorless dump; never exercise the tty-colored form.
-NO_COLOR=1; export NO_COLOR
+NO_COLOR=1
+export NO_COLOR
 cd "$(dirname "$0")" || exit 1
 
 # BIN may be overridden (make check-vs REF=... sets it to a ref build) so the
@@ -70,42 +72,81 @@ trap 'rm -rf "$WORK"' 0 1 2 15
 ERRF="$WORK/err"
 
 fails=0
-note_fail() { fails=$((fails + 1)); echo "  FAIL $*"; }
+note_fail() {
+  fails=$((fails + 1))
+  echo "  FAIL $*"
+}
 
 # Every run_* sets R_RC, R_OUT, R_ERR. Command substitution strips the
 # output's trailing newlines; block() puts exactly one back, and
 # expected_block() is built line by line, so both sides are normalised alike.
-run_file()  { R_OUT=$("$BIN" --ast "$1" 2>"$ERRF"); R_RC=$?; R_ERR=$(cat "$ERRF"); }
-run_stdin() { R_OUT=$("$BIN" --ast - <"$1" 2>"$ERRF"); R_RC=$?; R_ERR=$(cat "$ERRF"); }
-run_str()   { R_OUT=$(printf '%s\n' "$1" | "$BIN" --ast - 2>"$ERRF"); R_RC=$?; R_ERR=$(cat "$ERRF"); }
+run_file() {
+  R_OUT=$("$BIN" --ast "$1" 2>"$ERRF")
+  R_RC=$?
+  R_ERR=$(cat "$ERRF")
+}
+run_stdin() {
+  R_OUT=$("$BIN" --ast - <"$1" 2>"$ERRF")
+  R_RC=$?
+  R_ERR=$(cat "$ERRF")
+}
+run_str() {
+  R_OUT=$(printf '%s\n' "$1" | "$BIN" --ast - 2>"$ERRF")
+  R_RC=$?
+  R_ERR=$(cat "$ERRF")
+}
 
 # The --run twins of the file and stdin paths: same capture, execution mode.
-run_rfile()  { R_OUT=$("$BIN" --run "$1" 2>"$ERRF"); R_RC=$?; R_ERR=$(cat "$ERRF"); }
-run_rstdin() { R_OUT=$("$BIN" --run - <"$1" 2>"$ERRF"); R_RC=$?; R_ERR=$(cat "$ERRF"); }
+run_rfile() {
+  R_OUT=$("$BIN" --run "$1" 2>"$ERRF")
+  R_RC=$?
+  R_ERR=$(cat "$ERRF")
+}
+run_rstdin() {
+  R_OUT=$("$BIN" --run - <"$1" 2>"$ERRF")
+  R_RC=$?
+  R_ERR=$(cat "$ERRF")
+}
 
 # run_wrapped <file> <prefix> <suffix>: feed prefix + file bytes + suffix on
 # stdin. Both are printf '%b' formats. The bytes go down a pipe rather than
 # through a shell variable, so a source that lacks a final newline keeps
 # lacking it -- which is what edge_no_trailing_nl exists to check.
 run_wrapped() {
-  R_OUT=$( { printf '%b' "$2"; cat "$1"; printf '%b' "$3"; } | "$BIN" --ast - 2>"$ERRF" )
-  R_RC=$?; R_ERR=$(cat "$ERRF")
+  R_OUT=$({
+    printf '%b' "$2"
+    cat "$1"
+    printf '%b' "$3"
+  } | "$BIN" --ast - 2>"$ERRF")
+  R_RC=$?
+  R_ERR=$(cat "$ERRF")
 }
 
 # run_split <file> <offset>: replace the space at that 0-based byte offset
 # with a newline and pipe the result in. head -c takes bytes [0, offset), so
 # tail starts after the space at offset+1, i.e. -c +(offset+2).
 run_split() {
-  R_OUT=$( { head -c "$2" "$1"; printf '\n'; tail -c +$(( $2 + 2 )) "$1"; } | "$BIN" --ast - 2>"$ERRF" )
-  R_RC=$?; R_ERR=$(cat "$ERRF")
+  R_OUT=$({
+    head -c "$2" "$1"
+    printf '\n'
+    tail -c +$(($2 + 2)) "$1"
+  } | "$BIN" --ast - 2>"$ERRF")
+  R_RC=$?
+  R_ERR=$(cat "$ERRF")
 }
 
 # block <rc> <stdout> <stderr>: the canonical shape of one run, and the same
 # shape expect.txt stores, so every comparison is plain string equality.
 block() {
   printf 'rc=%s\n' "$1"
-  [ -n "$2" ] && { printf '%s\n' '--- out'; printf '%s\n' "$2"; }
-  [ -n "$3" ] && { printf '%s\n' '--- err'; printf '%s\n' "$3"; }
+  [ -n "$2" ] && {
+    printf '%s\n' '--- out'
+    printf '%s\n' "$2"
+  }
+  [ -n "$3" ] && {
+    printf '%s\n' '--- err'
+    printf '%s\n' "$3"
+  }
   return 0
 }
 run_block() { block "$R_RC" "$R_OUT" "$R_ERR"; }
@@ -199,7 +240,10 @@ for f in "$CASES"/*.x; do
 
   if [ "$want" != "$got" ]; then
     note_fail "$name differs from $EXPECT"
-    [ "$VERBOSE" = "1" ] && { printf '%s\n' "$want" | sed 's/^/    want /'; printf '%s\n' "$got" | sed 's/^/    got  /'; }
+    [ "$VERBOSE" = "1" ] && {
+      printf '%s\n' "$want" | sed 's/^/    want /'
+      printf '%s\n' "$got" | sed 's/^/    got  /'
+    }
     continue
   fi
 
@@ -215,7 +259,10 @@ for f in "$CASES"/*.x; do
   run_stdin "$f"
   if [ "$(run_block)" != "$want" ]; then
     note_fail "$name: stdin and file disagree"
-    [ "$VERBOSE" = "1" ] && { printf '%s\n' "$want" | sed 's/^/    file  /'; run_block | sed 's/^/    stdin /'; }
+    [ "$VERBOSE" = "1" ] && {
+      printf '%s\n' "$want" | sed 's/^/    file  /'
+      run_block | sed 's/^/    stdin /'
+    }
     continue
   fi
 
@@ -268,7 +315,10 @@ for f in "$CASES"/*.x; do
   run_rfile "$f"
   if [ "$(run_block)" != "$want" ]; then
     note_fail "$name: --run differs from its run expectation"
-    [ "$VERBOSE" = "1" ] && { printf '%s\n' "$want" | sed 's/^/    want /'; printf '%s\n' "$(run_block)" | sed 's/^/    got  /'; }
+    [ "$VERBOSE" = "1" ] && {
+      printf '%s\n' "$want" | sed 's/^/    want /'
+      printf '%s\n' "$(run_block)" | sed 's/^/    got  /'
+    }
     continue
   fi
 
@@ -276,7 +326,10 @@ for f in "$CASES"/*.x; do
   run_rstdin "$f"
   if [ "$(run_block)" != "$want" ]; then
     note_fail "$name: --run stdin and file disagree"
-    [ "$VERBOSE" = "1" ] && { printf '%s\n' "$want" | sed 's/^/    file  /'; run_block | sed 's/^/    stdin /'; }
+    [ "$VERBOSE" = "1" ] && {
+      printf '%s\n' "$want" | sed 's/^/    file  /'
+      run_block | sed 's/^/    stdin /'
+    }
     continue
   fi
 
@@ -284,7 +337,7 @@ for f in "$CASES"/*.x; do
 done
 echo "  $n_run programs checked through --run"
 
-# HashMap growth: 1000 definitions must survive every rehash and the first
+# hmap growth: 1000 definitions must survive every rehash and the first
 # and last names must still read back. Generated rather than stored -- the
 # program is the interesting part, its 1000 bytes of spelling are not.
 wide="$WORK/wide.x"
@@ -295,7 +348,7 @@ wide="$WORK/wide.x"
     i=$((i + 1))
   done
   printf 'echo v0\necho v999\n'
-} > "$wide"
+} >"$wide"
 run_rfile "$wide"
 if [ "$(run_block)" != "$(block 0 "$(printf '0\n999')" "")" ]; then
   note_fail "wide: 1000 definitions did not survive (map resize or lookup)"
@@ -310,19 +363,23 @@ awk 'BEGIN {
   s = "1"
   for (i = 0; i < 200; i++) s = "if true then " s " else 1"
   print "echo " s
-}' > "$deepif"
+}' >"$deepif"
 run_rfile "$deepif"
 if [ "$(run_block)" != "$(block 0 "1" "")" ]; then
   note_fail "deepif: 200-level nested if-expression did not evaluate to 1"
 fi
 
 # --log-level off must silence the debug trace, and debug must produce one.
-printf 'echo 1\n' > "$WORK/ll.x"
-R_OUT=$("$BIN" --log-level off --run "$WORK/ll.x" 2>"$ERRF"); R_RC=$?; R_ERR=$(cat "$ERRF")
+printf 'echo 1\n' >"$WORK/ll.x"
+R_OUT=$("$BIN" --log-level off --run "$WORK/ll.x" 2>"$ERRF")
+R_RC=$?
+R_ERR=$(cat "$ERRF")
 if [ "$R_RC" -ne 0 ] || [ -n "$R_ERR" ]; then
   note_fail "--log-level off: rc=$R_RC, stderr not empty"
 fi
-R_OUT=$("$BIN" --log-level debug --run "$WORK/ll.x" 2>"$ERRF"); R_RC=$?; R_ERR=$(cat "$ERRF")
+R_OUT=$("$BIN" --log-level debug --run "$WORK/ll.x" 2>"$ERRF")
+R_RC=$?
+R_ERR=$(cat "$ERRF")
 if ! printf '%s' "$R_ERR" | grep -q 'DEBUG'; then
   note_fail "--log-level debug: no DEBUG trace on stderr (rc=$R_RC)"
 fi
@@ -350,7 +407,10 @@ for f in "$CASES"/*.x; do
   if [ "$(run_block)" != "$want" ]; then
     n_prop=$((n_prop + 1))
     note_fail "$name: a leading line comment changed the result"
-    [ "$VERBOSE" = "1" ] && { printf '%s\n' "$want" | sed 's/^/    plain /'; run_block | sed 's/^/    cmt  /'; }
+    [ "$VERBOSE" = "1" ] && {
+      printf '%s\n' "$want" | sed 's/^/    plain /'
+      run_block | sed 's/^/    cmt  /'
+    }
   fi
 
   run_wrapped "$f" '/* c */\n' '\n/* c */\n'
@@ -358,13 +418,16 @@ for f in "$CASES"/*.x; do
   if [ "$(run_block)" != "$want" ]; then
     n_prop=$((n_prop + 1))
     note_fail "$name: a surrounding block comment changed the result"
-    [ "$VERBOSE" = "1" ] && { printf '%s\n' "$want" | sed 's/^/    plain /'; run_block | sed 's/^/    cmt  /'; }
+    [ "$VERBOSE" = "1" ] && {
+      printf '%s\n' "$want" | sed 's/^/    plain /'
+      run_block | sed 's/^/    cmt  /'
+    }
   fi
 
   # The multi-line rule: at every space outside a comment, a newline may go
   # instead without changing the parse -- checked at every such space, not a
   # hand-picked few.
-  n_sp=$(tr -cd ' ' < "$f" | wc -c)
+  n_sp=$(tr -cd ' ' <"$f" | wc -c)
   offs=$(space_offsets "$f")
   n_off=$(printf '%s' "$offs" | grep -c .)
   # Self-check the scanner: with no comment markers in the source it must find
@@ -380,7 +443,10 @@ for f in "$CASES"/*.x; do
     if [ "$(run_block)" != "$want" ]; then
       n_prop=$((n_prop + 1))
       note_fail "$name: newline at byte $off changed the parse"
-      [ "$VERBOSE" = "1" ] && { printf '%s\n' "$want" | sed 's/^/    plain /'; run_block | sed 's/^/    split /'; }
+      [ "$VERBOSE" = "1" ] && {
+        printf '%s\n' "$want" | sed 's/^/    plain /'
+        run_block | sed 's/^/    split /'
+      }
       break
     fi
   done
@@ -397,27 +463,36 @@ n_cmt=0
 
 # ok_parse <label>: what it means for a snippet that should compile.
 ok_parse() {
-  if [ "$R_RC" -ne 0 ]; then note_fail "$1: rc=$R_RC, expected 0"; return 1; fi
-  if [ -n "$R_ERR" ]; then note_fail "$1: stderr not empty: $R_ERR"; return 1; fi
+  if [ "$R_RC" -ne 0 ]; then
+    note_fail "$1: rc=$R_RC, expected 0"
+    return 1
+  fi
+  if [ -n "$R_ERR" ]; then
+    note_fail "$1: stderr not empty: $R_ERR"
+    return 1
+  fi
   case "$R_OUT" in
-    block*) return 0 ;;
-    *) note_fail "$1: output did not start with 'block'"; return 1 ;;
+  block*) return 0 ;;
+  *)
+    note_fail "$1: output did not start with 'block'"
+    return 1
+    ;;
   esac
 }
 
 while IFS= read -r line || [ -n "$line" ]; do
-  case "$line" in ''|'#'*) continue ;; esac
+  case "$line" in '' | '#'*) continue ;; esac
   n_stmt=$((n_stmt + 1))
   run_str "$line"
   ok_parse "statements.txt: [$line]"
-done < snippets/statements.txt
+done <snippets/statements.txt
 
 while IFS= read -r line || [ -n "$line" ]; do
-  case "$line" in ''|'#'*) continue ;; esac
+  case "$line" in '' | '#'*) continue ;; esac
   n_expr=$((n_expr + 1))
   run_str "echo $line"
   ok_parse "exprs.txt: [echo $line]"
-done < snippets/exprs.txt
+done <snippets/exprs.txt
 
 # A comment has to be inert alone (the program it sits in is empty) and
 # invisible in front of real code. Eleven hand-written forms rather than the
@@ -425,7 +500,7 @@ done < snippets/exprs.txt
 run_str 'echo 1'
 cmt_want=$(run_block)
 while IFS= read -r line || [ -n "$line" ]; do
-  case "$line" in ''|'#'*) continue ;; esac
+  case "$line" in '' | '#'*) continue ;; esac
   n_cmt=$((n_cmt + 1))
   run_str "$line"
   if [ "$R_RC" -ne 0 ] || [ "$R_OUT" != block ] || [ -n "$R_ERR" ]; then
@@ -434,9 +509,12 @@ while IFS= read -r line || [ -n "$line" ]; do
   run_str "$(printf '%s\necho 1' "$line")"
   if [ "$(run_block)" != "$cmt_want" ]; then
     note_fail "comments.txt: [$line] in front of 'echo 1' changed the result"
-    [ "$VERBOSE" = "1" ] && { printf '%s\n' "$cmt_want" | sed 's/^/    plain /'; run_block | sed 's/^/    with  /'; }
+    [ "$VERBOSE" = "1" ] && {
+      printf '%s\n' "$cmt_want" | sed 's/^/    plain /'
+      run_block | sed 's/^/    with  /'
+    }
   fi
-done < snippets/comments.txt
+done <snippets/comments.txt
 echo "  $n_stmt statements, $n_expr expressions, $n_cmt comments checked twice"
 
 echo "== reserved words =="
@@ -461,13 +539,13 @@ KNOWN_DEAD='..=
 # The three places where a token's name is not its spelling.
 expected_name() {
   case "$1" in
-    ' ')        printf 'space\n' ;;            # named for its role, not its byte
-    true|false) printf 'boolean literal\n' ;;  # remapped to TOK_BOOL_L
-    *)          printf '%s\n' "$1" ;;
+  ' ') printf 'space\n' ;;                    # named for its role, not its byte
+  true | false) printf 'boolean literal\n' ;; # remapped to TOK_BOOL_L
+  *) printf '%s\n' "$1" ;;
   esac
 }
 
-reserved_spellings > "$WORK/spellings"
+reserved_spellings >"$WORK/spellings"
 while IFS= read -r spelling; do
   n_spelling=$((n_spelling + 1))
   line1=$(printf '%b' "$spelling" | "$BIN" --lex - 2>"$ERRF" | sed -n '1p')
@@ -485,7 +563,7 @@ while IFS= read -r spelling; do
     note_fail "reserved: '$spelling' lexed as '$got', expected '$want'"
     [ "$VERBOSE" = "1" ] && printf '%s\n' "$line1" | sed 's/^/    token /'
   fi
-done < "$WORK/spellings"
+done <"$WORK/spellings"
 if [ "$n_spelling" -eq 0 ]; then
   note_fail "reserved: no spellings extracted from ../tokens.c"
 fi

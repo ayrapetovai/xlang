@@ -7,7 +7,7 @@ CFLAGS  ?= -std=c23 -Wall -Wextra -Werror -O0 -g
 SAN     = -fsanitize=address,undefined -fno-omit-frame-pointer
 ASANF   = -std=c23 -Wall -Wextra -Werror -Wno-format-overflow -O1 -g $(SAN)
 
-HDR     = tokens.h ast.h reader.h lexer.h logger.h parser.h exec.h stack.h walker.h ast-dump.h ast-free.h typetab.h checker.h hmap.h
+HDR     = tokens.h ast.h reader.h lexer.h logger.h parser.h exec.h stack.h walker.h ast-dump.h ast-free.h typetab.h checker.h hmap.h vec.h
 SRC     = main.c   ast.c reader.c lexer.c logger.c tokens.c parser.c exec.c walker.c ast-dump.c ast-free.c typetab.c checker.c
 
 bootstrap: $(SRC) $(HDR)
@@ -19,6 +19,9 @@ bootstrap-asan: $(SRC) $(HDR)
 vm_test: vm.h vm.c vm_test.c
 	gcc -std=c23 -Wall -Wextra -Werror -Wcast-align=strict -O0 -g vm.c vm_test.c -o vm_test
 
+vec_test: vec.h vec_test.c
+	gcc -std=c23 -Wall -Wextra -Werror -Wcast-align=strict -O0 -g vec.h vec_test.c -o vec_test
+
 hmap_test: hmap.h hmap_test.c
 	$(CC) $(CFLAGS) -o $@ hmap.h hmap_test.c
 
@@ -29,8 +32,9 @@ clean:
 tags: $(SRC) $(HDR)
 	ctags -R --languages=C --exclude=.git --exclude=build -f tags .
 
-check: bootstrap hmap_test
+check: bootstrap hmap_test vec_test
 	./hmap_test
+	./vec_test
 	sh test/check.sh
 
 check-asan: bootstrap-asan
