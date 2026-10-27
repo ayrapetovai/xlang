@@ -2,6 +2,7 @@
 #define TYPETAB_H
 
 #include "hmap.h"
+#include "vec.h"
 #include <stddef.h>
 #include <inttypes.h>
 #include <stdbool.h>
@@ -34,12 +35,16 @@ typedef enum {
 #define TYPE_NONE_ID 0
 #define TYPE_UNKNOWN_ID 1
 
-DEFINE_HMAP(TypeId, TypeNameMap);
+DEFINE_VEC(TypeId, TypeIdVec);
+DEFINE_HMAP(TypeIdVec*, TypesOfNameMap);
+
+DEFINE_HMAP(TypeId, TypeByNameMap);
 
 typedef struct {
   unsigned is_immutable : 1;
   unsigned is_owning : 1;
   unsigned is_addressable : 1;
+  unsigned is_primitive: 1;
   unsigned is_nullable : 1;
   unsigned is_failable : 1;
   unsigned is_unsigned : 1;
@@ -89,7 +94,7 @@ typedef struct TypeTable {
   Type *types;
   size_t len;
   size_t cap;
-  struct TypeNameMap *by_name;
+  struct TypeByNameMap *by_name;
 } TypeTable;
 
 typedef struct FuncEntry {
@@ -103,36 +108,41 @@ typedef struct FuncEntry {
 } FuncEntry;
 
 typedef struct FuncTable {
-  struct TypeNameMap *by_name;
-  struct TypeNameMap *by_qualified;
+  struct TypesOfNameMap *by_name;
+  struct TypesOfNameMap *by_qualified;
 } FuncTable;
+
+typedef struct Environment {
+  TypeTable type_table;
+  FuncTable func_table;
+} Environment;
 
 // create type table and initialize it with integral types and default functions
 // Type table contains type names to type descriptors
-TypeTable *typetab_new(void);
+// Function table contains function names to type ids
+Environment *env_new(void);
 
 // lookup for the type by human readable name for integral types, mangeled name for functions
-TypeId typetab_find_by_name(TypeTable *tt, const char* name);
+TypeId env_find_typeid_by_name(Environment *env, const char* name);
 
 // borrow type descriptor
-Type *typetab_get(TypeTable *tt, TypeId id);
+Type *env_get_type_by_id(Environment *env, TypeId id);
 
 // create a type representation, a string, buf owend by caller.
-size_t typetab_render_type_buf(TypeTable *tt, TypeId typeId, char buf[], size_t buf_len);
+size_t env_render_type_buf(Environment *env, TypeId typeId, char buf[], size_t buf_len);
 
 // create a type representation, a astring, returned string owned by the function (static buf)
-const char *typetab_render_type(TypeTable *tt, TypeId typeId);
+const char *env_render_type(Environment *env, TypeId typeId);
 
-// deallocate type table
-void typetab_free(TypeTable *tt);
+// find all types that the overloaded function name has
+TypeIdVec *env_find_func_types_by_name(Environment *env, const char *func_name);
 
-// Function table contains function names to type ids
-FuncTable *functab_new(TypeTable *tt);
-
+#define env_find_func_type_name_params(env, operator_name, ...) \
+  env_find_func_type_name_n_params(env, operator_name, (sizeof((TypeId[]){__VA_ARGS__}) / sizeof(TypeId)), (TypeId[]){__VA_ARGS__})
 // find function type by function name (human readable): operator+, dispose...
-TypeId functab_find(FuncTable *ft, const char *name);
+TypeId env_find_func_type_name_n_params(Environment *env, const char *func_name, uint32_t argc, TypeId param_type_ids[]);
 
-void functab_free(FuncTable *ft);
+void env_free(Environment *env);
 
 #endif
 

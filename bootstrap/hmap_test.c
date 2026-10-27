@@ -31,7 +31,6 @@ void test_basic_happy_path() {
   StrToStrMap_free(hm);
 }
 
-
 void test_put_grow() {
   size_t max_size = 5000;
   struct StrToStrMap *hm = StrToStrMap_new(free);
@@ -112,6 +111,25 @@ void test_put_null_or_empty() {
   assert(strcmp(StrToStrMap_get(hm, ""), "abc") == 0);
   // old = StrToStrMap_put(hm, NULL, "def"); // asserts key is not NULL
   StrToStrMap_free(hm);
+}
+
+const int test_compute_if_absetn_var1 = 42;
+const int test_compute_if_absetn_var2 = 66;
+int create_int1(const char*) { return test_compute_if_absetn_var1; }
+int create_int2(const char*) { return test_compute_if_absetn_var1; }
+void test_compute_if_absent() {
+  StrToIntMap *m = StrToIntMap_new(NULL);
+
+  int created_value = StrToIntMap_compute_if_absent(m, "abc", create_int1);
+  assert(created_value == test_compute_if_absetn_var1);
+
+  int old_value = StrToIntMap_compute_if_absent(m, "abc", create_int2);
+  assert(old_value == test_compute_if_absetn_var1);
+
+  int new_value = StrToIntMap_compute_if_absent(m, "d", create_int2);
+  assert(new_value == test_compute_if_absetn_var2);
+
+  StrToIntMap_free(m);
 }
 
 int main() {

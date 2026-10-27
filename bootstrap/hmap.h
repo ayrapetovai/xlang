@@ -137,6 +137,24 @@
     return (Type)0;                                                 \
   }                                                                 \
                                                                     \
+  /* returns new value if old was absent, returns old value if present */ \
+  static __attribute__((unused)) inline Type Name##_compute_if_absent(Name *hm, const char *key, Type(*constructor)(const char* key)) {        \
+    assert(hm != NULL);                                             \
+    if (key == NULL) return (Type)0;                                \
+    uint64_t h = Name##_hash(key);                                  \
+    size_t i = Name##_index(hm->cap, h);                            \
+    Name##Node *n = hm->nodes[i];                                   \
+    while (n != NULL) {                                             \
+      if (strcmp(n->key, key) == 0) {                               \
+        return n->value;                                            \
+      }                                                             \
+      n = n->next;                                                  \
+    }                                                               \
+    Type new_value = constructor(key);                              \
+    Name##_put(hm, key, new_value);                                 \
+    return new_value;                                               \
+  }                                                                 \
+                                                                    \
   static inline Type Name##_get(Name *hm, const char *key) {        \
     assert(hm != NULL);                                             \
     if (key == NULL) return (Type)0;                                \

@@ -14,7 +14,7 @@ typedef struct Name {\
   Type  *values;\
 } Name;\
 \
-static Name *Name##_new(size_t capacity, void (*value_deallocator)(void*)) { \
+static __attribute__((unused)) Name *Name##_new(size_t capacity, void (*value_deallocator)(void*)) { \
   Name *vec = malloc(sizeof(Name));\
   if (vec == NULL) return NULL;\
   vec->len = 0;\
@@ -82,7 +82,7 @@ static __attribute__((unused)) inline void Name##_set(Name* vec, size_t i, Type 
   vec->values[i] = v;\
 }\
 \
-static void Name##_free(Name *vec) {\
+static __attribute__((unused)) void Name##_free(Name *vec) {\
   if (vec == NULL) return;\
   if (vec->vdealoc != NULL) {\
     for (size_t i = 0; i < vec->len; i++) {\

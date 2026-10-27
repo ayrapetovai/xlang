@@ -44,6 +44,19 @@ static TypeId scope_get(Checker *c, const char *name) {
   return TYPE_UNKNOWN_ID;
 }
 
+static void check_ownership_transfer(Checker *c, TypeId from, TypeId to_what) {
+  Type *from_type = env_get_type_by_id(c->env, from);
+  FAIL_IF_TMPL(from_type == NULL, "unknown type_id %d, type is NULL", from);
+  Type *to_what_type = env_get_type_by_id(c->env, to_what);
+  FAIL_IF_TMPL(to_what_type == NULL, "unknown type_id %d, type is NULL", to_what);
+
+  // FIXME: this is not a real check, just a stub
+  FAIL_IF_TMPL(from_type->flags.is_primitive == false,
+               "cannot transfer ownership of non-primitive value of type %s", env_render_type(c->env, from));
+  FAIL_IF_TMPL(to_what_type->flags.is_primitive == false && to_what_type->flags.is_owning == false,
+               "cannot transfer ownership to non-owning type %s", env_render_type(c->env, to_what));
+}
+
 static void apply_scope_push(Checker *c) { scope_push(c); }
 static void apply_scope_pop(Checker *c, const ASTNode *n) { (void)n; scope_pop(c); }
 static void do_nothing_node(Checker *c, const ASTNode *n) { (void)c; (void)n; }
@@ -53,11 +66,11 @@ static void value_of(Checker *c, const ASTNode *n) {
   ASTNode *an = (ASTNode *)n;
   if (an && an->kind == NODE_VALUE) {
     switch (an->info.val.kind) {
-      case VK_INTEGER: an->type = typetab_find_by_name(c->type_table, "int"); break;
-      case VK_BOOL:    an->type = typetab_find_by_name(c->type_table, "bool"); break;
-      case VK_STRING:  an->type = typetab_find_by_name(c->type_table, "string"); break;
-      case VK_FLOAT:   an->type = typetab_find_by_name(c->type_table, "float"); break;
-      case VK_CHAR:    an->type = typetab_find_by_name(c->type_table, "char"); break;
+      case VK_INTEGER: an->type = env_find_typeid_by_name(c->env, "int"); break;
+      case VK_BOOL:    an->type = env_find_typeid_by_name(c->env, "bool"); break;
+      case VK_STRING:  an->type = env_find_typeid_by_name(c->env, "string"); break;
+      case VK_FLOAT:   an->type = env_find_typeid_by_name(c->env, "float"); break;
+      case VK_CHAR:    an->type = env_find_typeid_by_name(c->env, "char"); break;
       default:
         FAIL_IF_TMPL(true, "unknown value kind %d", an->info.val.kind);
     }
@@ -98,36 +111,44 @@ static void apply_expr(Checker *c, const ASTNode *n) {
         FAIL_IF_TMPL(true, "unknown binary operator %s", token_kind_to_string(an->info.expr.op_tok));
     }
 
-    TypeId operator_type_id = functab_find(c->func_table, operator_name);
-    FAIL_IF_TMPL(operator_type_id == TYPE_UNKNOWN_ID,        "%s is not registered", operator_name);
+    TypeId operator_type_id = env_find_func_type_name_params(c->env, operator_name, n->info.expr.op1->type, n->info.expr.op2->type);
+    if (operator_type_id == TYPE_NONE_ID) {
+      char arg1_type[128] = {};
+      env_render_type_buf(c->env, n->info.expr.op1->type, arg1_type, 128);
+      char arg2_type[128] = {};
+      env_render_type_buf(c->env, n->info.expr.op2->type, arg2_type, 128);
+      FAIL_IF_TMPL(true, "%s is not defined for types %s and %s", operator_name, arg1_type, arg2_type);
+    }
 
-    Type *operator_type = typetab_get(c->type_table, operator_type_id);
+    Type *operator_type = env_get_type_by_id(c->env, operator_type_id);
     FAIL_IF_TMPL(operator_type == NULL,                      "%s is not found", operator_name);
     FAIL_IF_TMPL(operator_type->base != TB_FUNC,             "%s is not a function, %d", operator_name, operator_type->base);
     FAIL_IF_TMPL(operator_type->props.func.param_count != 2, "%s takes %d parameters, given 2", operator_name, operator_type->props.func.param_count);
 
-    TypeId left_param_typeid = operator_type->props.func.params[0].type;
-    TypeId right_param_typeid = operator_type->props.func.params[1].type;
+    TypeId operator_op1_typeid = operator_type->props.func.params[0].type;
+    TypeId operator_op2_typeid = operator_type->props.func.params[1].type;
 
-    // TODO: convergence check, ownership check, lifetime check
+    // TODO: convergence check, lifetime check
+    check_ownership_transfer(c, n->info.expr.op1->type, operator_op1_typeid);
+    check_ownership_transfer(c, n->info.expr.op2->type, operator_op2_typeid);
 
-    if (left_param_typeid != n->info.expr.op1->type) {
+    if (operator_op1_typeid != n->info.expr.op1->type) {
       char op_sig[128] = {};
-      typetab_render_type_buf(c->type_table, operator_type_id, op_sig, 128);
+      env_render_type_buf(c->env, operator_type_id, op_sig, 128);
       char op_type[128] = {};
-      typetab_render_type_buf(c->type_table, left_param_typeid, op_type, 128);
+      env_render_type_buf(c->env, operator_op1_typeid, op_type, 128);
       char arg_type[128] = {};
-      typetab_render_type_buf(c->type_table, n->info.expr.op1->type, arg_type, 128);
+      env_render_type_buf(c->env, n->info.expr.op1->type, arg_type, 128);
       FAIL_IF_TMPL(true,  "1 parameter of %s %s has type %s, incompatible with argument type %s", operator_name, op_sig, op_type, arg_type);
     }
 
-    if (right_param_typeid != n->info.expr.op2->type) {
+    if (operator_op2_typeid != n->info.expr.op2->type) {
       char op_sig[128] = {};
-      typetab_render_type_buf(c->type_table, operator_type_id, op_sig, 128);
+      env_render_type_buf(c->env, operator_type_id, op_sig, 128);
       char op_type[128] = {};
-      typetab_render_type_buf(c->type_table, right_param_typeid, op_type, 128);
+      env_render_type_buf(c->env, operator_op2_typeid, op_type, 128);
       char arg_type[128] = {};
-      typetab_render_type_buf(c->type_table, n->info.expr.op2->type, arg_type, 128);
+      env_render_type_buf(c->env, n->info.expr.op2->type, arg_type, 128);
       FAIL_IF_TMPL(true, "2 parameter of %s %s has type %s, incompatible with argument type %s", operator_name, op_sig, op_type, arg_type);
     }
 
@@ -203,7 +224,7 @@ static void apply_define(Checker *c, const ASTNode *n) {
 
 static void apply_assign(Checker *c, const ASTNode *n) {
   ASTNode *an = (ASTNode *)n;
-  if (an) an->type = typetab_find_by_name(c->type_table, "void");
+  if (an) an->type = env_find_typeid_by_name(c->env, "void");
 }
 
 static void apply_echo(Checker *c) {
@@ -214,8 +235,7 @@ Checker *checker_new(void) {
   Checker *c = calloc(1, sizeof(Checker));
   assert(c);
   memset(&c->header, 0, sizeof(c->header));
-  c->type_table = typetab_new();
-  c->func_table = functab_new(c->type_table);
+  c->env = env_new();
   c->globals = TypeScope_new(NULL);
   c->scopes = calloc(16, sizeof(struct HashMap*));
   c->scope_cap = 16;
@@ -246,8 +266,7 @@ Checker *checker_new(void) {
 
 void checker_free(Checker *c) {
   if (c == NULL) return;
-  typetab_free(c->type_table);
-  functab_free(c->func_table);
+  env_free(c->env);
   if (c->globals) TypeScope_free(c->globals);
   for (size_t i = 0; i < c->scope_len; i++) {
     if (c->scopes[i]) TypeScope_free(c->scopes[i]);
@@ -256,10 +275,7 @@ void checker_free(Checker *c) {
   free(c);
 }
 
-TypeTable *checker_get_type_table(Checker *c) {
-  return c ? c->type_table : NULL;
+Environment *checker_get_env(Checker *c) {
+  return c ? c->env : NULL;
 }
 
-FuncTable *checker_get_func_table(Checker *c) {
-  return c ? c->func_table : NULL;
-}

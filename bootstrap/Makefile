@@ -17,16 +17,16 @@ bootstrap-asan: $(SRC) $(HDR)
 	$(CC) $(ASANF) -o $@ $(SRC) -lm
 
 vm_test: vm.h vm.c vm_test.c
-	gcc -std=c23 -Wall -Wextra -Werror -Wcast-align=strict -O0 -g vm.c vm_test.c -o vm_test
+	$(CC) $(CFLAGS) vm.c vm_test.c -o vm_test
 
 vec_test: vec.h vec_test.c
-	gcc -std=c23 -Wall -Wextra -Werror -Wcast-align=strict -O0 -g vec.h vec_test.c -o vec_test
+	$(CC) $(CFLAGS) vec_test.c -o vec_test
 
 hmap_test: hmap.h hmap_test.c
-	$(CC) $(CFLAGS) -o $@ hmap.h hmap_test.c
+	$(CC) $(CFLAGS) -o $@ hmap_test.c
 
 clean:
-	rm -f bootstrap bootstrap-asan hmap_test
+	rm -f bootstrap bootstrap-asan hmap_test vec_test
 	rm -rf test/.work
 
 tags: $(SRC) $(HDR)
