@@ -176,48 +176,44 @@ static void apply_uexpr(Checker *c, const ASTNode *n) {
     FAIL_IF_TMPL(operator_typeid == TYPE_NONE_ID, "uexpr: %s is not defined for type %s", operator_name, env_render_type1(c->env, op_typeid));
     Type *operator_type = env_get_type_by_id(c->env, operator_typeid);
     FAIL_IF_MSG(operator_type == NULL, "uexpr: got wrong type id");
-
+    FAIL_IF_TMPL(operator_type->props.func.param_count != 1, "uexpr: invalid amount of paramters %d", operator_type->props.func.param_count );
     check_ownership_transfer(c, op_typeid, operator_type->props.func.params[0].type);
 
     an->type = operator_type->props.func.return_type;
   } else
-    FAIL_IF_TMPL(true, "uexpr: wrong ast node type %d", an->kind);
+    FAIL_IF_TMPL(true, "uexpr: wrong ast node kind %d", an->kind);
 }
 
 static void apply_if_cond(Checker *c, const ASTNode *n) {
-  (void)c;
-  ASTNode *an = (ASTNode *)n;
-  if (an) an->type = 5;
+  assert(n != NULL);
+  TypeId cond_typeid = TYPE_UNKNOWN_ID;
+  if (n->kind == NODE_STMT) {
+    FAIL_IF_TMPL(n->info.stmt.stmt_tok != TOK_IF, "if stmt cond: wrong ast node token %s", token_kind_to_string(n->info.stmt.stmt_tok));
+    cond_typeid = n->info.stmt.iff.cond->type;
+  } else if (n->kind == NODE_IFEXPR) {
+    cond_typeid = n->info.ifexpr.cond->type;
+  } else
+    FAIL_IF_TMPL(true, "if cond: wrong ast node kind %d", n->kind);
+
+  TypeId bool_typeid = env_find_typeid_by_name(c->env, "bool");
+  FAIL_IF_MSG(cond_typeid != bool_typeid, "'if' condition is not a bool expression");
 }
 
 static void apply_if_post(Checker *c, const ASTNode *n) {
-  (void)c;
   ASTNode *an = (ASTNode *)n;
-  if (an) an->type = TYPE_NONE_ID;
+  assert(an != NULL);
+  an->type = env_find_typeid_by_name(c->env, "void");
 }
 
 static void apply_ifexpr_post(Checker *c, const ASTNode *n) {
-  (void)c;
   ASTNode *an = (ASTNode *)n;
   if (!an) return;
-  if (an->info.ifexpr.then_arm && an->info.ifexpr.else_arm) {
-    if (an->info.ifexpr.else_arm->type == TYPE_UNKNOWN_ID && an->info.ifexpr.then_arm->type != TYPE_UNKNOWN_ID)
-      an->type = an->info.ifexpr.then_arm->type;
-    else if (an->info.ifexpr.then_arm->type == TYPE_UNKNOWN_ID && an->info.ifexpr.else_arm->type != TYPE_UNKNOWN_ID)
-      an->type = an->info.ifexpr.else_arm->type;
-    else if (an->info.ifexpr.else_arm->type == an->info.ifexpr.then_arm->type)
-      an->type = an->info.ifexpr.then_arm->type;
-    else if (an->info.ifexpr.then_arm->type != TYPE_UNKNOWN_ID)
-      an->type = an->info.ifexpr.then_arm->type;
-    else if (an->info.ifexpr.else_arm->type != TYPE_UNKNOWN_ID)
-      an->type = an->info.ifexpr.else_arm->type;
-    else
-      an->type = TYPE_UNKNOWN_ID;
-  } else if (an->info.ifexpr.then_arm) {
-    an->type = an->info.ifexpr.then_arm->type;
-  } else {
-    an->type = TYPE_NONE_ID;
-  }
+  ASTNode *t = an->info.ifexpr.then_arm;
+  ASTNode *e = an->info.ifexpr.else_arm;
+  FAIL_IF_MSG(t == NULL || e == NULL, "'if' expression requires both branches");
+  FAIL_IF_TMPL(t->type != e->type, "'if' expression branches must provide the same type, 'then' branch is %s, 'else' branch is %s",
+               env_render_type1(c->env, t->type), env_render_type2(c->env, e->type));
+  an->type = t->type;
 }
 
 static void apply_define(Checker *c, const ASTNode *n) {

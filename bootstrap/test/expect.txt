@@ -1038,3 +1038,37 @@ block
 === chk_rej_undef chk rc=1
 --- err
 check failed: identifier y is not defined
+
+
+=== chk_rej_if_cond rc=0
+--- out
+block
+  stmt if
+    cond
+      val 1
+    then
+      block
+        stmt echo
+          val 1
+
+=== chk_rej_if_cond chk rc=1
+--- err
+check failed: 'if' condition is not a bool expression
+
+
+=== chk_rej_if_arm rc=0
+--- out
+block
+  stmt :=
+    id x
+    expr if
+      cond
+        val true
+      then
+        val 1
+      else
+        val true
+
+=== chk_rej_if_arm chk rc=1
+--- err
+check failed: 'if' expression branches must provide the same type, 'then' branch is int, 'else' branch is bool

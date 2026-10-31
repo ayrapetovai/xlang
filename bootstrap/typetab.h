@@ -35,10 +35,9 @@ typedef enum {
 #define TYPE_NONE_ID 0
 #define TYPE_UNKNOWN_ID 1
 
-DEFINE_VEC(TypeId, TypeIdVec);
+DEFINE_VEC (TypeId,     TypeIdVec);
 DEFINE_HMAP(TypeIdVec*, TypesOfNameMap);
-
-DEFINE_HMAP(TypeId, TypeByNameMap);
+DEFINE_HMAP(TypeId,     TypeByNameMap);
 
 typedef struct {
   unsigned is_immutable : 1;
@@ -60,13 +59,13 @@ typedef struct TypeField {
 
 typedef struct TypeParam {
   TypeId type;
-  struct ASTNode *default_expr;
+  struct ASTNode *default_expr;  // type expression found in source code, this field does not own the ASTNode
 } TypeParam;
 
 typedef struct Type {
   TypeBase base;
   TypeFlags flags;
-  struct ASTNode *expression;  // type expression found in source code, this field does not own the ASTNode
+  struct ASTNode *expression;    // type expression found in source code, this field does not own the ASTNode
   size_t object_size;
   const char *namespace;
   const char *name;
