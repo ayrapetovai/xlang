@@ -201,7 +201,19 @@ size_t env_render_type_buf(Environment *env, TypeId typeId, char buf[], size_t b
   }
 }
 
-const char *env_render_type(Environment *env, TypeId typeId) {
+const char *env_render_type1(Environment *env, TypeId typeId) {
+  static char buf[128] = {};
+  env_render_type_buf(env, typeId, buf, 128);
+  return buf;
+}
+
+const char *env_render_type2(Environment *env, TypeId typeId) {
+  static char buf[128] = {};
+  env_render_type_buf(env, typeId, buf, 128);
+  return buf;
+}
+
+const char *env_render_type3(Environment *env, TypeId typeId) {
   static char buf[128] = {};
   env_render_type_buf(env, typeId, buf, 128);
   return buf;
@@ -209,8 +221,7 @@ const char *env_render_type(Environment *env, TypeId typeId) {
 
 static void init_func_types(Environment *env) {
   struct TypeTable *tt = &env->type_table;
-  /* declare function Int -> Int -> Int */
-  {
+  { // declare function int -> int -> int
     TypeId int_type_id = env_find_typeid_by_name(env, "int");
     Type *t = typetab_grow(tt);
     memset(t, 0, sizeof(Type));
@@ -223,7 +234,7 @@ static void init_func_types(Environment *env) {
     t->props.func.return_type = int_type_id;
     TypeByNameMap_put(tt->by_name, t->name, (TypeId)(tt->len - 1));
   }
-  {
+  { // declare function int -> int -> bool
     TypeId int_type_id = env_find_typeid_by_name(env, "int");
     TypeId bool_type_id = env_find_typeid_by_name(env, "bool");
     Type *t = typetab_grow(tt);
@@ -235,6 +246,18 @@ static void init_func_types(Environment *env) {
     t->props.func.params[0] = (TypeParam) {.type = int_type_id, .default_expr = NULL};
     t->props.func.params[1] = (TypeParam) {.type = int_type_id, .default_expr = NULL};
     t->props.func.return_type = bool_type_id;
+    TypeByNameMap_put(tt->by_name, t->name, (TypeId)(tt->len - 1));
+  }
+  { // declare function int -> int
+    TypeId int_type_id = env_find_typeid_by_name(env, "int");
+    Type *t = typetab_grow(tt);
+    memset(t, 0, sizeof(Type));
+    t->base = TB_FUNC;
+    t->name = "f(i)i";
+    t->props.func.param_count = 1;
+    t->props.func.params = malloc(t->props.func.param_count * sizeof(*t->props.func.params));
+    t->props.func.params[0] = (TypeParam) {.type = int_type_id, .default_expr = NULL};
+    t->props.func.return_type = int_type_id;
     TypeByNameMap_put(tt->by_name, t->name, (TypeId)(tt->len - 1));
   }
 }
@@ -263,6 +286,10 @@ static void init_func_table(Environment* env) {
   create_operator(ft, "operator/", func_int_int_int_type_id);
   create_operator(ft, "operator*", func_int_int_int_type_id);
 
+  // unary
+  TypeId func_int_int_type_id = env_find_typeid_by_name(env, "f(i)i");
+  create_operator(ft, "operator-", func_int_int_type_id);
+
   TypeId func_int_int_bool_type_id = env_find_typeid_by_name(env, "f(i,i)b");
   create_operator(ft, "operator<", func_int_int_bool_type_id);
   create_operator(ft, "operator>", func_int_int_bool_type_id);
@@ -272,10 +299,11 @@ TypeIdVec *env_find_func_types_by_name(Environment *env, const char *func_name) 
   return TypesOfNameMap_get(env->func_table.by_name, func_name);
 }
 
-// find the first matching type of the function with given name
-// the FuncTable must not contains duplicating TypeId for one name
+// Find the first matching type of the function with given name, return type and paramter types
+// Invariant: the FuncTable must not contains duplicating TypeId for one name
+// If no function fits the TYPE_UNKNOWN_ID is returned.
 // TODO: hset (hash set)?
-TypeId env_find_func_type_name_n_params(Environment *env, const char *func_name, uint32_t argc, TypeId param_type_ids[]) {
+TypeId env_find_func_type_name_ret_n_params(Environment *env, const char *func_name, TypeId return_typeId, uint32_t argc, TypeId param_type_ids[]) {
   FuncTable *ft = &env->func_table;
   TypeIdVec *all_accociated_types = TypesOfNameMap_get(ft->by_name, func_name);
   if (all_accociated_types == NULL) return TYPE_NONE_ID;
@@ -285,6 +313,7 @@ TypeId env_find_func_type_name_n_params(Environment *env, const char *func_name,
     TypeId func_type_id = all_accociated_types->values[i];
     Type *func_type = env_get_type_by_id(env, func_type_id);
     if (func_type->base != TB_FUNC) continue;
+    if (return_typeId != TYPE_UNKNOWN_ID && func_type->props.func.return_type != return_typeId) continue;
     if (func_type->props.func.param_count == argc) {
       for (uint32_t j = 0; j < argc; j++)
         if (func_type->props.func.params[j].type != param_type_ids[j]) goto next_iteration;

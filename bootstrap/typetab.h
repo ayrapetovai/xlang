@@ -132,15 +132,23 @@ Type *env_get_type_by_id(Environment *env, TypeId id);
 size_t env_render_type_buf(Environment *env, TypeId typeId, char buf[], size_t buf_len);
 
 // create a type representation, a astring, returned string owned by the function (static buf)
-const char *env_render_type(Environment *env, TypeId typeId);
+// each function uses its own static buffer
+const char *env_render_type1(Environment *env, TypeId typeId);
+const char *env_render_type2(Environment *env, TypeId typeId);
+const char *env_render_type3(Environment *env, TypeId typeId);
 
 // find all types that the overloaded function name has
 TypeIdVec *env_find_func_types_by_name(Environment *env, const char *func_name);
 
-#define env_find_func_type_name_params(env, operator_name, ...) \
-  env_find_func_type_name_n_params(env, operator_name, (sizeof((TypeId[]){__VA_ARGS__}) / sizeof(TypeId)), (TypeId[]){__VA_ARGS__})
-// find function type by function name (human readable): operator+, dispose...
-TypeId env_find_func_type_name_n_params(Environment *env, const char *func_name, uint32_t argc, TypeId param_type_ids[]);
+#define env_find_func_type_name_params(env, func_name, ...) \
+  env_find_func_type_name_ret_n_params(env, func_name, TYPE_UNKNOWN_ID, (sizeof((TypeId[]){__VA_ARGS__}) / sizeof(TypeId)), (TypeId[]){__VA_ARGS__})
+
+#define env_find_func_type_name_ret_params(env, func_name, ret_typeid, ...) \
+  env_find_func_type_name_ret_n_params(env, func_name, ret_typeid, (sizeof((TypeId[]){__VA_ARGS__}) / sizeof(TypeId)), (TypeId[]){__VA_ARGS__})
+
+// find function type by function name, return type and type of aprameters (human readable): operator+, dispose...
+//TypeId env_find_func_type_name_n_params(Environment *env, const char *func_name, uint32_t argc, TypeId param_type_ids[]);
+TypeId env_find_func_type_name_ret_n_params(Environment *env, const char *func_name, TypeId return_typeId, uint32_t argc, TypeId param_type_ids[]);
 
 void env_free(Environment *env);
 

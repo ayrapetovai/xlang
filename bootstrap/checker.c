@@ -45,6 +45,7 @@ static TypeId scope_get(Checker *c, const char *name) {
 }
 
 static void check_ownership_transfer(Checker *c, TypeId from, TypeId to_what) {
+  // TODO: can_giveup_ownership(), can_take_ownership()
   Type *from_type = env_get_type_by_id(c->env, from);
   FAIL_IF_TMPL(from_type == NULL, "unknown type_id %d, type is NULL", from);
   Type *to_what_type = env_get_type_by_id(c->env, to_what);
@@ -52,9 +53,9 @@ static void check_ownership_transfer(Checker *c, TypeId from, TypeId to_what) {
 
   // FIXME: this is not a real check, just a stub
   FAIL_IF_TMPL(from_type->flags.is_primitive == false,
-               "cannot transfer ownership of non-primitive value of type %s", env_render_type(c->env, from));
+               "cannot transfer ownership of non-primitive value of type %s", env_render_type1(c->env, from));
   FAIL_IF_TMPL(to_what_type->flags.is_primitive == false && to_what_type->flags.is_owning == false,
-               "cannot transfer ownership to non-owning type %s", env_render_type(c->env, to_what));
+               "cannot transfer ownership to non-owning type %s", env_render_type1(c->env, to_what));
 }
 
 static void apply_scope_push(Checker *c) { scope_push(c); }
@@ -72,28 +73,34 @@ static void value_of(Checker *c, const ASTNode *n) {
       case VK_FLOAT:   an->type = env_find_typeid_by_name(c->env, "float"); break;
       case VK_CHAR:    an->type = env_find_typeid_by_name(c->env, "char"); break;
       default:
-        FAIL_IF_TMPL(true, "unknown value kind %d", an->info.val.kind);
+        FAIL_IF_TMPL(true, "value: unknown ast node kind %d", an->info.val.kind);
     }
   }
 }
 
 static void apply_identifier(Checker *c, const ASTNode *n) {
   ASTNode *an = (ASTNode *)n;
-  FAIL_IF_MSG(an == NULL, "indetifier node is NULL");
-  if (an->kind == NODE_ID) an->type = scope_get(c, an->info.id.value);
+  TypeId identifier_typeid = TYPE_UNKNOWN_ID;
+  FAIL_IF_MSG(an == NULL, "idetifier node is NULL");
+  if (an->kind == NODE_ID) identifier_typeid = scope_get(c, an->info.id.value);
   else FAIL_IF_TMPL(true, "name %s is undefined", n->info.id.value);
+  FAIL_IF_TMPL(identifier_typeid == TYPE_UNKNOWN_ID, "identifier %s is not defined", n->info.id.value);
+  an->type = identifier_typeid;
 }
 
 static void apply_identifier_ref(Checker *c, const ASTNode *n) {
   ASTNode *an = (ASTNode *)n;
-  FAIL_IF_MSG(an == NULL, "indetifier ref node is NULL");
-  if (an->kind == NODE_ID) an->type = scope_get(c, an->info.id.value);
+  TypeId identifier_typeid = TYPE_UNKNOWN_ID;
+  FAIL_IF_MSG(an == NULL, "idetifier ref node is NULL");
+  if (an->kind == NODE_ID) identifier_typeid = scope_get(c, an->info.id.value);
   else FAIL_IF_TMPL(true, "name %s is undefined", n->info.id.value);
+  FAIL_IF_TMPL(identifier_typeid == TYPE_UNKNOWN_ID, "identifier %s is not defined", n->info.id.value);
+  an->type = identifier_typeid;
 }
 
 static void apply_expr(Checker *c, const ASTNode *n) {
   ASTNode *an = (ASTNode *)n;
-  FAIL_IF_MSG(an == NULL, "expr node is NULL");
+  FAIL_IF_MSG(an == NULL, "expr: node is NULL");
   if (an->kind == NODE_EXPR) {
     char *operator_name = NULL;
     switch (an->info.expr.op_tok) {
@@ -108,63 +115,73 @@ static void apply_expr(Checker *c, const ASTNode *n) {
       case TOK_AND:   operator_name = "operator&&"; break;
       case TOK_OR:    operator_name = "operator||"; break;
       default:
-        FAIL_IF_TMPL(true, "unknown binary operator %s", token_kind_to_string(an->info.expr.op_tok));
+        FAIL_IF_TMPL(true, "expr: unknown binary operator %s", token_kind_to_string(an->info.expr.op_tok));
     }
 
     TypeId operator_type_id = env_find_func_type_name_params(c->env, operator_name, n->info.expr.op1->type, n->info.expr.op2->type);
-    if (operator_type_id == TYPE_NONE_ID) {
-      char arg1_type[128] = {};
-      env_render_type_buf(c->env, n->info.expr.op1->type, arg1_type, 128);
-      char arg2_type[128] = {};
-      env_render_type_buf(c->env, n->info.expr.op2->type, arg2_type, 128);
-      FAIL_IF_TMPL(true, "%s is not defined for types %s and %s", operator_name, arg1_type, arg2_type);
-    }
+    FAIL_IF_TMPL(operator_type_id == TYPE_NONE_ID, "expr: %s is not defined for types %s and %s", operator_name,
+                  env_render_type1(c->env, n->info.expr.op1->type),
+                  env_render_type2(c->env, n->info.expr.op2->type));
 
     Type *operator_type = env_get_type_by_id(c->env, operator_type_id);
-    FAIL_IF_TMPL(operator_type == NULL,                      "%s is not found", operator_name);
-    FAIL_IF_TMPL(operator_type->base != TB_FUNC,             "%s is not a function, %d", operator_name, operator_type->base);
-    FAIL_IF_TMPL(operator_type->props.func.param_count != 2, "%s takes %d parameters, given 2", operator_name, operator_type->props.func.param_count);
+    FAIL_IF_TMPL(operator_type == NULL,                      "expr: %s is not found", operator_name);
+    FAIL_IF_TMPL(operator_type->base != TB_FUNC,             "expr: %s is not a function, %d", operator_name, operator_type->base);
+    FAIL_IF_TMPL(operator_type->props.func.param_count != 2, "expr: %s takes %d parameters, given 2", operator_name, operator_type->props.func.param_count);
 
     TypeId operator_op1_typeid = operator_type->props.func.params[0].type;
     TypeId operator_op2_typeid = operator_type->props.func.params[1].type;
 
-    // TODO: convergence check, lifetime check
+    // TODO: lifetime check
+
+    // convergence check
+    // if (operator_op1_typeid != n->info.expr.op1->type) {
+    //   TypeId converter = env_find_func_type_name_ret_params(c->env, "from", operator_op1_typeid, n->info.expr.op1->type);
+    //   FAIL_IF_TMPL(converter == TYPE_NONE_ID, "no converter found from type %s to type %s",
+    //                env_render_type1(c->env, n->info.expr.op1->type),
+    //                env_render_type2(c->env, operator_op1_typeid));
+    // }
+
+    // ownership check
     check_ownership_transfer(c, n->info.expr.op1->type, operator_op1_typeid);
     check_ownership_transfer(c, n->info.expr.op2->type, operator_op2_typeid);
 
-    if (operator_op1_typeid != n->info.expr.op1->type) {
-      char op_sig[128] = {};
-      env_render_type_buf(c->env, operator_type_id, op_sig, 128);
-      char op_type[128] = {};
-      env_render_type_buf(c->env, operator_op1_typeid, op_type, 128);
-      char arg_type[128] = {};
-      env_render_type_buf(c->env, n->info.expr.op1->type, arg_type, 128);
-      FAIL_IF_TMPL(true,  "1 parameter of %s %s has type %s, incompatible with argument type %s", operator_name, op_sig, op_type, arg_type);
-    }
-
-    if (operator_op2_typeid != n->info.expr.op2->type) {
-      char op_sig[128] = {};
-      env_render_type_buf(c->env, operator_type_id, op_sig, 128);
-      char op_type[128] = {};
-      env_render_type_buf(c->env, operator_op2_typeid, op_type, 128);
-      char arg_type[128] = {};
-      env_render_type_buf(c->env, n->info.expr.op2->type, arg_type, 128);
-      FAIL_IF_TMPL(true, "2 parameter of %s %s has type %s, incompatible with argument type %s", operator_name, op_sig, op_type, arg_type);
-    }
+    // FAIL_IF_TMPL(operator_op1_typeid != n->info.expr.op1->type, "1 parameter of %s %s has type %s, incompatible with argument type %s", operator_name,
+    //               env_render_type1(c->env, operator_type_id),
+    //               env_render_type2(c->env, operator_op1_typeid),
+    //               env_render_type3(c->env, n->info.expr.op1->type));
+    //
+    // FAIL_IF_TMPL(operator_op2_typeid != n->info.expr.op2->type, "2 parameter of %s %s has type %s, incompatible with argument type %s", operator_name,
+    //               env_render_type1(c->env, operator_type_id),
+    //               env_render_type2(c->env, operator_op2_typeid),
+    //               env_render_type3(c->env,  n->info.expr.op2->type));
 
     an->type = operator_type->props.func.return_type;
   } else
-    FAIL_IF_TMPL(an == NULL, "wrong ast node type %d", an->kind);
+    FAIL_IF_TMPL(true, "expr: wrong ast node type %d", an->kind);
 }
 
 static void apply_uexpr(Checker *c, const ASTNode *n) {
-  (void)c;
   ASTNode *an = (ASTNode *)n;
-  if (an && an->kind == NODE_UEXPR) {
-    an->type = 2;
-  } else if (an) {
-    an->type = TYPE_UNKNOWN_ID;
-  }
+  FAIL_IF_MSG(an == NULL, "uexpr: node is NULL");
+  if (an->kind == NODE_UEXPR) {
+    const char *operator_name;
+    switch (n->info.uexpr.op_tok) {
+      case TOK_MINUS: operator_name = "operator-"; break;
+      case TOK_BANG:  operator_name = "operator!"; break;
+      default:
+        FAIL_IF_TMPL(true, "uexpr: unknown operator %s", token_kind_to_string(an->info.uexpr.op_tok));
+    }
+    TypeId op_typeid = an->info.uexpr.op->type;
+    TypeId operator_typeid = env_find_func_type_name_params(c->env, operator_name, op_typeid);
+    FAIL_IF_TMPL(operator_typeid == TYPE_NONE_ID, "uexpr: %s is not defined for type %s", operator_name, env_render_type1(c->env, op_typeid));
+    Type *operator_type = env_get_type_by_id(c->env, operator_typeid);
+    FAIL_IF_MSG(operator_type == NULL, "uexpr: got wrong type id");
+
+    check_ownership_transfer(c, op_typeid, operator_type->props.func.params[0].type);
+
+    an->type = operator_type->props.func.return_type;
+  } else
+    FAIL_IF_TMPL(true, "uexpr: wrong ast node type %d", an->kind);
 }
 
 static void apply_if_cond(Checker *c, const ASTNode *n) {
