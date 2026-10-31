@@ -20,6 +20,16 @@
 # regression that moves them to stdout, or drops them, is caught as a channel
 # change and not just a text change.
 #
+# A case may declare extra assertion blocks after its dump:
+#
+#   === <name> run rc=<status>    what --run prints (the run layer)
+#   === <name> chk rc=<status>    what --chk reports (the check layer)
+#
+# Both have the same --- out / --- err shape, and a chk block may use
+# rc 1 = rejected by the checker. A chk block is how a program the parser
+# accepts but the checker rejects is recorded; a case without one must pass
+# --chk silently.
+#
 # Everything is compared byte for byte. When a case's expectation changes it
 # must be edited by hand -- that edit is the review.
 
@@ -778,6 +788,10 @@ block
 --- err
 execution failed: value fetch failed: undefined name y
 
+=== run_undef_name chk rc=1
+--- err
+check failed: identifier y is not defined
+
 === run_literal_range rc=0
 --- out
 block
@@ -827,6 +841,10 @@ block
 --- out
 2
 
+=== expr_if_dead_arm chk rc=1
+--- err
+check failed: identifier bad is not defined
+
 === expr_if_live_arm rc=0
 --- out
 block
@@ -842,6 +860,10 @@ block
 === expr_if_live_arm run rc=1
 --- err
 execution failed: value fetch failed: undefined name bad
+
+=== expr_if_live_arm chk rc=1
+--- err
+check failed: identifier bad is not defined
 
 === expr_if_define rc=0
 --- out
@@ -952,3 +974,67 @@ parsing failed: parsing error, unexpected echo at line 1, col 1
 --- err
 parsing failed: parsing error, unexpected = at line 1, col 23
 
+# --- chk_: static checking. Each case here parses, then either passes --chk
+# silently (chk_ok_) or is rejected with a pinned diagnostic (chk_rej_). The
+# check layer also requires every other parser-accepted case to pass --chk
+# with no chk block at all, so these four only spell out the interesting
+# shapes: binary result typing, unary result typing and an undefined name.
+
+=== chk_ok_arith rc=0
+--- out
+block
+  stmt :=
+    id x
+    expr +
+      val 1
+      val 2
+  stmt :=
+    id y
+    uexpr -
+      id x
+  stmt :=
+    id z
+    uexpr -
+      expr -
+        val 1
+        val 2
+  stmt echo
+    id z
+
+=== chk_ok_arith chk rc=0
+
+=== chk_rej_bin rc=0
+--- out
+block
+  stmt :=
+    id x
+    expr +
+      val 1
+      val true
+
+=== chk_rej_bin chk rc=1
+--- err
+check failed: expr: operator+ is not defined for types int and bool
+
+=== chk_rej_unary rc=0
+--- out
+block
+  stmt :=
+    id x
+    uexpr -
+      val true
+
+=== chk_rej_unary chk rc=1
+--- err
+check failed: uexpr: operator- is not defined for type bool
+
+=== chk_rej_undef rc=0
+--- out
+block
+  stmt :=
+    id x
+    id y
+
+=== chk_rej_undef chk rc=1
+--- err
+check failed: identifier y is not defined
